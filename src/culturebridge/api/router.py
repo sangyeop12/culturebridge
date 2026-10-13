@@ -13,6 +13,7 @@ from culturebridge.domain.models import (
     HeritageDetail,
     HeritageSummary,
     LearningGoal,
+    LearningLevel,
     QuestionAnswer,
     QuestionRequest,
     QuizAttemptRequest,
@@ -51,6 +52,7 @@ from culturebridge.services.home_search_service import (
     get_home_suggestions,
     search_home,
 )
+from culturebridge.services.lesson_service import HeritageLesson, explain_source, official_source
 from culturebridge.services.location_service import get_official_location
 from culturebridge.services.official_service import (
     OfficialDocumentNotFoundError,
@@ -167,6 +169,17 @@ def official_detail(
 @router.get("/heritages", response_model=list[HeritageSummary])
 def heritages(q: str | None = Query(default=None, max_length=100)):
     return list_heritages(q)
+
+
+@router.get("/official/heritages/{kind}/{number}/{region}/lesson", response_model=HeritageLesson)
+def official_lesson(
+    kind: str = Path(pattern=r"^\d{2}$"),
+    number: str = Path(pattern=r"^\d{1,20}$"),
+    region: str = Path(pattern=r"^\d{2}$"),
+    level: LearningLevel = LearningLevel.BEGINNER,
+):
+    document = official_detail(kind, number, region)
+    return explain_source(official_source(document), level)
 
 
 @router.get(

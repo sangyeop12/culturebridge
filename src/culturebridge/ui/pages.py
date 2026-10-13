@@ -41,6 +41,7 @@ from culturebridge.services.display_service import (
 from culturebridge.services.dynamic_heritage_service import OfficialTarget
 from culturebridge.services.evidence_quiz_service import EvidenceQuizError
 from culturebridge.services.home_search_service import get_home_suggestions, search_home
+from culturebridge.services.lesson_service import beginner_text, explain_source, official_source
 from culturebridge.services.location_service import get_official_location
 from culturebridge.services.official_service import (
     SEOKGURAM_CODES,
@@ -218,7 +219,7 @@ def _learning_level(value: str) -> LearningLevel:
         return LearningLevel.BEGINNER
 
 
-def _extracted_field_cards(fields: list[ExtractedField]) -> None:
+def _extracted_field_cards(fields: list[ExtractedField], level=LearningLevel.BEGINNER) -> None:
     names = {item.id: item.name for item in list_heritages()}
     for field in fields:
         if field.heritage_id not in names:
@@ -233,17 +234,54 @@ def _extracted_field_cards(fields: list[ExtractedField]) -> None:
                 + f" · {field.category}"
             ).classes("cb-title text-xl")
             ui.label("추가 확인 필요" if field.value else "근거 부족").classes("font-semibold")
-            ui.label(field.value or "현재 자료에서 해당 항목을 추출하지 못했습니다.")
+            ui.label(
+                beginner_text(field.category, field.evidence_quote)
+                if field.value and level is LearningLevel.BEGINNER
+                else field.value or "현재 자료에서 해당 항목을 추출하지 못했습니다."
+            )
             ui.label(field.note).classes("cb-muted")
             if field.date_event:
                 ui.label("연대가 가리키는 사건: " + field.date_event).classes("cb-muted")
             if field.evidence_quote:
-                ui.label("원문 근거: " + field.evidence_quote).style("white-space: pre-wrap")
+                with ui.expansion("공식 원문 근거 보기").classes("w-full"):
+                    ui.label(field.evidence_quote).style("white-space: pre-wrap")
             if field.source_url:
                 ui.link("근거 출처", str(field.source_url), new_tab=True)
 
 
-def _collected_source_cards(sources: list[CollectedSource]) -> None:
+def _lesson_content(source, level):
+    lesson = explain_source(source, level)
+    ui.label(lesson.intro).classes("font-semibold")
+    ui.label(lesson.notice).classes("cb-muted")
+    if level is LearningLevel.ADVANCED:
+        ui.label(lesson.original_text or "수집된 원문이 없습니다.").style(
+            "white-space: pre-wrap; overflow-wrap: anywhere"
+        )
+        ui.label(
+            "검토할 점: 연대가 건립·재건 중 무엇을 뜻하는지, "
+            "주변 건물과 대상이 구분되는지 확인하세요."
+        ).classes("cb-muted")
+    else:
+        for section in lesson.sections:
+            ui.label(section.heading).classes("cb-title text-lg")
+            ui.label(section.text).style("white-space: pre-wrap; overflow-wrap: anywhere")
+            if level is LearningLevel.INTERMEDIATE and section.event:
+                ui.label("연대가 가리키는 사건: " + section.event).classes("cb-muted")
+            if level is LearningLevel.INTERMEDIATE and section.evidence_quote:
+                with ui.expansion("이 항목의 공식 원문 근거").classes("w-full"):
+                    ui.label(section.evidence_quote).style("white-space: pre-wrap")
+        if lesson.glossary:
+            with ui.expansion("어려운 용어 풀이").classes("w-full"):
+                for term, meaning in lesson.glossary.items():
+                    ui.label(term + ": " + meaning)
+        with ui.expansion("공식 원문 전체 보기").classes("w-full"):
+            ui.label(lesson.original_text or "수집된 원문이 없습니다.").style(
+                "white-space: pre-wrap; overflow-wrap: anywhere"
+            )
+    ui.link("공식 원문 출처", str(lesson.source_url), new_tab=True)
+
+
+def _collected_source_cards(sources: list[CollectedSource], level=LearningLevel.BEGINNER) -> None:
     labels = {
         "fresh": "새로 수집함",
         "cached": "저장된 공식 자료",
@@ -268,8 +306,7 @@ def _collected_source_cards(sources: list[CollectedSource]) -> None:
             if source.license_url:
                 ui.link("자료 이용 조건", str(source.license_url), new_tab=True)
             if source.content:
-                with ui.expansion("수집 내용 확인").classes("w-full"):
-                    ui.label(source.content).style("white-space: pre-wrap; overflow-wrap: anywhere")
+                _lesson_content(source, level)
 
 
 @ui.page("/")
@@ -410,7 +447,7 @@ def home_page() -> None:
                                     )
                                     ui.link(
                                         "공식 설명 보기",
-                                        f"/official/{item.kind_code}/{item.asset_number}/{item.region_code}",
+                                        f"/official/{item.kind_code}/{item.asset_number}/{item.region_code}?level={level.value}",
                                     )
                                     ui.button(
                                         "이 유산으로 Agent 탐구",
@@ -722,7 +759,9 @@ def comparison_page(
             for common in result.common_evidence:
                 ui.label(common.context_note).classes("cb-muted")
                 with ui.expansion("공통 후보의 양쪽 원문 근거").classes("w-full"):
-                    _extracted_field_cards([common.left_evidence, common.right_evidence])
+                    _extracted_field_cards(
+                        [common.left_evidence, common.right_evidence], learning_level
+                    )
 
         if result.collected_sources:
             ui.label("비교에 사용한 공식 자료").classes("cb-title text-2xl")
@@ -731,12 +770,20 @@ def comparison_page(
                 if result.basis == "extracted"
                 else "아래 비교는 기존 검토된 데이터로 작성됐습니다."
             )
-            _collected_source_cards(result.collected_sources)
+            _collected_source_cards(result.collected_sources, learning_level)
         if result.extracted_fields:
-            ui.label("공식 자료에서 추출한 항목·근거").classes("cb-title text-2xl")
-            _extracted_field_cards(result.extracted_fields)
+            ui.label(
+                "원문과 구분한 추출·검토 후보"
+                if learning_level is LearningLevel.ADVANCED
+                else "공식 자료에서 추출한 항목·근거"
+            ).classes("cb-title text-2xl")
+            _extracted_field_cards(result.extracted_fields, learning_level)
 
-        ui.label("항목별 차이").classes("cb-title text-2xl")
+        ui.label(
+            "원문과 별도로 보는 항목별 비교"
+            if learning_level is LearningLevel.ADVANCED
+            else "항목별 차이"
+        ).classes("cb-title text-2xl")
         for point in result.differences:
             with ui.card().classes("cb-card w-full p-6 gap-3"):
                 ui.label(point.category).classes("cb-title text-xl")
@@ -745,12 +792,20 @@ def comparison_page(
                         ui.label(display_name(result.left.id, result.left.name)).classes(
                             "font-bold"
                         )
-                        ui.label(point.left)
+                        ui.label(
+                            beginner_text(point.category, point.left)
+                            if learning_level is LearningLevel.BEGINNER
+                            else point.left
+                        )
                     with ui.column().classes("gap-1 rounded-lg p-4").style(f"background: {PALE}"):
                         ui.label(display_name(result.right.id, result.right.name)).classes(
                             "font-bold"
                         )
-                        ui.label(point.right)
+                        ui.label(
+                            beginner_text(point.category, point.right)
+                            if learning_level is LearningLevel.BEGINNER
+                            else point.right
+                        )
                 ui.label(point.explanation).classes("cb-muted")
 
         with ui.card().classes("cb-card w-full p-6 gap-3"):
@@ -896,7 +951,7 @@ def comparison_page(
                         with ui.expansion(f"주장 재검토 기록 · 추가 조회 {checked.retry_count}회"):
                             for step in checked.execution_trace:
                                 ui.label(step)
-                        _collected_source_cards(checked.collected_sources)
+                        _collected_source_cards(checked.collected_sources, learning_level)
                     if checked.unsupported_parts:
                         ui.label("개별 근거가 없는 주장 부분").classes("font-semibold")
                         for part in checked.unsupported_parts:
@@ -1070,7 +1125,7 @@ async def quiz_page(
                             ui.label(step).classes("text-base")
                     if result.evidence:
                         ui.label("퀴즈의 저장된 원문 근거").classes("cb-title text-xl")
-                        _extracted_field_cards(result.evidence)
+                        _extracted_field_cards(result.evidence, learning_level)
             submit_button.disable()
 
         submit_button = (
@@ -1179,9 +1234,12 @@ def official_search_page(q: str = "석굴암") -> None:
 
 
 @ui.page("/official/{kind}/{number}/{region}")
-async def official_detail_page(kind: str, number: str, region: str) -> None:
+async def official_detail_page(
+    kind: str, number: str, region: str, level: str = "beginner"
+) -> None:
     _base_styles()
     _header()
+    learning_level = _learning_level(level)
     try:
         document = await run.io_bound(get_official_document, kind, number, region)
     except (OfficialServiceError, OfficialDocumentNotFoundError, ValueError):
@@ -1202,8 +1260,11 @@ async def official_detail_page(kind: str, number: str, region: str) -> None:
         )
         if document.stale:
             ui.label("갱신이 필요한 자료입니다.").classes("text-orange-800")
-        with ui.card().classes("cb-card w-full p-6"):
-            ui.label(document.content).style("white-space: pre-wrap; overflow-wrap: anywhere")
+        ui.toggle(LEVEL_LABELS, value=learning_level.value).on_value_change(
+            lambda e: ui.navigate.to(f"/official/{kind}/{number}/{region}?level={e.value}")
+        ).props('aria-label="설명 학습 수준"')
+        with ui.card().classes("cb-card w-full p-6 gap-3"):
+            _lesson_content(official_source(document), learning_level)
         ui.link("국가유산청 API 원문", str(document.source_url), new_tab=True)
         with ui.card().classes("cb-card w-full p-6 gap-3"):
             ui.label("공식 위치정보").classes("cb-title text-2xl")
@@ -1450,11 +1511,13 @@ async def research_page(
                     ui.label(step)
             ui.label(f"추가 공식 자료 조회: {state['retry_count']}회")
             _collected_source_cards(
-                [CollectedSource.model_validate(s) for s in state["collected_sources"]]
+                [CollectedSource.model_validate(s) for s in state["collected_sources"]],
+                learning_level,
             )
             ui.label("시대·구조·재료·종교적 배경 추출 결과").classes("cb-title text-2xl")
             _extracted_field_cards(
-                [ExtractedField.model_validate(f) for f in state["extracted_fields"]]
+                [ExtractedField.model_validate(f) for f in state["extracted_fields"]],
+                learning_level,
             )
             ui.label(state["quiz_notice"])
             if state["quiz"]:
