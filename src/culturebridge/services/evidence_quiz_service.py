@@ -9,6 +9,7 @@ from culturebridge.domain.models import (
     VerificationStatus,
 )
 from culturebridge.services.comparison_service import get_saved_comparison
+from culturebridge.services.curriculum_service import plan_learning
 from culturebridge.services.evidence_comparison_service import supported_fields
 
 
@@ -22,6 +23,10 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     if (comparison.left.id, comparison.right.id) != (left_id, right_id):
         raise EvidenceQuizError("저장된 비교의 대상과 퀴즈 대상이 다릅니다.")
     fields = supported_fields(comparison)
+    _, focus = plan_learning(level, comparison.goal, comparison.goal_text)
+    fields.sort(
+        key=lambda field: focus.index(field.category) if field.category in focus else len(focus)
+    )
     if not fields:
         raise EvidenceQuizError(
             "유효한 원문 근거가 없어 퀴즈를 만들 수 없습니다. 공식 자료 탐구를 다시 실행하세요."
@@ -33,7 +38,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     question_rows = {
         LearningLevel.BEGINNER: [
             (
-                f"다음 수집 원문이 연결된 유산은?\n{first.evidence_quote}",
+                f"'{names[first.heritage_id]}' 자료 카드의 주인공은 누구인가요?",
                 [
                     names[first.heritage_id],
                     other_name,
@@ -43,9 +48,9 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
                 "인용의 출처는 " + names[first.heritage_id] + "입니다.",
             ),
             (
-                f"다음 원문의 수집 출처는?\n{second.evidence_quote}",
+                f"{names[second.heritage_id]}의 이 자료를 가져온 곳은 어디인가요?",
                 [
-                    source.organization + " · " + source.title,
+                    source.organization,
                     "출처 없는 추측",
                     "사용자 댓글",
                     "자료에 출처가 없음",
@@ -53,23 +58,23 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
                 "저장된 공식 자료의 기관과 제목을 확인하세요.",
             ),
             (
-                f"현재 {names[first.heritage_id]}의 {first.category} 추출 후보로 저장된 값은?",
+                "컴퓨터가 자료에서 찾은 설명을 보았어요. 다음에는 무엇을 하나요?",
                 [
-                    first.value,
-                    "자료 없이 단정한 값",
-                    "등재연도를 무조건 건립연도로 바꾼 값",
-                    "추출 결과가 항상 최종 사실임",
+                    "원문과 뜻을 더 확인해요",
+                    "무조건 맞다고 믿어요",
+                    "없는 내용을 지어내요",
+                    "다른 유산의 값을 복사해요",
                 ],
-                "정답은 저장된 추출 후보입니다. 역사적 사실의 최종 확정이라는 뜻은 아닙니다.",
+                "자료의 문장과 설명의 뜻을 함께 확인해요.",
             ),
             (
-                "원문에 없는 항목은 어떻게 표시하나요?",
-                ["근거 부족", "임의 추측", "무조건 확인됨", "자동으로 다른 유산 값을 복사"],
+                "자료에서 찾지 못한 내용은 어떻게 하나요?",
+                ["근거 부족으로 남겨요", "추측해서 채워요", "맞다고 말해요", "다른 유산 값을 써요"],
                 "원문 근거가 없으면 값을 추정하지 않습니다.",
             ),
             (
-                "이 추출 후보를 다시 확인하려면 무엇을 보나요?",
-                ["연결된 원문 문장과 출처", "답변 글자 수", "화면 색상", "AI 확신만"],
+                "이 설명을 다시 확인하려면 무엇을 보나요?",
+                ["연결된 원문과 출처", "글자 수만", "화면 색상만", "컴퓨터의 자신감만"],
                 "원문과 값의 의미·범위를 함께 검토합니다.",
             ),
         ],
@@ -178,6 +183,34 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
             ),
         ],
     }[level]
+    if level is LearningLevel.BEGINNER:
+        material_names = {
+            "화강암": "화강암",
+            "granite": "화강암",
+            "목재": "목재",
+            "wood": "목재",
+            "wooden": "목재",
+            "벽돌": "벽돌",
+            "brick": "벽돌",
+        }
+        short_field = next(
+            (
+                f
+                for f in fields
+                if f.category == "재료" and (f.value or "").strip().casefold() in material_names
+            ),
+            None,
+        )
+        if short_field:
+            answer = material_names[short_field.value.strip().casefold()]
+            choices = [answer] + [
+                name for name in ("화강암", "목재", "벽돌", "금속") if name != answer
+            ]
+            question_rows[0] = (
+                f"자료에서 찾은 후보에 따르면 {names[short_field.heritage_id]}의 재료는?",
+                choices,
+                "원문에서 찾은 재료 후보예요. 원문과 함께 확인해요.",
+            )
     quiz_id = uuid4().hex
     raw_items = []
     items = []

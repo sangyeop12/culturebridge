@@ -1,4 +1,14 @@
-from culturebridge.domain.models import ComparisonPoint, ComparisonResult, VerificationStatus
+import re
+
+from pydantic import ValidationError
+
+from culturebridge.domain.models import (
+    CommonEvidence,
+    ComparisonPoint,
+    ComparisonResult,
+    VerificationStatus,
+)
+from culturebridge.services.extraction_service import DraftField, validate_extraction
 
 
 def supported_fields(comparison: ComparisonResult):
@@ -6,6 +16,18 @@ def supported_fields(comparison: ComparisonResult):
     fields = []
     seen = set()
     for field in comparison.extracted_fields:
+        try:
+            candidate = DraftField(
+                heritage_id=field.heritage_id,
+                category=field.category,
+                value=field.value,
+                source_id=field.source_id,
+                evidence_quote=field.evidence_quote,
+            )
+        except ValidationError:
+            continue
+        if validate_extraction(candidate, comparison.collected_sources) is None:
+            continue
         source = sources.get((field.heritage_id, field.source_id))
         key = (field.heritage_id, field.category)
         if (
@@ -29,7 +51,7 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
     fields = supported_fields(comparison)
     lookup = {(f.heritage_id, f.category): f for f in fields}
     points = []
-    for category in ("시대", "구조", "재료"):
+    for category in ("시대", "구조", "재료", "종교적 배경"):
         left = lookup.get((comparison.left.id, category))
         right = lookup.get((comparison.right.id, category))
         points.append(
@@ -37,15 +59,45 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
                 category=category,
                 left=left.value if left else "근거 부족",
                 right=right.value if right else "근거 부족",
-                explanation="원문 추출 후보를 나란히 표시합니다. 의미·범위 검토가 필요합니다.",
+                explanation=(
+                    "두 유산의 원문을 함께 읽어 봐요. 없는 내용은 추측하지 않아요."
+                    if comparison.level.value == "beginner"
+                    else "같은 항목의 원문 범위와 의미를 대조합니다. 추출 후보는 검토가 필요합니다."
+                ),
                 source_ids=list(dict.fromkeys(f.source_id for f in (left, right) if f)),
             )
         )
     comparison.basis = "extracted"
     comparison.differences = points
-    comparison.common_points = [
-        "공통점은 양쪽 원문의 근거를 대조한 뒤 판단해야 합니다.",
-        "자료의 유사성만으로 직접 영향이나 인과 관계를 확정하지 않습니다.",
+    comparison.common_evidence = []
+    shared_terms = {
+        "종교적 배경": [(r"불교|Buddhis", "불교와 관련된 종교 맥락")],
+        "재료": [
+            (r"화강암|granite", "화강암 재료"),
+            (r"목재|wood", "목재 재료"),
+            (r"벽돌|brick", "벽돌 재료"),
+        ],
+        "구조": [(r"사찰|temple", "사찰 공간"), (r"탑|pagoda", "탑 형태")],
+    }
+    for category, terms in shared_terms.items():
+        left, right = (
+            lookup.get((comparison.left.id, category)),
+            lookup.get((comparison.right.id, category)),
+        )
+        if not left or not right:
+            continue
+        for pattern, label in terms:
+            if all(re.search(pattern, f.evidence_quote, re.IGNORECASE) for f in (left, right)):
+                comparison.common_evidence.append(
+                    CommonEvidence(
+                        statement=f"양쪽 원문의 공통 후보: {label}. 범위 검토가 필요합니다.",
+                        category=category,
+                        left_evidence=left,
+                        right_evidence=right,
+                    )
+                )
+    comparison.common_points = [item.statement for item in comparison.common_evidence] or [
+        "양쪽 원문에서 같은 특징의 근거를 확보하지 못했습니다. 공통점을 추측하지 않습니다."
     ]
     comparison.source_ids = list(dict.fromkeys(f.source_id for f in fields))
     comparison.verification_status = (

@@ -61,6 +61,12 @@ CREATE TABLE IF NOT EXISTS unesco_feeds (
     retrieved_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS agent_source_cache (
+    id TEXT PRIMARY KEY,
+    source_json TEXT NOT NULL,
+    retrieved_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS quiz_items (
     id TEXT PRIMARY KEY,
     quiz_id TEXT NOT NULL,

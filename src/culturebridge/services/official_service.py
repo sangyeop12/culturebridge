@@ -135,7 +135,9 @@ def _geographic_coordinates(root) -> tuple[float | None, float | None]:
     return None, None
 
 
-def get_official_document(kind: str, number: str, region: str) -> OfficialDocument:
+def get_official_document(
+    kind: str, number: str, region: str, *, refresh: bool = False
+) -> OfficialDocument:
     if (
         not re.fullmatch(r"\d{2}", kind)
         or not re.fullmatch(r"\d{1,20}", number)
@@ -143,7 +145,7 @@ def get_official_document(kind: str, number: str, region: str) -> OfficialDocume
     ):
         raise ValueError("국가유산 조회 코드를 확인해 주세요.")
     cached = get_cached_document(kind, number, region)
-    if cached and not cached.stale:
+    if cached and not cached.stale and not refresh:
         return cached
     params = {"ccbaKdcd": kind, "ccbaAsno": number, "ccbaCtcd": region}
     try:

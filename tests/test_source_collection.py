@@ -17,6 +17,11 @@ def sources(tmp_path, monkeypatch):
     monkeypatch.setattr(get_settings(), "db_path", tmp_path / "research.db")
     monkeypatch.setattr(get_settings(), "gemini_api_key", None)
     initialize_database()
+    from culturebridge.agents import workflow
+
+    monkeypatch.setattr(
+        workflow, "retry_missing_sources", lambda left, right, current, missing: current
+    )
     now = datetime.now(UTC)
     options = {"stale": False, "unavailable": False, "calls": []}
 
@@ -72,7 +77,7 @@ def test_graph_collects_both_targets_and_persists_snapshot(sources):
     assert [s.model_dump(mode="json") for s in saved.comparison.collected_sources] == state[
         "collected_sources"
     ]
-    assert len(saved.comparison.extracted_fields) == 6
+    assert len(saved.comparison.extracted_fields) == 8
     assert [field.model_dump(mode="json") for field in saved.comparison.extracted_fields] == state[
         "extracted_fields"
     ]
@@ -86,7 +91,7 @@ def test_graph_collects_both_targets_and_persists_snapshot(sources):
 def test_failed_or_old_collection_does_not_claim_complete_verification(sources, mode):
     sources[mode] = True
     state = exploration_graph.invoke({"heritage_id": "seokguram", "level": "beginner"})
-    assert state["verification_status"] == "needs_review"
+    assert state["verification_status"] == "insufficient_evidence"
     expected = "stale" if mode == "stale" else "unavailable"
     assert all(s["status"] == expected for s in state["collected_sources"])
     if mode == "unavailable":

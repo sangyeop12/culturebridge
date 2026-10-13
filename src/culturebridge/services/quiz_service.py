@@ -262,3 +262,38 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
             ExtractedField.model_validate(field) for field in json.loads(rows[0]["evidence_json"])
         ],
     )
+
+
+def load_quiz(quiz_id: str, left_id: str, right_id: str) -> QuizResponse:
+    rows = load_quiz_items(quiz_id)
+    if not rows:
+        raise QuizNotFoundError(quiz_id)
+    comparison_id = rows[0]["comparison_id"]
+    if not comparison_id:
+        raise InvalidQuizAttemptError("이 퀴즈는 Agent 탐구 저장본에 연결되지 않았습니다.")
+    from culturebridge.services.comparison_service import get_saved_comparison
+
+    saved = get_saved_comparison(comparison_id).comparison
+    if (saved.left.id, saved.right.id) != (left_id, right_id):
+        raise InvalidQuizAttemptError("퀴즈와 선택한 문화유산이 다릅니다.")
+    return QuizResponse(
+        quiz_id=quiz_id,
+        level=LearningLevel(rows[0]["level"]),
+        learning_goal="목표에 맞는 공식 근거 읽기·비교·검토",
+        comparison_id=comparison_id,
+        basis="extracted",
+        verification_status=saved.verification_status,
+        items=[
+            QuizItem(
+                id=row["id"],
+                question=row["question"],
+                correct_index=row["correct_index"],
+                explanation=row["explanation"],
+                choices=[
+                    QuizChoice(id=i, text=text)
+                    for i, text in enumerate(json.loads(row["choices_json"]))
+                ],
+            )
+            for row in rows
+        ],
+    )

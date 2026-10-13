@@ -68,7 +68,7 @@ def test_wrong_source_or_invented_quote_is_rejected(source, updates):
 def test_non_individual_and_outdated_sources_are_excluded(source, updates):
     altered = source.model_copy(update=updates)
     result = service.extract_fields([altered], ["seokguram"])
-    assert len(result) == 3
+    assert len(result) == 4
     assert all(
         field.value is None and field.verification_status.value == "insufficient_evidence"
         for field in result
@@ -77,7 +77,7 @@ def test_non_individual_and_outdated_sources_are_excluded(source, updates):
 
 def test_local_extraction_preserves_evidence_and_missing_target(source):
     result = service.extract_fields([source], ["seokguram", "horyuji"])
-    assert len(result) == 6
+    assert len(result) == 8
     assert all(field.evidence_quote in source.content for field in result[:3])
     assert all(field.method == "local" for field in result[:3])
     assert all(field.value is None for field in result[3:])

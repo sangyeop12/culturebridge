@@ -6,6 +6,7 @@ from culturebridge.domain.models import (
     ComparisonResult,
     HeritageDetail,
     HeritageSummary,
+    LearningGoal,
     LearningLevel,
     RelatedHeritage,
     SourceRecord,
@@ -54,19 +55,44 @@ def get_sources(source_ids: list[str]) -> list[SourceRecord]:
     return [SOURCES[source_id] for source_id in source_ids if source_id in SOURCES]
 
 
-def recommend_related(heritage_id: str) -> list[RelatedHeritage]:
+def recommend_related(
+    heritage_id: str, goal: LearningGoal = LearningGoal.COMPARE
+) -> list[RelatedHeritage]:
     selected = get_heritage(heritage_id)
     candidates = []
     for item in HERITAGES.values():
         if item.id == selected.id:
             continue
         shared_religion = "불교" in selected.religious_context and "불교" in item.religious_context
-        reason = "동아시아 불교문화라는 공통 맥락에서 재료와 구조의 차이를 비교할 수 있습니다."
+        criteria = []
+        score = 0.0
+        if shared_religion:
+            criteria.append("불교라는 공통 종교 맥락")
+            score += 0.35 if goal is LearningGoal.RELIGION else 0.25
+        if item.country != selected.country:
+            criteria.append("다른 국가의 문화유산")
+            score += 0.15
+        if item.material != selected.material:
+            criteria.append("재료 차이를 관찰할 수 있음")
+            score += 0.25 if goal is LearningGoal.OBSERVE else 0.15
+        if item.structure != selected.structure:
+            criteria.append("구조 유형을 비교할 수 있음")
+            score += 0.15
+        if item.verification_status is VerificationStatus.VERIFIED:
+            criteria.append("등록된 개별 자료의 확인 범위가 비교적 충분함")
+            score += 0.25 if goal is LearningGoal.VERIFY else 0.15
+        else:
+            criteria.append("개별 원문이 부족해 추가 자료 확인 필요")
+        reason = (
+            " · ".join(criteria)
+            + ". 자료 적합성에 따른 추천이며 역사적 영향 관계를 뜻하지 않습니다."
+        )
         candidates.append(
             RelatedHeritage(
                 heritage=_summary(item),
                 reason=reason,
-                score=0.9 if shared_religion else 0.6,
+                score=min(score, 1),
+                criteria=criteria,
             )
         )
     return sorted(candidates, key=lambda candidate: candidate.score, reverse=True)

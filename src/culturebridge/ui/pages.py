@@ -1,10 +1,12 @@
 import logging
 import sqlite3
+from urllib.parse import urlencode
 
 from nicegui import run, ui
 
+from culturebridge.agents.quiz_agent import evaluate_learning_quiz
 from culturebridge.agents.workflow import exploration_graph
-from culturebridge.domain.models import CollectedSource, ExtractedField, LearningLevel
+from culturebridge.domain.models import CollectedSource, ExtractedField, LearningGoal, LearningLevel
 from culturebridge.services.catalog_service import (
     HeritageNotFoundError,
     get_sources,
@@ -18,6 +20,7 @@ from culturebridge.services.comparison_service import (
     get_saved_comparison,
     list_saved_comparisons,
 )
+from culturebridge.services.curriculum_service import GOAL_LABELS
 from culturebridge.services.evidence_quiz_service import EvidenceQuizError
 from culturebridge.services.location_service import get_official_location
 from culturebridge.services.official_service import (
@@ -32,7 +35,7 @@ from culturebridge.services.quiz_service import (
     InvalidQuizAttemptError,
     QuizNotFoundError,
     generate_quiz,
-    grade_quiz,
+    load_quiz,
 )
 from culturebridge.services.source_claim_service import ClaimTargetMismatchError
 from culturebridge.services.unesco_service import (
@@ -160,6 +163,17 @@ def _home_route(mode: str) -> str:
     return "/kiosk" if _is_kiosk(mode) else "/"
 
 
+def _goal_query(goal, goal_text=""):
+    return urlencode({"goal": goal, "goal_text": (goal_text or "")[:200]})
+
+
+def _goal(value: str) -> LearningGoal:
+    try:
+        return LearningGoal(value)
+    except ValueError:
+        return LearningGoal.COMPARE
+
+
 def _error_page(message: str, mode: str) -> None:
     with ui.column().classes("cb-shell gap-4 py-10"):
         ui.label(message).props("role=alert").classes("cb-title text-2xl")
@@ -238,6 +252,12 @@ def home_page() -> None:
                 LEVEL_LABELS,
                 value=LearningLevel.BEGINNER.value,
             ).classes("w-full")
+            goal = ui.select(GOAL_LABELS, value="compare", label="학습 목표").classes("w-full")
+            goal_text = (
+                ui.input(label="세부 목표 (선택)", placeholder="예: 재료와 불교의 관계가 궁금해요")
+                .props("maxlength=200")
+                .classes("w-full")
+            )
 
             ui.label("2. 문화유산을 검색하세요").classes("cb-title text-xl")
             search = (
@@ -268,7 +288,8 @@ def home_page() -> None:
                             ui.button(
                                 "비교 후보 보기",
                                 on_click=lambda heritage_id=item.id: ui.navigate.to(
-                                    f"/explore/{heritage_id}?level={level.value}"
+                                    f"/explore/{heritage_id}?level={level.value}&"
+                                    + _goal_query(goal.value, goal_text.value)
                                 ),
                             ).props("unelevated").style(f"background: {ACCENT}").classes(
                                 "cb-action"
@@ -305,6 +326,7 @@ def kiosk_page(reset: str | None = None) -> None:
             )
 
             ui.label("2. 문화유산 선택").classes("cb-title text-3xl mt-2")
+            goal = ui.select(GOAL_LABELS, value="observe", label="체험 목표").classes("w-full")
             with ui.element("div").classes("cb-kiosk-grid w-full gap-5"):
                 for item in list_heritages():
                     with ui.card().classes("cb-kiosk-card w-full justify-between p-6 gap-3"):
@@ -313,7 +335,8 @@ def kiosk_page(reset: str | None = None) -> None:
                         ui.button(
                             f"{item.name} 선택",
                             on_click=lambda heritage_id=item.id: ui.navigate.to(
-                                f"/explore/{heritage_id}?level={level.value}&mode={KIOSK_MODE}"
+                                f"/explore/{heritage_id}?level={level.value}&mode={KIOSK_MODE}&"
+                                + _goal_query(goal.value)
                             ),
                         ).classes("cb-kiosk-action w-full").props("unelevated")
 
@@ -327,10 +350,13 @@ def explore_page(
     heritage_id: str,
     level: str = LearningLevel.BEGINNER.value,
     mode: str = "web",
+    goal: str = "compare",
+    goal_text: str = "",
 ) -> None:
     _base_styles()
     _page_header(mode)
     level = _learning_level(level).value
+    learning_goal = _goal(goal)
     selected = next((item for item in list_heritages() if item.id == heritage_id), None)
     with ui.column().classes("cb-shell gap-6 py-10"):
         if selected is None:
@@ -343,8 +369,11 @@ def explore_page(
         ui.label("비교 대상 추천").classes("cb-title text-3xl")
         ui.label(f"선택한 문화유산: {selected.name}").classes("text-lg font-semibold")
         ui.label(f"학습 수준: {LEVEL_LABELS.get(level, '초급')}").classes("cb-muted")
+        ui.label("학습 목표: " + GOAL_LABELS[learning_goal.value])
+        if goal_text:
+            ui.label("세부 목표: " + goal_text[:200])
 
-        for candidate in recommend_related(heritage_id):
+        for candidate in recommend_related(heritage_id, learning_goal):
             with ui.card().classes("cb-card w-full p-6 gap-3"):
                 ui.label(candidate.heritage.name).classes("cb-title text-2xl")
                 ui.label(f"{candidate.heritage.country} · {candidate.heritage.period}").classes(
@@ -352,7 +381,7 @@ def explore_page(
                 )
                 ui.label(candidate.reason).classes("text-base")
                 ui.button(
-                    "비교 시작",
+                    "기본 자료 비교",
                     on_click=lambda right_id=candidate.heritage.id: ui.navigate.to(
                         _route(f"/compare/{heritage_id}/{right_id}?level={level}", mode)
                     ),
@@ -360,7 +389,11 @@ def explore_page(
                 ui.button(
                     "공식 자료로 Agent 탐구",
                     on_click=lambda right_id=candidate.heritage.id: ui.navigate.to(
-                        _route(f"/research/{heritage_id}/{right_id}?level={level}", mode)
+                        _route(
+                            f"/research/{heritage_id}/{right_id}?level={level}&"
+                            + _goal_query(learning_goal.value, goal_text),
+                            mode,
+                        )
                     ),
                 ).classes(_action_classes(mode))
 
@@ -410,6 +443,11 @@ def comparison_page(
             ui.label(f"학습 수준: {LEVEL_LABELS[learning_level.value]}").classes("cb-muted")
             if result.learning_goal:
                 ui.label(f"학습 목표: {result.learning_goal}").classes("text-lg font-semibold")
+            if result.curriculum:
+                ui.label("선택 목표: " + GOAL_LABELS[result.goal.value])
+                if result.goal_text:
+                    ui.label("세부 목표: " + result.goal_text)
+                ui.label("학습 순서: " + " → ".join(result.curriculum))
             if saved_id:
                 ui.label(
                     "저장 당시의 비교와 출처입니다. 자유 질문은 현재 등록 자료를 사용합니다."
@@ -427,6 +465,9 @@ def comparison_page(
             )
             for point in result.common_points:
                 ui.label(f"• {point}").classes("text-base")
+            for common in result.common_evidence:
+                with ui.expansion("공통 후보의 양쪽 원문 근거").classes("w-full"):
+                    _extracted_field_cards([common.left_evidence, common.right_evidence])
 
         if result.collected_sources:
             ui.label("Agent가 수집한 공식 자료").classes("cb-title text-2xl")
@@ -654,6 +695,7 @@ def quiz_page(
     level: str = LearningLevel.BEGINNER.value,
     mode: str = "web",
     comparison_id: str | None = None,
+    quiz_id: str | None = None,
 ) -> None:
     _base_styles()
     _page_header(mode)
@@ -662,7 +704,12 @@ def quiz_page(
         _error_page("서로 다른 문화유산을 선택해 주세요.", mode)
         return
     try:
-        quiz = generate_quiz(left_id, right_id, learning_level, comparison_id=comparison_id)
+        quiz = (
+            load_quiz(quiz_id, left_id, right_id)
+            if quiz_id
+            else generate_quiz(left_id, right_id, learning_level, comparison_id=comparison_id)
+        )
+        comparison_id, learning_level = quiz.comparison_id, quiz.level
     except (ComparisonNotFoundError, EvidenceQuizError) as exc:
         _error_page(
             str(exc) if isinstance(exc, EvidenceQuizError) else "저장된 비교를 찾을 수 없습니다.",
@@ -671,6 +718,9 @@ def quiz_page(
         return
     except HeritageNotFoundError:
         _error_page("퀴즈에 사용할 문화유산을 찾을 수 없습니다.", mode)
+        return
+    except (QuizNotFoundError, InvalidQuizAttemptError):
+        _error_page("저장된 퀴즈를 확인할 수 없습니다. 탐구를 다시 시작해 주세요.", mode)
         return
     except sqlite3.Error:
         logger.exception("Quiz storage failed")
@@ -709,7 +759,7 @@ def quiz_page(
                 ui.notify("모든 문항에 답해 주세요.", color="warning")
                 return
             try:
-                result = grade_quiz(quiz.quiz_id, [int(answer) for answer in answers])
+                result = evaluate_learning_quiz(quiz.quiz_id, [int(answer) for answer in answers])
             except (QuizNotFoundError, InvalidQuizAttemptError):
                 ui.notify("퀴즈를 확인할 수 없습니다. 새로 시작해 주세요.", color="warning")
                 return
@@ -1047,7 +1097,12 @@ def unesco_page() -> None:
 
 @ui.page("/research/{left_id}/{right_id}")
 async def research_page(
-    left_id: str, right_id: str, level: str = "beginner", mode: str = "web"
+    left_id: str,
+    right_id: str,
+    level: str = "beginner",
+    mode: str = "web",
+    goal: str = "compare",
+    goal_text: str = "",
 ) -> None:
     _base_styles()
     _page_header(mode)
@@ -1062,6 +1117,10 @@ async def research_page(
         with panel:
             ui.label("공식 자료를 확인하고 있습니다…")
             ui.spinner()
+        client = ui.context.client
+        await client.connected()
+        if client.is_deleted:
+            return
         try:
             state = await run.io_bound(
                 exploration_graph.invoke,
@@ -1069,6 +1128,8 @@ async def research_page(
                     "heritage_id": left_id,
                     "comparison_id": right_id,
                     "level": learning_level.value,
+                    "goal": _goal(goal).value,
+                    "goal_text": goal_text[:200],
                 },
             )
         except (HeritageNotFoundError, sqlite3.Error):
@@ -1079,6 +1140,10 @@ async def research_page(
         with panel:
             ui.label(state["verification_note"]).classes("cb-muted")
             ui.label("학습 순서: " + " → ".join(state["curriculum"]))
+            with ui.expansion("Agent 실행·재검색 기록").classes("w-full"):
+                for step in state["execution_trace"]:
+                    ui.label(step)
+            ui.label(f"추가 공식 자료 조회: {state['retry_count']}회")
             _collected_source_cards(
                 [CollectedSource.model_validate(s) for s in state["collected_sources"]]
             )
@@ -1086,6 +1151,15 @@ async def research_page(
             _extracted_field_cards(
                 [ExtractedField.model_validate(f) for f in state["extracted_fields"]]
             )
+            ui.label(state["quiz_notice"])
+            if state["quiz"]:
+                ready_quiz_id = state["quiz"]["quiz_id"]
+                ui.button(
+                    "Agent가 만든 퀴즈 풀기",
+                    on_click=lambda: ui.navigate.to(
+                        _route(f"/quiz/{left_id}/{right_id}?quiz_id={ready_quiz_id}", mode)
+                    ),
+                ).classes(_action_classes(mode))
             record_id = state["comparison"]["saved_id"]
             ui.button(
                 "수집 자료와 비교 결과 보기",

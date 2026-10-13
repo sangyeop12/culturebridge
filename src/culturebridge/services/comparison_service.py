@@ -7,6 +7,7 @@ from culturebridge.domain.models import (
     CollectedSource,
     ComparisonResult,
     ExtractedField,
+    LearningGoal,
     LearningLevel,
     SavedComparison,
     SavedComparisonSummary,
@@ -28,10 +29,15 @@ def create_saved_comparison(
     *,
     collected_sources: list[CollectedSource] | None = None,
     extracted_fields: list[ExtractedField] | None = None,
+    goal: LearningGoal = LearningGoal.COMPARE,
+    goal_text: str = "",
+    curriculum: list[str] | None = None,
 ) -> ComparisonResult:
     result = compare_heritages(left_id, right_id, level)
     result.collected_sources = collected_sources or []
     result.extracted_fields = extracted_fields or []
+    result.goal, result.goal_text = goal, goal_text
+    result.curriculum = curriculum or []
     if extracted_fields is not None:
         result = apply_extracted_comparison(result)
     source_records = get_sources(result.source_ids)

@@ -24,6 +24,11 @@ def isolated_api_database(tmp_path, monkeypatch):
 
     monkeypatch.setattr(collector, "get_official_document", no_remote)
     monkeypatch.setattr(collector, "search_unesco", no_remote)
+    from culturebridge.agents import workflow
+
+    monkeypatch.setattr(
+        workflow, "retry_missing_sources", lambda left, right, current, missing: current
+    )
 
 
 def test_complete_local_learning_flow():
@@ -174,8 +179,10 @@ def test_exploration_runs_all_agent_stages() -> None:
     assert response.status_code == 200
     result = response.json()
     assert result["comparison_id"] in {"horyuji", "dayanta"}
-    assert result["verification_status"] == "needs_review"
-    assert len(result["curriculum"]) == 4
+    assert result["verification_status"] == "insufficient_evidence"
+    assert result["goal"] == "compare" and result["retry_count"] == 1
+    assert result["quiz"] is None
+    assert result["curriculum"] == result["comparison"]["curriculum"]
     record_id = result["comparison"]["saved_id"]
     assert client.get(f"/api/comparisons/{record_id}").json()["comparison"] == result["comparison"]
 

@@ -11,6 +11,13 @@ class LearningLevel(StrEnum):
     ADVANCED = "advanced"
 
 
+class LearningGoal(StrEnum):
+    OBSERVE = "observe"
+    COMPARE = "compare"
+    RELIGION = "religion"
+    VERIFY = "verify"
+
+
 class VerificationStatus(StrEnum):
     VERIFIED = "verified"
     NEEDS_REVIEW = "needs_review"
@@ -49,6 +56,7 @@ class RelatedHeritage(BaseModel):
     heritage: HeritageSummary
     reason: str
     score: float = Field(ge=0, le=1)
+    criteria: list[str] = Field(default_factory=list)
 
 
 class ComparisonRequest(BaseModel):
@@ -88,7 +96,7 @@ class CollectedSource(BaseModel):
 
 class ExtractedField(BaseModel):
     heritage_id: str
-    category: Literal["시대", "구조", "재료"]
+    category: Literal["시대", "구조", "재료", "종교적 배경"]
     value: str | None = None
     source_id: str | None = None
     evidence_quote: str = ""
@@ -98,12 +106,24 @@ class ExtractedField(BaseModel):
     note: str
 
 
+class CommonEvidence(BaseModel):
+    statement: str
+    category: str
+    left_evidence: ExtractedField
+    right_evidence: ExtractedField
+    verification_status: VerificationStatus = VerificationStatus.NEEDS_REVIEW
+
+
 class ComparisonResult(BaseModel):
     saved_id: str | None = None
     learning_goal: str = ""
     collected_sources: list[CollectedSource] = Field(default_factory=list)
     extracted_fields: list[ExtractedField] = Field(default_factory=list)
     basis: Literal["curated", "extracted"] = "curated"
+    goal: LearningGoal = LearningGoal.COMPARE
+    goal_text: str = ""
+    curriculum: list[str] = Field(default_factory=list)
+    common_evidence: list[CommonEvidence] = Field(default_factory=list)
     left: HeritageSummary
     right: HeritageSummary
     level: LearningLevel
@@ -133,6 +153,8 @@ class ExplorationRequest(BaseModel):
     heritage_id: str
     comparison_id: str | None = None
     level: LearningLevel = LearningLevel.BEGINNER
+    goal: LearningGoal = LearningGoal.COMPARE
+    goal_text: str = Field(default="", max_length=200)
 
     @model_validator(mode="after")
     def different_comparison_target(self) -> "ExplorationRequest":
@@ -152,6 +174,12 @@ class ExplorationResult(BaseModel):
     verification_note: str
     collected_sources: list[CollectedSource] = Field(default_factory=list)
     extracted_fields: list[ExtractedField] = Field(default_factory=list)
+    goal: LearningGoal = LearningGoal.COMPARE
+    goal_text: str = ""
+    retry_count: int = 0
+    execution_trace: list[str] = Field(default_factory=list)
+    quiz: "QuizPreview | None" = None
+    quiz_notice: str = ""
 
 
 class QuestionRequest(BaseModel):
@@ -265,9 +293,22 @@ class QuizAttemptRequest(BaseModel):
     answers: list[int] = Field(min_length=1, max_length=5)
 
 
+class QuizPreviewItem(BaseModel):
+    id: str
+    question: str
+    choices: list[QuizChoice]
+
+
+class QuizPreview(QuizResponse):
+    items: list[QuizPreviewItem]
+
+
 class QuizAttemptResult(BaseModel):
     quiz_id: str
     score: int
     total: int
     explanations: list[str]
     evidence: list[ExtractedField] = Field(default_factory=list)
+
+
+ExplorationResult.model_rebuild()

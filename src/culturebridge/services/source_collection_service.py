@@ -14,7 +14,9 @@ from culturebridge.services.unesco_service import DATAHUB_URL, search_unesco
 UNESCO_IDS = {"seokguram": "736", "horyuji": "660", "dayanta": "1442"}
 
 
-def collect_official_sources(left_id: str, right_id: str) -> list[CollectedSource]:
+def collect_official_sources(
+    left_id: str, right_id: str, *, refresh: bool = False
+) -> list[CollectedSource]:
     # Validate both IDs before any remote request.
     items = [get_heritage(left_id), get_heritage(right_id)]
     sources = []
@@ -24,7 +26,11 @@ def collect_official_sources(left_id: str, right_id: str) -> list[CollectedSourc
                 BASE_URL + "SearchKindOpenapiDt.do?ccbaKdcd=11&ccbaAsno=0000240000000&ccbaCtcd=37"
             )
             try:
-                document = get_official_document(*SEOKGURAM_CODES)
+                document = (
+                    get_official_document(*SEOKGURAM_CODES, refresh=True)
+                    if refresh
+                    else get_official_document(*SEOKGURAM_CODES)
+                )
                 sources.append(
                     CollectedSource(
                         id=document.record_id,
@@ -60,7 +66,9 @@ def collect_official_sources(left_id: str, right_id: str) -> list[CollectedSourc
         unesco_id = UNESCO_IDS[item.id]
         source_url = f"https://whc.unesco.org/en/list/{unesco_id}/"
         try:
-            response = search_unesco(unesco_id)
+            response = (
+                search_unesco(unesco_id, refresh=True) if refresh else search_unesco(unesco_id)
+            )
             if len(response.records) != 1 or response.records[0].id != unesco_id:
                 raise OfficialServiceError("UNESCO 항목을 정확하게 찾을 수 없습니다.")
             record = response.records[0]

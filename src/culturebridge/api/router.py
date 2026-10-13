@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Path, Query
 
+from culturebridge.agents.quiz_agent import evaluate_learning_quiz
 from culturebridge.agents.workflow import exploration_graph
 from culturebridge.domain.models import (
     ClaimRequest,
@@ -10,6 +11,7 @@ from culturebridge.domain.models import (
     ExplorationResult,
     HeritageDetail,
     HeritageSummary,
+    LearningGoal,
     QuestionAnswer,
     QuestionRequest,
     QuizAttemptRequest,
@@ -53,7 +55,6 @@ from culturebridge.services.quiz_service import (
     InvalidQuizAttemptError,
     QuizNotFoundError,
     generate_quiz,
-    grade_quiz,
 )
 from culturebridge.services.source_claim_service import ClaimTargetMismatchError
 from culturebridge.services.unesco_service import (
@@ -161,9 +162,9 @@ def heritage_sources(heritage_id: str):
 
 
 @router.get("/heritages/{heritage_id}/related", response_model=list[RelatedHeritage])
-def related_heritages(heritage_id: str):
+def related_heritages(heritage_id: str, goal: LearningGoal = LearningGoal.COMPARE):
     try:
-        return recommend_related(heritage_id)
+        return recommend_related(heritage_id, goal)
     except HeritageNotFoundError as exc:
         raise HTTPException(status_code=404, detail="문화유산을 찾을 수 없습니다.") from exc
 
@@ -197,6 +198,8 @@ def create_exploration(request: ExplorationRequest):
     state = {
         "heritage_id": request.heritage_id,
         "level": request.level.value,
+        "goal": request.goal.value,
+        "goal_text": request.goal_text,
     }
     if request.comparison_id:
         state["comparison_id"] = request.comparison_id
@@ -215,6 +218,12 @@ def create_exploration(request: ExplorationRequest):
         verification_note=result["verification_note"],
         collected_sources=result["collected_sources"],
         extracted_fields=result["extracted_fields"],
+        goal=result["goal"],
+        goal_text=request.goal_text,
+        retry_count=result["retry_count"],
+        execution_trace=result["execution_trace"],
+        quiz=result["quiz"],
+        quiz_notice=result["quiz_notice"],
     )
 
 
@@ -270,7 +279,7 @@ def create_quiz(request: QuizRequest):
 @router.post("/quiz-attempts", response_model=QuizAttemptResult)
 def submit_quiz(request: QuizAttemptRequest):
     try:
-        return grade_quiz(request.quiz_id, request.answers)
+        return evaluate_learning_quiz(request.quiz_id, request.answers)
     except QuizNotFoundError as exc:
         raise HTTPException(status_code=404, detail="퀴즈를 찾을 수 없습니다.") from exc
     except InvalidQuizAttemptError as exc:
