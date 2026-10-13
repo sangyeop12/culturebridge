@@ -258,7 +258,12 @@ def _download() -> bytes:
 
 
 def search_unesco(
-    query: str = "", limit: int = 20, offset: int = 0, *, refresh: bool = False
+    query: str = "",
+    limit: int = 20,
+    offset: int = 0,
+    *,
+    refresh: bool = False,
+    include_description: bool = False,
 ) -> UnescoResult:
     with transaction() as connection:
         cached = connection.execute("SELECT * FROM unesco_feeds WHERE language='en'").fetchone()
@@ -293,7 +298,12 @@ def search_unesco(
             if not cached:
                 raise
             stale = True
-    matches = [record for record in records if _matches_query(record, query)]
+    matches = [
+        record
+        for record in records
+        if _matches_query(record, query)
+        or (include_description and normalize_search(query) in normalize_search(record.description))
+    ]
     return UnescoResult(
         records=matches[offset : offset + limit],
         total=len(matches),

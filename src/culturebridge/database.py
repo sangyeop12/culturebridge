@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS sources (
     license_note TEXT
 );
 
+CREATE TABLE IF NOT EXISTS dynamic_heritages (
+    id TEXT PRIMARY KEY REFERENCES heritages(id),
+    detail_json TEXT NOT NULL,
+    source_json TEXT NOT NULL,
+    target_json TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS comparisons (
     id TEXT PRIMARY KEY,
     left_id TEXT NOT NULL REFERENCES heritages(id),

@@ -1,6 +1,8 @@
+import sqlite3
 from collections.abc import Iterable
 
 from culturebridge.data.catalog import HERITAGES, SOURCES
+from culturebridge.database import transaction
 from culturebridge.domain.models import (
     ComparisonPoint,
     ComparisonResult,
@@ -47,12 +49,40 @@ def list_heritages(query: str | None = None) -> list[HeritageSummary]:
 def get_heritage(heritage_id: str) -> HeritageDetail:
     try:
         return HERITAGES[heritage_id]
-    except KeyError as exc:
-        raise HeritageNotFoundError(heritage_id) from exc
+    except KeyError:
+        try:
+            with transaction() as connection:
+                row = connection.execute(
+                    "SELECT detail_json FROM dynamic_heritages WHERE id=?", (heritage_id,)
+                ).fetchone()
+            if row:
+                return HeritageDetail.model_validate_json(row["detail_json"])
+        except sqlite3.Error:
+            pass
+        raise HeritageNotFoundError(heritage_id) from None
 
 
 def get_sources(source_ids: list[str]) -> list[SourceRecord]:
-    return [SOURCES[source_id] for source_id in source_ids if source_id in SOURCES]
+    records = [SOURCES[source_id] for source_id in source_ids if source_id in SOURCES]
+    from culturebridge.services.dynamic_heritage_service import dynamic_source
+
+    for source_id in source_ids:
+        if source_id in SOURCES:
+            continue
+        source = dynamic_source(source_id)
+        if source and source.retrieved_at:
+            records.append(
+                SourceRecord(
+                    id=source.id,
+                    title=source.title,
+                    organization=source.organization,
+                    url=source.source_url,
+                    retrieved_at=source.retrieved_at.date(),
+                    summary=source.content,
+                    scope_note=source.scope_note,
+                )
+            )
+    return records
 
 
 def recommend_related(
@@ -105,6 +135,17 @@ def compare_heritages(
 ) -> ComparisonResult:
     left = get_heritage(left_id)
     right = get_heritage(right_id)
+    if left_id not in HERITAGES or right_id not in HERITAGES:
+        return ComparisonResult(
+            left=_summary(left),
+            right=_summary(right),
+            level=level,
+            common_points=["원문 분석 전입니다. 공통점을 추정하지 않습니다."],
+            differences=[],
+            source_ids=list(dict.fromkeys(left.source_ids + right.source_ids)),
+            verification_status=VerificationStatus.INSUFFICIENT_EVIDENCE,
+            verification_note="동적 대상은 공식 Agent 탐구의 추출 근거로만 비교합니다.",
+        )
     source_ids = list(dict.fromkeys([*left.source_ids, *right.source_ids]))
     explanations = {
         LearningLevel.BEGINNER: [

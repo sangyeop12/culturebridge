@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Path, Query
 
+from culturebridge.agents.autonomous import AutonomousRequest, AutonomousResult, run_autonomous
 from culturebridge.agents.quiz_agent import evaluate_learning_quiz
 from culturebridge.agents.workflow import exploration_graph
 from culturebridge.domain.models import (
@@ -77,6 +78,18 @@ router = APIRouter(prefix="/api", tags=["CultureBridge"])
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "CultureBridge"}
+
+
+@router.post("/autonomous-explorations", response_model=AutonomousResult)
+def autonomous_exploration(request: AutonomousRequest):
+    try:
+        return run_autonomous(request)
+    except OfficialServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except (ValueError, HeritageNotFoundError) as exc:
+        raise HTTPException(
+            status_code=422, detail="선택 대상 또는 탐구 자료를 확인하지 못했습니다."
+        ) from exc
 
 
 @router.get("/search", response_model=HomeSearchResult)
@@ -234,6 +247,8 @@ def create_exploration(request: ExplorationRequest):
         state["comparison_id"] = request.comparison_id
     try:
         result = exploration_graph.invoke(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except HeritageNotFoundError as exc:
         raise HTTPException(status_code=404, detail="탐구할 문화유산을 찾을 수 없습니다.") from exc
     return ExplorationResult(
@@ -265,7 +280,14 @@ def ask_question(request: QuestionRequest):
             request.right_id,
             request.question,
             request.level,
+            comparison_id=request.comparison_id,
         )
+    except ComparisonNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail="질문의 비교 저장본을 찾을 수 없습니다."
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except HeritageNotFoundError as exc:
         raise HTTPException(
             status_code=404, detail="질문에 사용할 문화유산을 찾을 수 없습니다."

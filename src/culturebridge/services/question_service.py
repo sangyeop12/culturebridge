@@ -49,8 +49,8 @@ def _grounded_answer(
             question=question,
             answer=" ".join(comparison.common_points),
             source_ids=comparison.source_ids,
-            verification_status=VerificationStatus.VERIFIED,
-            verification_note="공식 자료에서 확인한 공통 맥락을 요약했습니다.",
+            verification_status=comparison.verification_status,
+            verification_note="비교의 검증 상태와 자료 범위 안에서 표시합니다.",
             used_ai=False,
         )
 
@@ -84,16 +84,32 @@ def _gemini_answer(
     right_id: str,
     question: str,
     level: LearningLevel,
+    comparison=None,
 ) -> QuestionAnswer:
     settings = get_settings()
-    comparison = compare_heritages(left_id, right_id, level)
-    sources = get_sources(comparison.source_ids)
+    snapshot = comparison is not None
+    comparison = comparison or compare_heritages(left_id, right_id, level)
+    sources = [] if snapshot else get_sources(comparison.source_ids)
+    if snapshot:
+        sources = [
+            SourceRecord(
+                id=s.id,
+                title=s.title,
+                organization=s.organization,
+                url=s.source_url,
+                retrieved_at=s.retrieved_at.date(),
+                summary=s.content,
+                scope_note=s.scope_note,
+            )
+            for s in comparison.collected_sources
+            if s.retrieved_at and s.status in {"fresh", "cached"}
+        ]
     context = {
         "comparison": comparison.model_dump(mode="json"),
         "sources": [source.model_dump(mode="json") for source in sources],
         "question": question,
     }
-    if "seokguram" in (left_id, right_id):
+    if not snapshot and "seokguram" in (left_id, right_id):
         official = get_cached_document(*SEOKGURAM_CODES)
         if official and not official.stale:
             sources.append(
@@ -164,16 +180,75 @@ def answer_question(
     level: LearningLevel,
     *,
     use_ai: bool | None = None,
+    comparison_id: str | None = None,
 ) -> QuestionAnswer:
+    snapshot = None
+    if comparison_id:
+        from culturebridge.services.comparison_service import get_saved_comparison
+        from culturebridge.services.evidence_comparison_service import apply_extracted_comparison
+
+        snapshot = get_saved_comparison(comparison_id).comparison
+        if (snapshot.left.id, snapshot.right.id) != (left_id, right_id):
+            raise ValueError("질문과 비교 저장본의 대상이 다릅니다.")
+        snapshot = apply_extracted_comparison(snapshot.model_copy(deep=True))
+
+    def fallback_answer():
+        if not snapshot:
+            return _grounded_answer(left_id, right_id, question, level)
+        from culturebridge.services.evidence_comparison_service import supported_fields
+
+        keywords = {
+            "시대": ("시대", "언제", "연대"),
+            "구조": ("구조", "형태", "모양"),
+            "재료": ("재료", "돌", "나무"),
+            "종교적 배경": ("종교", "불교", "이슬람", "힌두"),
+        }
+        fields = [
+            f
+            for f in supported_fields(snapshot)
+            if any(word in question for word in keywords[f.category])
+        ]
+        names = {snapshot.left.id: snapshot.left.name, snapshot.right.id: snapshot.right.name}
+        text = "\n".join(
+            f"{names[f.heritage_id]} · {f.category} 후보: {f.value}\n원문: {f.evidence_quote}"
+            for f in fields
+        )
+        return QuestionAnswer(
+            question=question,
+            answer=text
+            or "이 질문을 판단할 개별 근거가 저장본에 없습니다. 추가 확인이 필요합니다.",
+            source_ids=list(dict.fromkeys(f.source_id for f in fields)),
+            verification_status=VerificationStatus.NEEDS_REVIEW
+            if fields
+            else VerificationStatus.INSUFFICIENT_EVIDENCE,
+            verification_note="같은 비교 저장본의 원문 인용을 표시합니다. "
+            "의미 판단은 보류하며 없는 내용을 생성하지 않습니다.",
+            used_ai=False,
+            sources=[
+                SourceRecord(
+                    id=s.id,
+                    title=s.title,
+                    organization=s.organization,
+                    url=s.source_url,
+                    retrieved_at=s.retrieved_at.date(),
+                    scope_note=s.scope_note,
+                )
+                for s in snapshot.collected_sources
+                if s.retrieved_at and s.id in {f.source_id for f in fields}
+            ],
+        )
+
     settings = get_settings()
     should_use_ai = (
         bool(settings.gemini_api_key) and settings.gemini_enabled if use_ai is None else use_ai
     )
     if should_use_ai and settings.gemini_api_key:
         try:
+            if snapshot:
+                return _gemini_answer(left_id, right_id, question, level, snapshot)
             return _gemini_answer(left_id, right_id, question, level)
         except Exception:
-            fallback = _grounded_answer(left_id, right_id, question, level)
+            fallback = fallback_answer()
             fallback.verification_note += " AI 응답을 사용할 수 없어 등록된 자료 범위로 안내합니다."
             return fallback
-    return _grounded_answer(left_id, right_id, question, level)
+    return fallback_answer()

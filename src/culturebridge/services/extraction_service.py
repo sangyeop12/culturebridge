@@ -12,6 +12,14 @@ from culturebridge.domain.models import CollectedSource, ExtractedField, Verific
 CATEGORIES = ("시대", "구조", "재료", "종교적 배경")
 
 
+def usable_source(source):
+    return source.content_kind == "individual_text" or (
+        source.content_kind == "listed_text"
+        and source.heritage_id.startswith("unesco:")
+        and source.id == source.heritage_id
+    )
+
+
 class DraftField(BaseModel):
     heritage_id: str
     category: Literal["시대", "구조", "재료", "종교적 배경"]
@@ -47,19 +55,21 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
     source = next(
         (s for s in sources if s.id == draft.source_id and s.heritage_id == draft.heritage_id), None
     )
-    if (
-        source is None
-        or source.content_kind != "individual_text"
-        or source.status not in {"fresh", "cached"}
-    ):
+    if source is None or not usable_source(source) or source.status not in {"fresh", "cached"}:
         return None
     if draft.evidence_quote not in source.content or not draft.evidence_quote.strip():
         return None
     markers = {
         "시대": r"\d{3,4}|\d{1,2}(?:th|st|nd|rd)|세기|시대|dynasty",
-        "구조": r"전실|주실|통로|석굴|탑|건축|grotto|pagoda|architecture|layout|temple|building",
-        "재료": r"화강암|목재|벽돌|석재|granite|wood|brick|stone",
-        "종교적 배경": r"불교|불상|사찰|경전|Buddhis|Buddha|sutra|scripture",
+        "구조": (
+            r"전실|주실|통로|석굴|탑|건축|궁전|가람|성곽|grotto|pagoda|architecture|layout"
+            r"|temple|building|palace|fort|tomb|mausoleum"
+        ),
+        "재료": r"화강암|목재|벽돌|석재|대리석|석회암|granite|wood|brick|stone|marble|limestone",
+        "종교적 배경": (
+            r"불교|불상|사찰|경전|기독교|힌두|이슬람|Buddhis|Buddha|sutra|scripture"
+            r"|Christian|Hindu|Islam|Muslim"
+        ),
     }
     if not re.search(markers[draft.category], draft.evidence_quote, re.IGNORECASE):
         return None
@@ -85,14 +95,23 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
 
 def _local_extraction(sources: list[CollectedSource]) -> list[DraftField]:
     patterns = {
-        "시대": r"(?:\d{3,4}년|\(\d{3,4}\)|\d{1,2}th century|\d{1,2}세기)",
-        "구조": r"(?:전실|주실|통로|grotto|pagoda|architecture|layout)",
-        "재료": r"(?:화강암|목재|벽돌|granite|wooden|brick)",
-        "종교적 배경": r"(?:불교|불상|사찰|Buddhist|Buddhism)",
+        "시대": (
+            r"(?:\d{3,4}년|\(\d{3,4}\)|\d{1,2}th century|\d{1,2}세기"
+            r"|(?:built|constructed|erected|founded).*?\d{3,4})"
+        ),
+        "구조": (
+            r"(?:전실|주실|통로|가람|건축|궁전|성곽|grotto|pagoda|architecture|layout"
+            r"|temple|palace|fort|tomb|mausoleum)"
+        ),
+        "재료": r"(?:화강암|목재|벽돌|석재|대리석|granite|wooden|brick|marble|limestone|sandstone)",
+        "종교적 배경": (
+            r"(?:불교|불상|사찰|기독교|힌두|이슬람|Buddhist|Buddhism"
+            r"|Christian|Hindu|Islam|Muslim)"
+        ),
     }
     drafts = []
     for source in sources:
-        if source.content_kind != "individual_text" or source.status not in {"fresh", "cached"}:
+        if not usable_source(source) or source.status not in {"fresh", "cached"}:
             continue
         sentences = re.split(r"(?<=[.!?])\s+|\n+", source.content)
         for category, pattern in patterns.items():
@@ -141,11 +160,7 @@ def _gemini_extraction(sources: list[CollectedSource]) -> DraftExtraction:
 
 
 def extract_fields(sources: list[CollectedSource], heritage_ids: list[str]) -> list[ExtractedField]:
-    eligible = [
-        s
-        for s in sources
-        if s.content_kind == "individual_text" and s.status in {"fresh", "cached"}
-    ]
+    eligible = [s for s in sources if usable_source(s) and s.status in {"fresh", "cached"}]
     settings = get_settings()
     drafts = []
     method = "local"

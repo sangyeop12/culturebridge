@@ -9,7 +9,7 @@ from culturebridge.domain.models import (
     VerificationStatus,
 )
 from culturebridge.services.curriculum_service import plan_learning
-from culturebridge.services.extraction_service import DraftField, validate_extraction
+from culturebridge.services.extraction_service import DraftField, usable_source, validate_extraction
 
 
 def supported_fields(comparison: ComparisonResult):
@@ -34,7 +34,7 @@ def supported_fields(comparison: ComparisonResult):
         if (
             source
             and source.status in {"fresh", "cached"}
-            and source.content_kind == "individual_text"
+            and usable_source(source)
             and field.value
             and field.evidence_quote
             and field.evidence_quote in source.content
@@ -87,7 +87,12 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
     comparison.differences = points
     comparison.common_evidence = []
     shared_terms = {
-        "종교적 배경": [(r"불교|Buddhis", "불교와 관련된 종교 맥락")],
+        "종교적 배경": [
+            (r"불교|Buddhis", "불교와 관련된 종교 맥락"),
+            (r"이슬람|Islam|Muslim", "이슬람 관련 맥락"),
+            (r"힌두|Hindu", "힌두교 관련 맥락"),
+            (r"기독교|Christian", "기독교 관련 맥락"),
+        ],
         "재료": [
             (r"화강암|granite", "화강암 재료"),
             (r"목재|wood", "목재 재료"),

@@ -97,7 +97,7 @@ class CollectedSource(BaseModel):
     status: str = Field(pattern=r"^(fresh|cached|stale|unavailable)$")
     scope_note: str
     license_url: HttpUrl | None = None
-    content_kind: Literal["individual_text", "group_text", "metadata"] = "metadata"
+    content_kind: Literal["individual_text", "listed_text", "group_text", "metadata"] = "metadata"
 
 
 class ExtractedField(BaseModel):
@@ -197,6 +197,7 @@ class QuestionRequest(BaseModel):
     right_id: str
     question: str = Field(min_length=2, max_length=500)
     level: LearningLevel = LearningLevel.BEGINNER
+    comparison_id: str | None = None
 
     @field_validator("question")
     @classmethod

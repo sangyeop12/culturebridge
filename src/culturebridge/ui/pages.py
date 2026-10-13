@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 
 from nicegui import run, ui
 
+from culturebridge.agents.autonomous import AutonomousRequest, run_autonomous
 from culturebridge.agents.quiz_agent import evaluate_learning_quiz
 from culturebridge.agents.workflow import exploration_graph
 from culturebridge.domain.models import (
@@ -15,6 +16,7 @@ from culturebridge.domain.models import (
 )
 from culturebridge.services.catalog_service import (
     HeritageNotFoundError,
+    get_heritage,
     get_sources,
     list_heritages,
     recommend_related,
@@ -27,6 +29,7 @@ from culturebridge.services.comparison_service import (
     list_saved_comparisons,
 )
 from culturebridge.services.curriculum_service import AMOUNT_LABELS, GOAL_LABELS
+from culturebridge.services.dynamic_heritage_service import OfficialTarget
 from culturebridge.services.evidence_quiz_service import EvidenceQuizError
 from culturebridge.services.home_search_service import get_home_suggestions, search_home
 from culturebridge.services.location_service import get_official_location
@@ -208,6 +211,12 @@ def _learning_level(value: str) -> LearningLevel:
 def _extracted_field_cards(fields: list[ExtractedField]) -> None:
     names = {item.id: item.name for item in list_heritages()}
     for field in fields:
+        if field.heritage_id not in names:
+            try:
+                names[field.heritage_id] = get_heritage(field.heritage_id).name
+            except HeritageNotFoundError:
+                pass
+    for field in fields:
         with ui.card().classes("cb-card w-full p-5 gap-2"):
             ui.label(
                 f"{names.get(field.heritage_id, field.heritage_id)} · {field.category}"
@@ -307,7 +316,9 @@ def home_page() -> None:
             def render_results() -> None:
                 results.clear()
                 with results:
-                    ui.label("비교·퀴즈 지원 유산 (현재 3개)").classes("font-semibold")
+                    ui.label("기본 탐구 예제 · 다른 유산은 아래 공식 검색에서 시작하세요").classes(
+                        "font-semibold"
+                    )
                     items = list_heritages(search.value)
                     if scope.value == "korea":
                         items = [item for item in items if item.country == "대한민국"]
@@ -367,8 +378,8 @@ def home_page() -> None:
                         for notice in response.notices:
                             ui.label(notice).props("role=alert")
                         ui.label(
-                            "공식 자료 조회는 비교·퀴즈 지원과 다릅니다. "
-                            "미등록 결과를 자동으로 비교하지 않습니다."
+                            "검색 결과에서 Agent 탐구를 시작하면 원문과 비교 후보를 찾습니다. "
+                            "자료가 부족하면 판단을 보류합니다."
                         )
                         if response.korean is not None:
                             ui.label(
@@ -383,6 +394,14 @@ def home_page() -> None:
                                     ui.link(
                                         "공식 설명 보기",
                                         f"/official/{item.kind_code}/{item.asset_number}/{item.region_code}",
+                                    )
+                                    ui.button(
+                                        "이 유산으로 Agent 탐구",
+                                        on_click=lambda selected=item: ui.navigate.to(
+                                            f"/discover/khs/{selected.kind_code}:{selected.asset_number}:{selected.region_code}"
+                                            f"?level={level.value}&"
+                                            + _goal_query(goal.value, goal_text.value, amount.value)
+                                        ),
                                     )
                             ui.link(
                                 "국가유산청 검색 화면에서 더 찾기",
@@ -399,6 +418,13 @@ def home_page() -> None:
                             for item in response.world.records:
                                 with ui.card().classes("cb-card w-full p-4 gap-2"):
                                     ui.link(item.name, str(item.source_url), new_tab=True)
+                                    ui.button(
+                                        "이 등재 유산으로 Agent 탐구",
+                                        on_click=lambda selected=item: ui.navigate.to(
+                                            f"/discover/unesco/{selected.id}?level={level.value}&"
+                                            + _goal_query(goal.value, goal_text.value, amount.value)
+                                        ),
+                                    )
                                     ui.label(f"{item.countries} · 등재연도 {item.inscription_year}")
                                     ui.label(
                                         "등재 유산군은 개별 건물과 다를 수 있습니다. "
@@ -541,6 +567,16 @@ def explore_page(
 ) -> None:
     _base_styles()
     _page_header(mode)
+    if heritage_id.startswith(("khs:", "unesco:")):
+        provider, identity = heritage_id.split(":", 1)
+        with ui.column().classes("cb-shell py-10"):
+            ui.label("동적 대상은 공식 원문에서 비교 후보를 다시 탐색합니다.")
+            ui.link(
+                "자율 탐구 시작",
+                f"/discover/{provider}/{identity}?level={level}&"
+                + _goal_query(goal, goal_text, amount),
+            )
+        return
     level = _learning_level(level).value
     learning_goal = _goal(goal)
     selected = next((item for item in list_heritages() if item.id == heritage_id), None)
@@ -737,6 +773,7 @@ def comparison_page(
                         right_id,
                         question,
                         learning_level,
+                        comparison_id=result.saved_id if result.collected_sources else None,
                     )
                 except Exception:
                     logger.exception("Question answering failed")
@@ -1397,3 +1434,85 @@ async def research_page(
 
 def register_pages() -> None:
     """Importing this module registers pages; this function documents that intent."""
+
+
+@ui.page("/discover/{provider}/{identity}")
+async def autonomous_page(
+    provider: str,
+    identity: str,
+    level: str = "beginner",
+    goal: str = "compare",
+    goal_text: str = "",
+    amount: str = "standard",
+):
+    _base_styles()
+    _header()
+    try:
+        if provider == "unesco":
+            target = OfficialTarget(provider=provider, record_id=identity)
+        else:
+            kind, number, region = identity.split(":")
+            target = OfficialTarget(provider=provider, kind=kind, number=number, region=region)
+        request = AutonomousRequest(
+            target=target,
+            level=_learning_level(level),
+            goal=_goal(goal),
+            goal_text=goal_text[:200],
+            amount=_amount(amount),
+        )
+    except ValueError:
+        _error_page("공식 대상 식별자를 확인해 주세요.", "web")
+        return
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("검색 결과에서 시작하는 자율 탐구").classes("cb-title text-3xl")
+        panel = ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
+        with panel:
+            ui.label("공식 원문을 확인하고 비교 후보를 탐색하고 있습니다…")
+            ui.spinner()
+        client = ui.context.client
+        await client.connected()
+        if client.is_deleted:
+            return
+        try:
+            result = await run.io_bound(run_autonomous, request)
+        except (ValueError, OfficialServiceError, HeritageNotFoundError, sqlite3.Error):
+            panel.clear()
+            with panel:
+                ui.label(
+                    "공식 자료를 확보하거나 탐구를 저장하지 못했습니다. 잠시 후 다시 시도하세요."
+                )
+                ui.link("홈 검색으로 돌아가기", "/")
+            return
+        panel.clear()
+        with panel:
+            ui.label(result["target"]["name"]).classes("cb-title text-2xl")
+            ui.label(
+                "AI 검색 계획" if result["used_ai_planner"] else "원문 키워드 기반 대체 검색 계획"
+            )
+            ui.label(result["verification_note"])
+            with ui.expansion("Agent 계획·검색·판단 기록").classes("w-full"):
+                for step in result["execution_trace"]:
+                    ui.label(step)
+            for candidate in result["candidates"]:
+                with ui.card().classes("cb-card w-full p-4"):
+                    ui.label(candidate["heritage"]["name"])
+                    ui.label(candidate["reason"])
+                    ui.link(
+                        "이 후보로 다시 탐구",
+                        f"/research/{result['target']['id']}/{candidate['heritage']['id']}"
+                        f"?level={level}&" + _goal_query(goal, goal_text, amount),
+                    )
+            if result["comparison"]:
+                comparison = result["comparison"]
+                ui.link(
+                    "Agent가 선택한 비교 결과 보기",
+                    f"/compare/{comparison['left']['id']}/{comparison['right']['id']}?saved_id={comparison['saved_id']}",
+                )
+                if result["quiz"]:
+                    ui.link(
+                        "근거 기반 퀴즈 풀기",
+                        f"/quiz/{comparison['left']['id']}/{comparison['right']['id']}?quiz_id={result['quiz']['quiz_id']}",
+                    )
+                else:
+                    ui.label(result["quiz_notice"])
+            ui.link("홈 검색으로 돌아가기", "/")

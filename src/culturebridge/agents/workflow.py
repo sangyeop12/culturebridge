@@ -6,11 +6,13 @@ from culturebridge.agents.quiz_agent import create_learning_quiz
 from culturebridge.domain.models import (
     CollectedSource,
     ExtractedField,
+    HeritageSummary,
     LearningAmount,
     LearningGoal,
     LearningLevel,
+    RelatedHeritage,
 )
-from culturebridge.services.catalog_service import recommend_related
+from culturebridge.services.catalog_service import get_heritage, recommend_related
 from culturebridge.services.comparison_service import create_saved_comparison
 from culturebridge.services.curriculum_service import plan_learning
 from culturebridge.services.extraction_service import extract_fields
@@ -59,7 +61,32 @@ def plan_curriculum(state):
 
 
 def explore_history(state):
-    candidates = recommend_related(state["heritage_id"], LearningGoal(state["goal"]))
+    if state["heritage_id"].startswith(("khs:", "unesco:")):
+        if not state.get("comparison_id"):
+            from culturebridge.database import transaction
+            from culturebridge.services.agent_discovery_service import discover_candidates
+            from culturebridge.services.dynamic_heritage_service import OfficialTarget
+
+            with transaction() as connection:
+                row = connection.execute(
+                    "SELECT target_json FROM dynamic_heritages WHERE id=?", (state["heritage_id"],)
+                ).fetchone()
+            _, candidates, _, _ = discover_candidates(
+                OfficialTarget.model_validate_json(row["target_json"]), state.get("goal_text", "")
+            )
+            if not candidates:
+                raise ValueError("공식 자료에서 적합한 비교 후보를 확보하지 못했습니다.")
+        else:
+            item = get_heritage(state["comparison_id"])
+            candidates = [
+                RelatedHeritage(
+                    heritage=HeritageSummary(**item.model_dump()),
+                    score=0,
+                    reason="공식 탐색에서 선정하거나 사용자가 선택한 대상입니다.",
+                )
+            ]
+    else:
+        candidates = recommend_related(state["heritage_id"], LearningGoal(state["goal"]))
     comparison_id = state.get("comparison_id") or candidates[0].heritage.id
     sources = collect_official_sources(state["heritage_id"], comparison_id)
     return {

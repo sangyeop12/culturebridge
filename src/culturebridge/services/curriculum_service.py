@@ -9,7 +9,7 @@ AMOUNT_LABELS = {
 GOAL_LABELS = {
     "observe": "모양·재료 관찰",
     "compare": "시대·구조 비교",
-    "religion": "불교와 종교 맥락",
+    "religion": "종교적 배경과 맥락",
     "verify": "출처와 근거 검토",
 }
 FOCUS = {
@@ -46,7 +46,7 @@ def plan_learning(
             "시대": "언제 만들었는지 보기",
             "구조": "모양 보기",
             "재료": "무엇으로 만들었는지 보기",
-            "종교적 배경": "불교와 관련된 표현 찾기",
+            "종교적 배경": "종교와 관련된 표현 찾기",
         },
         LearningLevel.INTERMEDIATE: {
             key: key + "의 공통점·차이점 비교" for key in FOCUS[LearningGoal.COMPARE]

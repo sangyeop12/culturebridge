@@ -11,6 +11,7 @@ from culturebridge.domain.models import ClaimEvidence, ClaimResult, SourceRecord
 from culturebridge.services.catalog_service import get_heritage
 from culturebridge.services.comparison_service import get_saved_comparison
 from culturebridge.services.evidence_comparison_service import supported_fields
+from culturebridge.services.extraction_service import usable_source
 from culturebridge.services.research_retry_service import retry_missing_sources
 
 
@@ -110,7 +111,7 @@ def _validate_report(report, sources):
             )
             if (
                 source is None
-                or source.content_kind != "individual_text"
+                or not usable_source(source)
                 or source.status not in {"fresh", "cached"}
                 or citation.quote not in source.content
                 or not citation.quote.strip()
@@ -141,7 +142,7 @@ def _verify_once(left_id, right_id, claim, comparison_id, comparison):
     sources = [
         s
         for s in comparison.collected_sources
-        if s.content_kind == "individual_text"
+        if usable_source(s)
         and s.status in {"fresh", "cached"}
         and s.heritage_id in {left_id, right_id}
         and s.content
@@ -221,7 +222,10 @@ def _verify_once(left_id, right_id, claim, comparison_id, comparison):
         from culturebridge.services.claim_service import ALIASES
 
         for field in supported_fields(comparison):
-            names = "|".join(re.escape(n) for n in ALIASES[field.heritage_id])
+            names = "|".join(
+                re.escape(n)
+                for n in ALIASES.get(field.heritage_id, (get_heritage(field.heritage_id).name,))
+            )
             match = re.fullmatch(
                 rf"(?:{names})(?:의|은|는)\s*{field.category}(?:은|는|가)?\s*(.+?)(?:이다|입니다)[.!。]?",
                 claim.strip(),
@@ -275,7 +279,10 @@ def verify_source_claim(left_id, right_id, claim, comparison_id):
         targets = [
             heritage_id
             for heritage_id in (left_id, right_id)
-            if any(name in missing_text for name in ALIASES[heritage_id])
+            if any(
+                name in missing_text
+                for name in ALIASES.get(heritage_id, (get_heritage(heritage_id).name,))
+            )
         ] or [left_id, right_id]
         trace.append("research_retry_tool: 부족한 주장 대상의 공식 자료 추가 조회 1회")
         # Keep the comparison snapshot immutable. Only provider caches may be refreshed.

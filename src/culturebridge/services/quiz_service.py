@@ -40,6 +40,10 @@ def generate_quiz(
         from culturebridge.services.evidence_quiz_service import generate_evidence_quiz
 
         return generate_evidence_quiz(left_id, right_id, level, comparison_id)
+    if left_id.startswith(("khs:", "unesco:")) or right_id.startswith(("khs:", "unesco:")):
+        from culturebridge.services.evidence_quiz_service import EvidenceQuizError
+
+        raise EvidenceQuizError("새 공식 대상의 퀴즈는 Agent가 만든 근거 비교 저장본이 필요합니다.")
     quiz_id = uuid4().hex
     countries = ["대한민국", "일본", "중국", "해당 없음"]
     materials = ["화강암", "목재", "벽돌", "금속"]

@@ -21,6 +21,13 @@ def collect_official_sources(
     items = [get_heritage(left_id), get_heritage(right_id)]
     sources = []
     for item in items:
+        if item.id.startswith(("khs:", "unesco:")):
+            from culturebridge.services.dynamic_heritage_service import dynamic_source
+
+            source = dynamic_source(item.id, refresh)
+            if source:
+                sources.append(source)
+            continue
         if item.id == "seokguram":
             source_url = (
                 BASE_URL + "SearchKindOpenapiDt.do?ccbaKdcd=11&ccbaAsno=0000240000000&ccbaCtcd=37"

@@ -39,7 +39,7 @@ def verify_claim(
     )
     evidence = []
     for item in items:
-        aliases = "|".join(re.escape(name) for name in ALIASES[item.id])
+        aliases = "|".join(re.escape(name) for name in ALIASES.get(item.id, (item.name,)))
         # Anchored templates intentionally reject extra clauses and negation.
         match = re.fullmatch(
             rf"(?:{aliases})(?:의|은|는)\s*(재료|시대|구조)(?:은|는|가)?\s*"
