@@ -42,6 +42,25 @@ CREATE TABLE IF NOT EXISTS comparisons (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS official_documents (
+    id TEXT PRIMARY KEY,
+    document_json TEXT NOT NULL,
+    raw_xml TEXT NOT NULL,
+    retrieved_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS official_location_feeds (
+    kind_code TEXT PRIMARY KEY,
+    raw_xml TEXT NOT NULL,
+    retrieved_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS unesco_feeds (
+    language TEXT PRIMARY KEY,
+    raw_xml TEXT NOT NULL,
+    retrieved_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS quiz_items (
     id TEXT PRIMARY KEY,
     quiz_id TEXT NOT NULL,
@@ -98,6 +117,18 @@ def initialize_database(path: Path | None = None) -> Path:
     with transaction(target) as connection:
         connection.executescript(SCHEMA)
         _migrate_quiz_items(connection)
+        unesco_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(unesco_feeds)")
+        }
+        for column, default in (
+            ("format", "xml"),
+            ("source_url", "https://whc.unesco.org/en/list/xml"),
+            ("license_url", "https://whc.unesco.org/en/syndication"),
+        ):
+            if column not in unesco_columns:
+                connection.execute(
+                    f"ALTER TABLE unesco_feeds ADD {column} TEXT DEFAULT '{default}' NOT NULL"
+                )
         source_columns = {row["name"] for row in connection.execute("PRAGMA table_info(sources)")}
         for column in ("summary", "scope_note"):
             if column not in source_columns:
@@ -168,6 +199,14 @@ def initialize_database(path: Path | None = None) -> Path:
 
 def _migrate_quiz_items(connection: sqlite3.Connection) -> None:
     columns = {row["name"] for row in connection.execute("PRAGMA table_info(quiz_items)")}
+    if "comparison_id" not in columns:
+        connection.execute(
+            "ALTER TABLE quiz_items ADD COLUMN comparison_id TEXT REFERENCES comparisons(id)"
+        )
+    if "evidence_json" not in columns:
+        connection.execute(
+            "ALTER TABLE quiz_items ADD COLUMN evidence_json TEXT NOT NULL DEFAULT '[]'"
+        )
     if "heritage_id" not in columns:
         connection.execute(
             "ALTER TABLE quiz_items ADD COLUMN heritage_id TEXT NOT NULL DEFAULT 'seokguram'"
@@ -184,6 +223,9 @@ def save_quiz_items(
     level: str,
     items: list[tuple[str, str, list[str], int, str]],
     path: Path | None = None,
+    *,
+    comparison_id: str | None = None,
+    evidence: list[dict] | None = None,
 ) -> None:
     with transaction(path) as connection:
         for position, (item_id, question, choices, correct_index, explanation) in enumerate(items):
@@ -191,8 +233,8 @@ def save_quiz_items(
                 """
                 INSERT INTO quiz_items (
                     id, quiz_id, heritage_id, level, position,
-                    question, choices_json, correct_index, explanation
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    question, choices_json, correct_index, explanation, comparison_id, evidence_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_id,
@@ -204,6 +246,8 @@ def save_quiz_items(
                     json.dumps(choices, ensure_ascii=False),
                     correct_index,
                     explanation,
+                    comparison_id,
+                    json.dumps(evidence or [], ensure_ascii=False),
                 ),
             )
 
@@ -213,7 +257,8 @@ def load_quiz_items(quiz_id: str, path: Path | None = None) -> list[sqlite3.Row]
         return list(
             connection.execute(
                 """
-                SELECT id, heritage_id, level, question, choices_json, correct_index, explanation
+                SELECT id, heritage_id, level, question, choices_json, correct_index, explanation,
+                    comparison_id, evidence_json
                 FROM quiz_items
                 WHERE quiz_id = ?
                 ORDER BY position

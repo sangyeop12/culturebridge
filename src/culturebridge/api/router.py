@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 
 from culturebridge.agents.workflow import exploration_graph
 from culturebridge.domain.models import (
@@ -21,6 +21,11 @@ from culturebridge.domain.models import (
     SavedComparisonSummary,
     SourceRecord,
 )
+from culturebridge.domain.official_models import (
+    OfficialDocument,
+    OfficialLocation,
+    OfficialSearchResult,
+)
 from culturebridge.services.catalog_service import (
     HeritageNotFoundError,
     get_heritage,
@@ -35,12 +40,27 @@ from culturebridge.services.comparison_service import (
     get_saved_comparison,
     list_saved_comparisons,
 )
+from culturebridge.services.evidence_quiz_service import EvidenceQuizError
+from culturebridge.services.location_service import get_official_location
+from culturebridge.services.official_service import (
+    OfficialDocumentNotFoundError,
+    OfficialServiceError,
+    get_official_document,
+    search_official_heritages,
+)
 from culturebridge.services.question_service import answer_question
 from culturebridge.services.quiz_service import (
     InvalidQuizAttemptError,
     QuizNotFoundError,
     generate_quiz,
     grade_quiz,
+)
+from culturebridge.services.source_claim_service import ClaimTargetMismatchError
+from culturebridge.services.unesco_service import (
+    UnescoResult,
+    UnescoSuggestion,
+    get_unesco_suggestions,
+    search_unesco,
 )
 
 router = APIRouter(prefix="/api", tags=["CultureBridge"])
@@ -51,9 +71,76 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "CultureBridge"}
 
 
+@router.get("/unesco/heritages", response_model=UnescoResult)
+def unesco_heritages(
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100000),
+):
+    try:
+        return search_unesco(q, limit, offset)
+    except OfficialServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/unesco/suggestions", response_model=list[UnescoSuggestion])
+def unesco_suggestions(
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=8, ge=1, le=20),
+):
+    try:
+        return get_unesco_suggestions(q, limit)
+    except OfficialServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/official/heritages", response_model=OfficialSearchResult)
+def official_search(
+    q: str = Query(min_length=1, max_length=100),
+    page: int = Query(default=1, ge=1, le=10000),
+    page_size: int = Query(default=10, ge=1, le=50),
+):
+    try:
+        return search_official_heritages(q, page, page_size)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OfficialServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/official/heritages/{kind}/{number}/{region}", response_model=OfficialDocument)
+def official_detail(
+    kind: str = Path(pattern=r"^\d{2}$"),
+    number: str = Path(pattern=r"^\d{1,20}$"),
+    region: str = Path(pattern=r"^\d{2}$"),
+):
+    try:
+        return get_official_document(kind, number, region)
+    except OfficialDocumentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="공식 자료를 찾을 수 없습니다.") from exc
+    except OfficialServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.get("/heritages", response_model=list[HeritageSummary])
 def heritages(q: str | None = Query(default=None, max_length=100)):
     return list_heritages(q)
+
+
+@router.get(
+    "/official/heritages/{kind}/{number}/{region}/location", response_model=OfficialLocation
+)
+def official_location(
+    kind: str = Path(pattern=r"^\d{2}$"),
+    number: str = Path(pattern=r"^\d{1,20}$"),
+    region: str = Path(pattern=r"^\d{2}$"),
+):
+    try:
+        return get_official_location(kind, number, region)
+    except OfficialDocumentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="일치하는 공식 위치 자료가 없습니다.") from exc
+    except OfficialServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/heritages/{heritage_id}", response_model=HeritageDetail)
@@ -126,6 +213,8 @@ def create_exploration(request: ExplorationRequest):
         comparison=result["comparison"],
         verification_status=result["verification_status"],
         verification_note=result["verification_note"],
+        collected_sources=result["collected_sources"],
+        extracted_fields=result["extracted_fields"],
     )
 
 
@@ -147,7 +236,15 @@ def ask_question(request: QuestionRequest):
 @router.post("/claims/verify", response_model=ClaimResult)
 def check_claim(request: ClaimRequest):
     try:
-        return verify_claim(request.left_id, request.right_id, request.claim)
+        return verify_claim(
+            request.left_id, request.right_id, request.claim, comparison_id=request.comparison_id
+        )
+    except ComparisonNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail="검증할 비교 저장본을 찾을 수 없습니다."
+        ) from exc
+    except ClaimTargetMismatchError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except HeritageNotFoundError as exc:
         raise HTTPException(status_code=404, detail="검증할 문화유산을 찾을 수 없습니다.") from exc
 
@@ -155,7 +252,15 @@ def check_claim(request: ClaimRequest):
 @router.post("/quizzes", response_model=QuizResponse)
 def create_quiz(request: QuizRequest):
     try:
-        return generate_quiz(request.left_id, request.right_id, request.level)
+        return generate_quiz(
+            request.left_id, request.right_id, request.level, comparison_id=request.comparison_id
+        )
+    except ComparisonNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail="퀴즈의 저장된 비교를 찾을 수 없습니다."
+        ) from exc
+    except EvidenceQuizError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except HeritageNotFoundError as exc:
         raise HTTPException(
             status_code=404, detail="퀴즈에 사용할 문화유산을 찾을 수 없습니다."

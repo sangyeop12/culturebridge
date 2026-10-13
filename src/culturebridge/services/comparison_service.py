@@ -4,12 +4,16 @@ from uuid import uuid4
 
 from culturebridge.database import transaction
 from culturebridge.domain.models import (
+    CollectedSource,
     ComparisonResult,
+    ExtractedField,
     LearningLevel,
     SavedComparison,
     SavedComparisonSummary,
+    SourceRecord,
 )
 from culturebridge.services.catalog_service import compare_heritages, get_sources
+from culturebridge.services.evidence_comparison_service import apply_extracted_comparison
 
 
 class ComparisonNotFoundError(KeyError):
@@ -21,14 +25,35 @@ def create_saved_comparison(
     right_id: str,
     level: LearningLevel,
     path: Path | None = None,
+    *,
+    collected_sources: list[CollectedSource] | None = None,
+    extracted_fields: list[ExtractedField] | None = None,
 ) -> ComparisonResult:
     result = compare_heritages(left_id, right_id, level)
+    result.collected_sources = collected_sources or []
+    result.extracted_fields = extracted_fields or []
+    if extracted_fields is not None:
+        result = apply_extracted_comparison(result)
+    source_records = get_sources(result.source_ids)
+    if result.basis == "extracted":
+        source_records = [
+            SourceRecord(
+                id=s.id,
+                title=s.title,
+                organization=s.organization,
+                url=s.source_url,
+                retrieved_at=s.retrieved_at.date(),
+                scope_note=s.scope_note,
+            )
+            for s in result.collected_sources
+            if s.id in result.source_ids and s.retrieved_at
+        ]
     result.saved_id = str(uuid4())
     saved = SavedComparison(
         id=result.saved_id,
         created_at=datetime.now(UTC),
         comparison=result,
-        sources=get_sources(result.source_ids),
+        sources=source_records,
     )
     with transaction(path) as connection:
         connection.execute(

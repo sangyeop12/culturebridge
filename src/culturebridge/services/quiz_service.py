@@ -8,6 +8,7 @@ from culturebridge.database import (
     save_quiz_items,
 )
 from culturebridge.domain.models import (
+    ExtractedField,
     LearningLevel,
     QuizAttemptResult,
     QuizChoice,
@@ -29,10 +30,16 @@ def _choice_index(choices: list[str], answer: str) -> int:
     return choices.index(answer)
 
 
-def generate_quiz(left_id: str, right_id: str, level: LearningLevel) -> QuizResponse:
+def generate_quiz(
+    left_id: str, right_id: str, level: LearningLevel, *, comparison_id: str | None = None
+) -> QuizResponse:
     left = get_heritage(left_id)
     right = get_heritage(right_id)
     initialize_database()
+    if comparison_id:
+        from culturebridge.services.evidence_quiz_service import generate_evidence_quiz
+
+        return generate_evidence_quiz(left_id, right_id, level, comparison_id)
     quiz_id = uuid4().hex
     countries = ["대한민국", "일본", "중국", "해당 없음"]
     materials = ["화강암", "목재", "벽돌", "금속"]
@@ -251,4 +258,7 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
         score=score,
         total=len(rows),
         explanations=explanations,
+        evidence=[
+            ExtractedField.model_validate(field) for field in json.loads(rows[0]["evidence_json"])
+        ],
     )

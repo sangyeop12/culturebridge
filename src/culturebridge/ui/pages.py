@@ -3,7 +3,8 @@ import sqlite3
 
 from nicegui import run, ui
 
-from culturebridge.domain.models import LearningLevel
+from culturebridge.agents.workflow import exploration_graph
+from culturebridge.domain.models import CollectedSource, ExtractedField, LearningLevel
 from culturebridge.services.catalog_service import (
     HeritageNotFoundError,
     get_sources,
@@ -17,12 +18,28 @@ from culturebridge.services.comparison_service import (
     get_saved_comparison,
     list_saved_comparisons,
 )
+from culturebridge.services.evidence_quiz_service import EvidenceQuizError
+from culturebridge.services.location_service import get_official_location
+from culturebridge.services.official_service import (
+    SEOKGURAM_CODES,
+    OfficialDocumentNotFoundError,
+    OfficialServiceError,
+    get_official_document,
+    search_official_heritages,
+)
 from culturebridge.services.question_service import answer_question
 from culturebridge.services.quiz_service import (
     InvalidQuizAttemptError,
     QuizNotFoundError,
     generate_quiz,
     grade_quiz,
+)
+from culturebridge.services.source_claim_service import ClaimTargetMismatchError
+from culturebridge.services.unesco_service import (
+    UNESCO_TERMS_URL,
+    get_unesco_suggestions,
+    normalize_search,
+    search_unesco,
 )
 
 logger = logging.getLogger(__name__)
@@ -160,12 +177,55 @@ def _learning_level(value: str) -> LearningLevel:
         return LearningLevel.BEGINNER
 
 
+def _extracted_field_cards(fields: list[ExtractedField]) -> None:
+    names = {item.id: item.name for item in list_heritages()}
+    for field in fields:
+        with ui.card().classes("cb-card w-full p-5 gap-2"):
+            ui.label(
+                f"{names.get(field.heritage_id, field.heritage_id)} · {field.category}"
+            ).classes("cb-title text-xl")
+            ui.label("추가 확인 필요" if field.value else "근거 부족").classes("font-semibold")
+            ui.label(field.value or "현재 자료에서 해당 항목을 추출하지 못했습니다.")
+            ui.label(field.note).classes("cb-muted")
+            if field.evidence_quote:
+                ui.label("원문 근거: " + field.evidence_quote).style("white-space: pre-wrap")
+            if field.source_url:
+                ui.link("근거 출처", str(field.source_url), new_tab=True)
+
+
+def _collected_source_cards(sources: list[CollectedSource]) -> None:
+    labels = {
+        "fresh": "새로 수집함",
+        "cached": "저장된 공식 자료",
+        "stale": "갱신 필요",
+        "unavailable": "수집 실패",
+    }
+    for source in sources:
+        with ui.card().classes("cb-card w-full p-5 gap-2"):
+            ui.label(f"{source.organization} · {source.title}").classes("cb-title text-xl")
+            ui.label(labels[source.status]).classes("font-semibold")
+            ui.label(source.scope_note).classes("cb-muted")
+            if source.retrieved_at:
+                ui.label(
+                    "자료 조회 시각: " + source.retrieved_at.astimezone().strftime("%Y-%m-%d %H:%M")
+                )
+            ui.link("공식 자료 페이지", str(source.source_url), new_tab=True)
+            ui.link("수집 API 출처", str(source.feed_url), new_tab=True)
+            if source.license_url:
+                ui.link("자료 이용 조건", str(source.license_url), new_tab=True)
+            if source.content:
+                with ui.expansion("수집 내용 확인").classes("w-full"):
+                    ui.label(source.content).style("white-space: pre-wrap; overflow-wrap: anywhere")
+
+
 @ui.page("/")
 def home_page() -> None:
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-7 py-10"):
         ui.link("저장된 비교 보기", "/comparisons").classes("text-blue-800 font-semibold")
+        ui.link("국가유산청 공식 자료 검색", "/official").classes("text-blue-800 font-semibold")
+        ui.link("UNESCO 세계유산 목록", "/unesco").classes("text-blue-800 font-semibold")
         with ui.column().classes("gap-2"):
             ui.label("문화유산에서 시작하는 비교 탐구").classes("cb-title text-4xl")
             ui.label("한국·중국·일본의 불교 문화유산을 공식 출처와 함께 비교해 보세요.").classes(
@@ -297,6 +357,12 @@ def explore_page(
                         _route(f"/compare/{heritage_id}/{right_id}?level={level}", mode)
                     ),
                 ).props("unelevated").style(f"background: {ACCENT}").classes(_action_classes(mode))
+                ui.button(
+                    "공식 자료로 Agent 탐구",
+                    on_click=lambda right_id=candidate.heritage.id: ui.navigate.to(
+                        _route(f"/research/{heritage_id}/{right_id}?level={level}", mode)
+                    ),
+                ).classes(_action_classes(mode))
 
         ui.button(
             "다른 문화유산 선택",
@@ -346,8 +412,7 @@ def comparison_page(
                 ui.label(f"학습 목표: {result.learning_goal}").classes("text-lg font-semibold")
             if saved_id:
                 ui.label(
-                    "저장 당시의 비교와 출처입니다. 아래 자유 질문·주장 검증·퀴즈는 "
-                    "현재 등록된 학습 자료를 사용합니다."
+                    "저장 당시의 비교와 출처입니다. 자유 질문은 현재 등록 자료를 사용합니다."
                 ).classes("cb-muted")
             if result.saved_id and not _is_kiosk(mode):
                 ui.link(
@@ -357,9 +422,23 @@ def comparison_page(
                 ui.link("저장된 비교 목록", "/comparisons").classes("text-blue-800")
 
         with ui.card().classes("cb-card w-full p-6 gap-3"):
-            ui.label("공통점").classes("cb-title text-2xl")
+            ui.label("공통점 검토 안내" if result.basis == "extracted" else "공통점").classes(
+                "cb-title text-2xl"
+            )
             for point in result.common_points:
                 ui.label(f"• {point}").classes("text-base")
+
+        if result.collected_sources:
+            ui.label("Agent가 수집한 공식 자료").classes("cb-title text-2xl")
+            ui.label(
+                "아래 비교는 원문 추출 후보로 구성했습니다. 의미 검토가 필요합니다."
+                if result.basis == "extracted"
+                else "아래 비교는 기존 검토된 데이터로 작성됐습니다."
+            )
+            _collected_source_cards(result.collected_sources)
+        if result.extracted_fields:
+            ui.label("공식 자료에서 추출한 항목·근거").classes("cb-title text-2xl")
+            _extracted_field_cards(result.extracted_fields)
 
         ui.label("항목별 차이").classes("cb-title text-2xl")
         for point in result.differences:
@@ -376,9 +455,17 @@ def comparison_page(
 
         with ui.card().classes("cb-card w-full p-6 gap-3"):
             ui.label("검증 상태와 출처").classes("cb-title text-2xl")
-            status_label = (
-                "확인됨" if result.verification_status.value == "verified" else "추가 확인 필요"
-            )
+            if "seokguram" in (left_id, right_id):
+                ui.link(
+                    "석굴암 공식 API 원문 불러오기",
+                    "/official/" + "/".join(SEOKGURAM_CODES),
+                    new_tab=True,
+                )
+            status_label = {
+                "verified": "확인됨",
+                "needs_review": "추가 확인 필요",
+                "insufficient_evidence": "근거 부족",
+            }[result.verification_status.value]
             ui.label(status_label).classes("font-bold")
             ui.label(result.verification_note).classes("cb-muted")
             for source in sources:
@@ -444,6 +531,8 @@ def comparison_page(
                         ui.label(status_text).classes(f"font-bold {status_class}")
                         ui.label(answer.answer).classes("text-base")
                         ui.label(answer.verification_note).classes("cb-muted text-sm")
+                        for source in answer.sources:
+                            ui.link(source.title, str(source.url), new_tab=True)
 
             ask_button = (
                 ui.button("질문하기", on_click=submit_question)
@@ -454,6 +543,8 @@ def comparison_page(
 
         with ui.card().classes("cb-card w-full p-6 gap-4"):
             ui.label("역사적 주장 검증").classes("cb-title text-2xl")
+            if result.collected_sources:
+                ui.label("이 비교에 저장된 개별 원문과 대조합니다. AI 판정은 검토 후보입니다.")
             ui.label("한 가지 사실을 입력하세요. 예: 석굴암의 재료는 화강암이다").classes(
                 "cb-muted"
             )
@@ -466,12 +557,28 @@ def comparison_page(
             )
             claim_box = ui.column().props("role=status aria-live=polite").classes("w-full gap-3")
 
-            def submit_claim() -> None:
+            async def submit_claim() -> None:
                 claim = (claim_input.value or "").strip()
                 if not 2 <= len(claim) <= 500:
                     ui.notify("주장을 2~500글자로 입력해 주세요.", color="warning")
                     return
-                checked = verify_claim(left_id, right_id, claim)
+                claim_button.disable()
+                try:
+                    checked = await run.io_bound(
+                        verify_claim,
+                        left_id,
+                        right_id,
+                        claim,
+                        comparison_id=result.saved_id if result.collected_sources else None,
+                    )
+                except (ComparisonNotFoundError, ClaimTargetMismatchError, sqlite3.Error):
+                    ui.notify(
+                        "주장 검증의 저장 자료를 확인하지 못했습니다. 다시 시도하세요.",
+                        color="negative",
+                    )
+                    return
+                finally:
+                    claim_button.enable()
                 labels = {
                     "verified": "확인됨",
                     "needs_review": "추가 확인 필요",
@@ -479,10 +586,28 @@ def comparison_page(
                 }
                 claim_box.clear()
                 with claim_box:
+                    ui.label("입력한 주장: " + checked.claim)
                     ui.label(labels[checked.verification_status.value]).classes("cb-title text-xl")
                     ui.label(checked.explanation)
+                    if checked.unsupported_parts:
+                        ui.label("개별 근거가 없는 주장 부분").classes("font-semibold")
+                        for part in checked.unsupported_parts:
+                            ui.label(part)
                     for entry in checked.evidence:
+                        ui.label(
+                            {
+                                "supports": "지지 후보",
+                                "contradicts": "반박 후보",
+                                "related": "관련 근거",
+                            }[entry.relation]
+                        ).classes("font-semibold")
                         ui.label(entry.fact).classes("font-semibold")
+                        if entry.evidence_quote:
+                            ui.label("원문 근거: " + entry.evidence_quote).style(
+                                "white-space: pre-wrap"
+                            )
+                        if entry.source_url:
+                            ui.link("근거 원문", str(entry.source_url), new_tab=True)
                     for source in checked.sources:
                         ui.link(
                             f"{source.organization} · {source.title}",
@@ -491,16 +616,21 @@ def comparison_page(
                         )
                     ui.label(checked.scope_note).classes("cb-muted text-sm")
 
-            ui.button("주장 검증하기", on_click=submit_claim).props("unelevated").style(
-                f"background: {ACCENT}"
-            ).classes(_action_classes(mode))
+            claim_button = (
+                ui.button("주장 검증하기", on_click=submit_claim)
+                .props("unelevated")
+                .style(f"background: {ACCENT}")
+                .classes(_action_classes(mode))
+            )
 
         with ui.row().classes("gap-3"):
             ui.button(
                 "학습 확인 퀴즈",
                 on_click=lambda: ui.navigate.to(
                     _route(
-                        f"/quiz/{left_id}/{right_id}?level={learning_level.value}",
+                        f"/quiz/{left_id}/{right_id}?level={learning_level.value}"
+                        + (f"&comparison_id={result.saved_id}" if result.extracted_fields else ""),
+                        # The quiz must use the same saved extraction snapshot.
                         mode,
                     )
                 ),
@@ -523,6 +653,7 @@ def quiz_page(
     right_id: str,
     level: str = LearningLevel.BEGINNER.value,
     mode: str = "web",
+    comparison_id: str | None = None,
 ) -> None:
     _base_styles()
     _page_header(mode)
@@ -531,7 +662,13 @@ def quiz_page(
         _error_page("서로 다른 문화유산을 선택해 주세요.", mode)
         return
     try:
-        quiz = generate_quiz(left_id, right_id, learning_level)
+        quiz = generate_quiz(left_id, right_id, learning_level, comparison_id=comparison_id)
+    except (ComparisonNotFoundError, EvidenceQuizError) as exc:
+        _error_page(
+            str(exc) if isinstance(exc, EvidenceQuizError) else "저장된 비교를 찾을 수 없습니다.",
+            mode,
+        )
+        return
     except HeritageNotFoundError:
         _error_page("퀴즈에 사용할 문화유산을 찾을 수 없습니다.", mode)
         return
@@ -548,6 +685,10 @@ def quiz_page(
                 "text-lg font-semibold"
             )
             ui.label("5개 문항에 모두 답한 뒤 채점하세요.").classes("cb-muted text-lg")
+            if quiz.basis == "extracted":
+                ui.label(
+                    "공식 원문·추출 후보를 읽는 퀴즈입니다. 의미 검증은 추가 확인이 필요합니다."
+                )
 
         for number, item in enumerate(quiz.items, start=1):
             with ui.card().classes("cb-card w-full p-6 gap-4"):
@@ -556,7 +697,7 @@ def quiz_page(
                 options = {choice.id: choice.text for choice in item.choices}
                 radios.append(
                     ui.radio(options)
-                    .props(f'inline=false aria-label="문제 {number}: {item.question}"')
+                    .props(f'inline=false aria-label="문제 {number} 선택지"')
                     .classes("w-full")
                 )
 
@@ -584,6 +725,9 @@ def quiz_page(
                     )
                     for explanation in result.explanations:
                         ui.label(explanation).classes("text-base")
+                    if result.evidence:
+                        ui.label("퀴즈의 저장된 원문 근거").classes("cb-title text-xl")
+                        _extracted_field_cards(result.evidence)
             submit_button.disable()
 
         submit_button = (
@@ -597,7 +741,8 @@ def quiz_page(
                 "비교 화면으로 돌아가기",
                 on_click=lambda: ui.navigate.to(
                     _route(
-                        f"/compare/{left_id}/{right_id}?level={learning_level.value}",
+                        f"/compare/{left_id}/{right_id}?level={learning_level.value}"
+                        + (f"&saved_id={comparison_id}" if comparison_id else ""),
                         mode,
                     )
                 ),
@@ -646,6 +791,311 @@ def comparison_history_page(page: int = 1) -> None:
             if len(records) > 20:
                 ui.link("다음 페이지", f"/comparisons?page={page + 1}")
             ui.link("새 비교 시작", "/")
+
+
+@ui.page("/official")
+def official_search_page() -> None:
+    _base_styles()
+    _header()
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("국가유산청 공식 자료 검색").classes("cb-title text-3xl")
+        ui.label("실제 국가유산청 API에서 검색합니다. 상세 자료를 열면 원문과 조회일을 저장합니다.")
+        search = ui.input(label="국가유산 이름", value="석굴암").props("outlined maxlength=100")
+        results = ui.column().classes("w-full gap-4").props("role=status aria-live=polite")
+
+        async def submit_search() -> None:
+            query = (search.value or "").strip()
+            if not 1 <= len(query) <= 100:
+                ui.notify("검색어를 1~100글자로 입력해 주세요.", color="warning")
+                return
+            search_button.disable()
+            results.clear()
+            try:
+                response = await run.io_bound(search_official_heritages, query)
+            except OfficialServiceError as exc:
+                with results:
+                    ui.label(str(exc)).props("role=alert")
+                return
+            finally:
+                search_button.enable()
+            with results:
+                ui.label(f"총 {response.total}건 · 첫 페이지 최대 10건 표시")
+                if not response.items:
+                    ui.label("검색 결과가 없습니다. 다른 이름으로 검색해 주세요.")
+                for item in response.items:
+                    with ui.card().classes("cb-card w-full p-5 gap-2"):
+                        ui.label(item.name).classes("cb-title text-xl")
+                        ui.label(f"{item.designation} · {item.region} {item.city}")
+                        ui.link(
+                            "공식 설명 보기",
+                            f"/official/{item.kind_code}/{item.asset_number}/{item.region_code}",
+                        )
+
+        search_button = ui.button("공식 자료 검색", on_click=submit_search).classes("cb-action")
+        ui.link("비교 학습 시작 화면", "/")
+
+
+@ui.page("/official/{kind}/{number}/{region}")
+async def official_detail_page(kind: str, number: str, region: str) -> None:
+    _base_styles()
+    _header()
+    try:
+        document = await run.io_bound(get_official_document, kind, number, region)
+    except (OfficialServiceError, OfficialDocumentNotFoundError, ValueError):
+        _error_page(
+            "공식 자료를 불러올 수 없습니다. 조회 코드를 확인하거나 다시 시도하세요.", "web"
+        )
+        return
+    except sqlite3.Error:
+        _error_page("공식 자료를 저장할 수 없습니다. 잠시 후 다시 시도하세요.", "web")
+        return
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label(document.name).classes("cb-title text-3xl")
+        ui.label(f"{document.designation} · {document.period} · {document.address}")
+        ui.label(document.notice).props("role=status").classes("cb-muted")
+        ui.label(
+            f"조회 시각: {document.retrieved_at.astimezone().strftime('%Y-%m-%d %H:%M')} · "
+            + ("이전 수집 자료" if document.cached else "새로 수집한 자료")
+        )
+        if document.stale:
+            ui.label("갱신이 필요한 자료입니다.").classes("text-orange-800")
+        with ui.card().classes("cb-card w-full p-6"):
+            ui.label(document.content).style("white-space: pre-wrap; overflow-wrap: anywhere")
+        ui.link("국가유산청 API 원문", str(document.source_url), new_tab=True)
+        with ui.card().classes("cb-card w-full p-6 gap-3"):
+            ui.label("공식 위치정보").classes("cb-title text-2xl")
+            ui.label("UTM-K 좌표를 조회합니다. 보호구역 경계 지도는 별도 서비스입니다.")
+            location_box = ui.column().classes("w-full gap-2").props("role=status aria-live=polite")
+
+            async def load_location() -> None:
+                location_button.disable()
+                location_box.clear()
+                try:
+                    location = await run.io_bound(get_official_location, kind, number, region)
+                except OfficialDocumentNotFoundError:
+                    with location_box:
+                        ui.label("일치하는 공식 위치 자료가 없습니다.")
+                    return
+                except (OfficialServiceError, sqlite3.Error):
+                    with location_box:
+                        ui.label("위치정보를 불러오지 못했습니다. 잠시 후 다시 시도하세요.")
+                    return
+                finally:
+                    location_button.enable()
+                with location_box:
+                    ui.label(location.location)
+                    ui.label(
+                        f"{location.coordinate_system} · X {location.projected_x:.3f} / "
+                        f"Y {location.projected_y:.3f}"
+                    )
+                    ui.label(
+                        "조회 시각: "
+                        + location.retrieved_at.astimezone().strftime("%Y-%m-%d %H:%M")
+                    )
+                    if location.stale:
+                        ui.label("연결 실패로 이전 위치 자료를 표시합니다. 갱신이 필요합니다.")
+                    ui.link("공간정보 API 원문", str(location.source_url), new_tab=True)
+                    if location.latitude is not None and location.longitude is not None:
+                        ui.label(
+                            f"상세 API 위도·경도: {location.latitude:.6f}, {location.longitude:.6f}"
+                        )
+                        ui.link("위도·경도 출처", str(location.geographic_source_url), new_tab=True)
+                        ui.link(
+                            "지도에서 위치 보기 (OpenStreetMap)",
+                            "https://www.openstreetmap.org/?mlat="
+                            + str(location.latitude)
+                            + "&mlon="
+                            + str(location.longitude)
+                            + "#map=16/"
+                            + str(location.latitude)
+                            + "/"
+                            + str(location.longitude),
+                            new_tab=True,
+                        )
+                    else:
+                        ui.label("유효한 위도·경도가 없어 외부 지도 링크를 표시하지 않습니다.")
+
+            location_button = ui.button("공식 위치정보 불러오기", on_click=load_location).classes(
+                "cb-action"
+            )
+        if (kind, number, region) == SEOKGURAM_CODES:
+            ui.label(
+                "이 원문은 석굴암의 Gemini 자유 질문 근거에 포함됩니다. "
+                "AI 답변은 검토가 필요합니다."
+            )
+            ui.link("석굴암 비교 학습", "/explore/seokguram")
+        ui.link("공식 자료 다시 검색", "/official")
+
+
+@ui.page("/unesco")
+def unesco_page() -> None:
+    _base_styles()
+    _header()
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("UNESCO 세계유산 목록").classes("cb-title text-3xl")
+        ui.label(
+            "한글 별칭·국가명과 공식 영문 이름으로 검색합니다. 등재연도는 건립연도가 아닙니다."
+        )
+        ui.link("공식 XML 및 이용 조건", UNESCO_TERMS_URL, new_tab=True)
+        ui.label("이용 조건을 확인하세요. 목록 데이터는 AI 번역·요약에 전달하지 않습니다.")
+        query = (
+            ui.input(label="유산 이름·국가·등재 ID", placeholder="예: 호류지, 석굴암, 일본, 660")
+            .props("outlined clearable maxlength=100")
+            .classes("w-full")
+        )
+        ui.label("한글 별칭: 석굴암·불국사·호류지·실크로드·대안탑 / 국가명: 한국·일본·중국")
+        try:
+            suggestion_index = get_unesco_suggestions(limit=2000)
+        except (OfficialServiceError, sqlite3.Error):
+            suggestion_index = []
+        query.set_autocomplete([item.value for item in suggestion_index])
+        suggestions = (
+            ui.column().classes("w-full gap-1").props('role=group aria-label="검색어 제안"')
+        )
+        results = ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
+
+        async def load(refresh: bool = False) -> None:
+            nonlocal suggestion_index
+            button.disable()
+            refresh_button.disable()
+            suggestions.clear()
+            results.clear()
+            try:
+                response = await run.io_bound(
+                    search_unesco, (query.value or "")[:100], refresh=refresh
+                )
+                suggestion_index = await run.io_bound(get_unesco_suggestions, "", 2000)
+                query.set_autocomplete([item.value for item in suggestion_index])
+            except OfficialServiceError as exc:
+                with results:
+                    ui.label(str(exc))
+                    ui.label("로컬 XML 가져오기 방법은 README의 UNESCO 연결 안내를 참고하세요.")
+                return
+            except sqlite3.Error:
+                with results:
+                    ui.label("목록을 저장하거나 불러오지 못했습니다. 다시 시도하세요.")
+                return
+            finally:
+                button.enable()
+                refresh_button.enable()
+            with results:
+                ui.label(f"총 {response.total}건 · 처음 20건 표시")
+                ui.label("조회 시각: " + response.retrieved_at.isoformat())
+                ui.link("수집한 공식 데이터 출처", response.feed_source_url, new_tab=True)
+                ui.link(
+                    "DataHub 데이터셋·이용 조건 (CC BY-SA 4.0)"
+                    if response.source_format == "json"
+                    else "XML 배포 이용 조건",
+                    response.license_url,
+                    new_tab=True,
+                )
+                if response.stale:
+                    ui.label("연결 실패로 이전 자료를 표시합니다. 갱신이 필요합니다.")
+                for record in response.records:
+                    with ui.card().classes("cb-card w-full p-5"):
+                        ui.link(record.name, str(record.source_url), new_tab=True)
+                        ui.label(record.countries)
+                        ui.label(f"등재연도 {record.inscription_year} · ID {record.id}")
+                if response.source_format == "json":
+                    ui.label("출처: UNESCO · CC BY-SA 4.0")
+                else:
+                    copyright_notice = (
+                        "Copyright © 1992 - 2026 UNESCO/World Heritage Centre. All rights reserved."
+                    )
+                    ui.label(copyright_notice)
+                ui.link("UNESCO World Heritage Centre", "https://whc.unesco.org", new_tab=True)
+
+        async def search_data() -> None:
+            await load()
+
+        async def choose_suggestion(value: str) -> None:
+            query.set_value(value)
+            await load()
+
+        def render_suggestions() -> None:
+            suggestions.clear()
+            term = normalize_search(query.value or "")
+            if not term:
+                return
+            options = [item for item in suggestion_index if term in normalize_search(item.value)]
+            options.sort(
+                key=lambda item: (
+                    normalize_search(item.value) != term,
+                    not normalize_search(item.value).startswith(term),
+                )
+            )
+            with suggestions:
+                for item in options[:8]:
+                    ui.button(
+                        item.label,
+                        on_click=lambda value=item.value: choose_suggestion(value),
+                    ).props("flat no-caps align=left").classes("w-full cb-action text-blue-900")
+
+        query.on_value_change(lambda _: render_suggestions())
+        query.on("keydown.enter", search_data)
+
+        button = ui.button("목록 불러오기·검색", on_click=search_data).classes("cb-action")
+
+        async def refresh_data() -> None:
+            await load(refresh=True)
+
+        refresh_button = ui.button("공식 데이터 새로고침", on_click=refresh_data).classes(
+            "cb-action"
+        )
+        ui.link("처음으로", "/")
+
+
+@ui.page("/research/{left_id}/{right_id}")
+async def research_page(
+    left_id: str, right_id: str, level: str = "beginner", mode: str = "web"
+) -> None:
+    _base_styles()
+    _page_header(mode)
+    learning_level = _learning_level(level)
+    if left_id == right_id:
+        _error_page("서로 다른 문화유산을 선택해 주세요.", mode)
+        return
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("공식 자료로 Agent 탐구").classes("cb-title text-3xl")
+        ui.label("선택한 두 문화유산의 공식 자료를 수집하고 조회 시각·출처·범위를 기록합니다.")
+        panel = ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
+        with panel:
+            ui.label("공식 자료를 확인하고 있습니다…")
+            ui.spinner()
+        try:
+            state = await run.io_bound(
+                exploration_graph.invoke,
+                {
+                    "heritage_id": left_id,
+                    "comparison_id": right_id,
+                    "level": learning_level.value,
+                },
+            )
+        except (HeritageNotFoundError, sqlite3.Error):
+            panel.clear()
+            _error_page("탐구 자료를 확인하거나 저장하지 못했습니다.", mode)
+            return
+        panel.clear()
+        with panel:
+            ui.label(state["verification_note"]).classes("cb-muted")
+            ui.label("학습 순서: " + " → ".join(state["curriculum"]))
+            _collected_source_cards(
+                [CollectedSource.model_validate(s) for s in state["collected_sources"]]
+            )
+            ui.label("시대·구조·재료 추출 결과").classes("cb-title text-2xl")
+            _extracted_field_cards(
+                [ExtractedField.model_validate(f) for f in state["extracted_fields"]]
+            )
+            record_id = state["comparison"]["saved_id"]
+            ui.button(
+                "수집 자료와 비교 결과 보기",
+                on_click=lambda: ui.navigate.to(
+                    _route(f"/compare/{left_id}/{right_id}?saved_id={record_id}", mode)
+                ),
+            ).classes(_action_classes(mode))
+            ui.button("처음으로", on_click=lambda: ui.navigate.to(_home_route(mode))).classes(
+                _action_classes(mode)
+            )
 
 
 def register_pages() -> None:

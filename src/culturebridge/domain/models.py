@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
@@ -67,11 +68,42 @@ class ComparisonPoint(BaseModel):
     left: str
     right: str
     explanation: str
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class CollectedSource(BaseModel):
+    id: str
+    heritage_id: str
+    title: str
+    organization: str
+    source_url: HttpUrl
+    feed_url: HttpUrl
+    retrieved_at: datetime | None = None
+    content: str = ""
+    status: str = Field(pattern=r"^(fresh|cached|stale|unavailable)$")
+    scope_note: str
+    license_url: HttpUrl | None = None
+    content_kind: Literal["individual_text", "group_text", "metadata"] = "metadata"
+
+
+class ExtractedField(BaseModel):
+    heritage_id: str
+    category: Literal["시대", "구조", "재료"]
+    value: str | None = None
+    source_id: str | None = None
+    evidence_quote: str = ""
+    source_url: HttpUrl | None = None
+    verification_status: VerificationStatus = VerificationStatus.INSUFFICIENT_EVIDENCE
+    method: Literal["local", "gemini"] = "local"
+    note: str
 
 
 class ComparisonResult(BaseModel):
     saved_id: str | None = None
     learning_goal: str = ""
+    collected_sources: list[CollectedSource] = Field(default_factory=list)
+    extracted_fields: list[ExtractedField] = Field(default_factory=list)
+    basis: Literal["curated", "extracted"] = "curated"
     left: HeritageSummary
     right: HeritageSummary
     level: LearningLevel
@@ -118,6 +150,8 @@ class ExplorationResult(BaseModel):
     comparison: ComparisonResult
     verification_status: VerificationStatus
     verification_note: str
+    collected_sources: list[CollectedSource] = Field(default_factory=list)
+    extracted_fields: list[ExtractedField] = Field(default_factory=list)
 
 
 class QuestionRequest(BaseModel):
@@ -148,9 +182,11 @@ class QuestionAnswer(BaseModel):
     verification_status: VerificationStatus
     verification_note: str
     used_ai: bool
+    sources: list[SourceRecord] = Field(default_factory=list)
 
 
 class ClaimRequest(ComparisonRequest):
+    comparison_id: str | None = None
     claim: str = Field(min_length=2, max_length=500)
 
     @field_validator("claim")
@@ -167,6 +203,9 @@ class ClaimEvidence(BaseModel):
     category: str
     fact: str
     source_ids: list[str]
+    evidence_quote: str = ""
+    source_url: HttpUrl | None = None
+    relation: Literal["supports", "contradicts", "related"] = "related"
 
 
 class ClaimResult(BaseModel):
@@ -176,6 +215,13 @@ class ClaimResult(BaseModel):
     evidence: list[ClaimEvidence]
     sources: list[SourceRecord]
     scope_note: str
+    basis: Literal["curated", "official_snapshot"] = "curated"
+    comparison_id: str | None = None
+    used_ai: bool = False
+    assessment: Literal[
+        "source_match", "support_candidate", "contradiction_candidate", "mixed", "insufficient"
+    ] = "insufficient"
+    unsupported_parts: list[str] = Field(default_factory=list)
 
 
 class QuizChoice(BaseModel):
@@ -195,6 +241,7 @@ class QuizRequest(BaseModel):
     left_id: str
     right_id: str
     level: LearningLevel = LearningLevel.BEGINNER
+    comparison_id: str | None = None
 
     @model_validator(mode="after")
     def different_heritages(self) -> "QuizRequest":
@@ -208,6 +255,9 @@ class QuizResponse(BaseModel):
     level: LearningLevel = LearningLevel.BEGINNER
     learning_goal: str = ""
     items: list[QuizItem]
+    comparison_id: str | None = None
+    basis: Literal["curated", "extracted"] = "curated"
+    verification_status: VerificationStatus = VerificationStatus.VERIFIED
 
 
 class QuizAttemptRequest(BaseModel):
@@ -220,3 +270,4 @@ class QuizAttemptResult(BaseModel):
     score: int
     total: int
     explanations: list[str]
+    evidence: list[ExtractedField] = Field(default_factory=list)

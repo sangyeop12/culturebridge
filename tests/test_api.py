@@ -16,6 +16,14 @@ def isolated_api_database(tmp_path, monkeypatch):
     monkeypatch.setattr(get_settings(), "db_path", path)
     monkeypatch.setattr(get_settings(), "gemini_api_key", None)
     initialize_database(path)
+    from culturebridge.services import source_collection_service as collector
+    from culturebridge.services.official_service import OfficialServiceError
+
+    def no_remote(*args, **kwargs):
+        raise OfficialServiceError("External requests disabled in API tests")
+
+    monkeypatch.setattr(collector, "get_official_document", no_remote)
+    monkeypatch.setattr(collector, "search_unesco", no_remote)
 
 
 def test_complete_local_learning_flow():
@@ -166,7 +174,7 @@ def test_exploration_runs_all_agent_stages() -> None:
     assert response.status_code == 200
     result = response.json()
     assert result["comparison_id"] in {"horyuji", "dayanta"}
-    assert result["verification_status"] == "verified"
+    assert result["verification_status"] == "needs_review"
     assert len(result["curriculum"]) == 4
     record_id = result["comparison"]["saved_id"]
     assert client.get(f"/api/comparisons/{record_id}").json()["comparison"] == result["comparison"]

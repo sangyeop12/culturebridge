@@ -22,7 +22,13 @@ SCOPE_NOTE = (
 )
 
 
-def verify_claim(left_id: str, right_id: str, claim: str) -> ClaimResult:
+def verify_claim(
+    left_id: str, right_id: str, claim: str, *, comparison_id: str | None = None
+) -> ClaimResult:
+    if comparison_id:
+        from culturebridge.services.source_claim_service import verify_source_claim
+
+        return verify_source_claim(left_id, right_id, claim.strip(), comparison_id)
     items = [get_heritage(left_id), get_heritage(right_id)]
     claim = claim.strip()
     status = VerificationStatus.INSUFFICIENT_EVIDENCE
