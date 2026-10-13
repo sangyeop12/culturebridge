@@ -24,6 +24,28 @@ KOREAN_NAMES = {
     "86": "멤피스와 네크로폴리스: 기자–다슈르 피라미드 지대",
     "83": "베르사유 궁전과 공원",
     "976": "경주 역사유적지구",
+    "688": "고도 교토의 문화유산",
+    "870": "고도 나라의 문화유산",
+    "913": "닛코의 신사와 사찰",
+    "734": "시라카와고와 고카야마의 역사 마을",
+    "661": "히메지성",
+    "776": "이쓰쿠시마 신사",
+    "592": "보로부두르 사원군",
+    "642": "프람바난 사원군",
+    "1588": "바간",
+    "707": "라싸 포탈라궁 역사 유적군",
+    "1056": "보드가야 마하보디 사원군",
+    "524": "산치 불교 유적",
+    "242": "아잔타 석굴",
+    "243": "엘로라 석굴",
+    "816": "창덕궁",
+    "738": "종묘",
+    "817": "수원 화성",
+    "737": "해인사 장경판전",
+    "1477": "백제 역사유적지구",
+    "1562": "산사, 한국의 산지 승원",
+    "1498": "한국의 서원",
+    "1666": "가야고분군",
 }
 COUNTRIES = {
     "Republic of Korea": "대한민국",
@@ -62,6 +84,8 @@ THEME_LABELS = {
     "Mosque": "모스크",
     "Islamic": "이슬람 관련 문화",
     "Hindu": "힌두교 관련 문화",
+    "Hall": "전각·건물",
+    "Gate": "문",
 }
 
 
@@ -69,6 +93,11 @@ def korean_name(heritage_id: str, official_name: str) -> str | None:
     if re.search(r"[가-힣]", official_name):
         return official_name
     if heritage_id.startswith("unesco:"):
+        from culturebridge.services.name_registry_service import names
+
+        row = names().get(heritage_id)
+        if row and row["official_name"] == official_name and row["status"] != "unavailable":
+            return row["korean_name"]
         return KOREAN_NAMES.get(heritage_id.split(":", 1)[1])
     return None
 
@@ -78,7 +107,11 @@ def display_name(heritage_id: str, official_name: str) -> str:
     if name == official_name:
         return official_name
     if name:
-        return f"{name}({official_name})"
+        from culturebridge.services.name_registry_service import names
+
+        row = names().get(heritage_id)
+        suffix = " · AI 번역 후보" if row and row["status"] == "ai_candidate" else ""
+        return f"{name}({official_name}){suffix}"
     return f"한국어 이름 확인 필요({official_name})"
 
 

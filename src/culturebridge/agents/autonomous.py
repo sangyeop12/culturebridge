@@ -14,8 +14,10 @@ from culturebridge.domain.models import (
     VerificationStatus,
 )
 from culturebridge.services.agent_discovery_service import discover_candidates
+from culturebridge.services.curriculum_service import required_categories
 from culturebridge.services.dynamic_heritage_service import OfficialTarget, dynamic_source
 from culturebridge.services.extraction_service import _local_extraction, validate_extraction
+from culturebridge.services.official_page_service import cached_supplement
 
 
 class AutonomousRequest(BaseModel):
@@ -60,7 +62,16 @@ def run_autonomous(request: AutonomousRequest):
         return result
     selected_source = dynamic_source(detail.id)
     evidence = _local_extraction([selected_source]) if selected_source else []
-    if len({d.category for d in evidence if validate_extraction(d, [selected_source])}) < 2:
+    selected_sources = [selected_source] if selected_source else []
+    extra = cached_supplement(detail.id)
+    if extra:
+        selected_sources.append(extra)
+        evidence.extend(_local_extraction([extra]))
+    supported = {d.category for d in evidence if validate_extraction(d, selected_sources)}
+    if (
+        len(supported) < 2
+        or not required_categories(request.goal.value + " " + request.goal_text) <= supported
+    ):
         result["verification_note"] = (
             "비교 후보는 찾았지만 선택 유산 자체의 근거가 부족해 자동 비교를 보류했습니다."
         )

@@ -8,7 +8,13 @@ from pydantic import BaseModel, Field
 
 from culturebridge.config import get_settings
 from culturebridge.domain.models import CollectedSource, ExtractedField, VerificationStatus
-from culturebridge.services.subject_service import focused_text, quote_matches_subject, sentences
+from culturebridge.services.subject_service import (
+    date_event,
+    focused_text,
+    primary_type,
+    quote_matches_subject,
+    sentences,
+)
 
 CATEGORIES = ("시대", "구조", "재료", "종교적 배경")
 
@@ -67,7 +73,20 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
     ):
         if not re.search(r"추측|추정|probably|estimated", draft.value, re.I):
             return None
+    if draft.category == "시대" and date_event(draft.evidence_quote) == "재건·복원":
+        if date_event(draft.value) != "재건·복원":
+            return None
+    if draft.category == "시대" and re.search(
+        r"왕위|즉위|죽|사망|출생|생몰|born|died", draft.evidence_quote, re.I
+    ):
+        if date_event(draft.evidence_quote) == "시대·사건 확인 필요":
+            return None
     if draft.category == "재료":
+        if (
+            "석탑" in draft.evidence_quote
+            and primary_type(source.title, focused_text(source)) != "Pagoda"
+        ):
+            return None
         if re.search(r"화강암|granite", draft.value, re.I) and not re.search(
             r"화강암|granite", draft.evidence_quote, re.I
         ):
@@ -82,11 +101,12 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
         "시대": r"\d{3,4}|\d{1,2}(?:th|st|nd|rd)|세기|시대|dynasty",
         "구조": (
             r"전실|주실|통로|석굴|탑|건축|궁전|가람|성곽|grotto|pagoda|architecture|layout"
-            r"|temple|building|palace|fort|tomb|mausoleum|stupa"
+            r"|temple|building|palace|fort|tomb|mausoleum|stupa|hall|pavilion|gate|전각"
+            r"|궁궐|건물배치|봉분|원분|둘레돌|호석|사찰|사원|절로"
         ),
         "재료": (
             r"화강암|목재|벽돌|석재|석탑|대리석|석회암|granite|wood|brick|stone"
-            r"|marble|limestone"
+            r"|marble|limestone|깬돌"
         ),
         "종교적 배경": (
             r"불교|불상|부처|법화경|사찰|경전|기독교|힌두|이슬람|Buddhis|Buddha|sutra|scripture"
@@ -112,6 +132,7 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
         verification_status=VerificationStatus.NEEDS_REVIEW,
         method="gemini",
         note="원문 문장 일치를 확인했습니다. 추출 값의 의미는 별도 검토가 필요합니다.",
+        date_event=date_event(draft.evidence_quote) if draft.category == "시대" else None,
     )
 
 
@@ -123,11 +144,12 @@ def _local_extraction(sources: list[CollectedSource]) -> list[DraftField]:
         ),
         "구조": (
             r"(?:전실|주실|통로|가람|건축|궁전|성곽|석탑|기단|탑신|난간|grotto|pagoda|architecture|layout"
-            r"|temple|palace|fort|tomb|mausoleum|stupa)"
+            r"|temple|palace|fort|tomb|mausoleum|stupa|hall|pavilion|gate|전각"
+            r"|궁궐|건물배치|봉분|원분|둘레돌|호석|사찰|사원|절로)"
         ),
         "재료": (
             r"(?:화강암|목재|벽돌|석재|석탑|대리석|granite|wooden|brick|marble"
-            r"|limestone|sandstone|\bstone\b)"
+            r"|limestone|sandstone|\bstone\b|깬돌)"
         ),
         "종교적 배경": (
             r"(?:불교|불상|부처|법화경|사찰|기독교|힌두|이슬람|Buddhist|Buddhism"

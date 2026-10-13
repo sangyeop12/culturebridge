@@ -18,6 +18,9 @@ from culturebridge.services.unesco_service import UnescoRecord, UnescoResult
 
 @pytest.fixture
 def configured(tmp_path, monkeypatch):
+    from culturebridge.services import name_registry_service
+
+    monkeypatch.setattr(name_registry_service, "ensure_name", lambda *a: None)
     monkeypatch.setattr(get_settings(), "db_path", tmp_path / "dynamic.db")
     monkeypatch.setattr(get_settings(), "gemini_enabled", False)
     initialize_database()

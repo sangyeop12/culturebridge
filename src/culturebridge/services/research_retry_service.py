@@ -127,4 +127,11 @@ def retry_missing_sources(left_id, right_id, sources, missing_heritages):
                 scope_note="추가 공식 출처 조회 실패입니다. 원문 수집 완료로 간주하지 않습니다.",
             )
             by_key[(failed.heritage_id, failed.id)] = failed
+    from culturebridge.services.official_page_service import collect_supplement
+
+    for source in refreshed:
+        if source.heritage_id in missing_heritages and source.heritage_id.startswith("unesco:"):
+            extra = collect_supplement(source)
+            if extra:
+                by_key[(extra.heritage_id, extra.id)] = extra
     return list(by_key.values())

@@ -1,4 +1,5 @@
 import json
+import re
 import unicodedata
 from datetime import UTC, datetime, timedelta
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field, HttpUrl
 from culturebridge.config import get_settings
 from culturebridge.database import transaction
 from culturebridge.services.display_service import KOREAN_NAMES
+from culturebridge.services.name_registry_service import korean_search_terms, names
 from culturebridge.services.official_service import OfficialServiceError, _PlainText
 
 UNESCO_XML_URL = "https://whc.unesco.org/en/list/xml"
@@ -60,7 +62,7 @@ class UnescoSuggestion(BaseModel):
     record_id: str | None = None
 
 
-def _matches_query(record, query: str) -> bool:
+def _matches_query(record, query: str, registry=None) -> bool:
     # Country aliases match complete country tokens, not a word in a site's name.
     country = next(
         (
@@ -78,6 +80,9 @@ def _matches_query(record, query: str) -> bool:
     aliases = HERITAGE_ALIASES.get(record.id, ()) + (
         (KOREAN_NAMES[record.id],) if record.id in KOREAN_NAMES else ()
     )
+    row = (registry or {}).get("unesco:" + record.id)
+    if row and row["official_name"] == record.name and row["status"] != "unavailable":
+        aliases += (row["korean_name"],) + tuple(json.loads(row["aliases_json"]))
     if any(term in normalize_search(alias) for alias in aliases):
         return True
     return term in normalize_search(record.name) or term in normalize_search(record.countries)
@@ -91,14 +96,20 @@ def get_unesco_suggestions(query: str = "", limit: int = 8) -> list[UnescoSugges
         return []
     parser = parse_unesco_json if cached["format"] == "json" else parse_unesco_xml
     records = parser(cached["raw_xml"].encode("utf-8"))
+    registry = names()
     suggestions = []
     countries = {part.strip() for record in records for part in record.countries.split(";")}
     for record in records:
         aliases = HERITAGE_ALIASES.get(record.id, ()) + (
             (KOREAN_NAMES[record.id],) if record.id in KOREAN_NAMES else ()
         )
+        row = registry.get("unesco:" + record.id)
+        if row and row["official_name"] == record.name and row["status"] != "unavailable":
+            aliases += (row["korean_name"],) + tuple(json.loads(row["aliases_json"]))
         for alias in aliases:
             label = f"{alias} · {record.name}"
+            if row and row["status"] == "ai_candidate":
+                label += " · AI 번역 후보"
             if alias == "대안탑":
                 label = "대안탑 · 실크로드 등재 유산군"
             suggestions.append(UnescoSuggestion(value=alias, label=label, record_id=record.id))
@@ -135,6 +146,8 @@ class UnescoRecord(BaseModel):
     inscription_year: str
     source_url: HttpUrl
     description: str = ""
+    korean_name: str | None = None
+    name_review_status: str = "unmapped"
 
 
 class UnescoResult(BaseModel):
@@ -304,12 +317,28 @@ def search_unesco(
             if not cached:
                 raise
             stale = True
+    registry = names()
     matches = [
         record
         for record in records
-        if _matches_query(record, query)
+        if _matches_query(record, query, registry)
         or (include_description and normalize_search(query) in normalize_search(record.description))
     ]
+    translated = False
+    if not matches and re.search(r"[가-힣]", query) and not include_description:
+        terms = korean_search_terms(query)
+        matches = [
+            record
+            for record in records
+            if any(normalize_search(term) in normalize_search(record.name) for term in terms)
+        ]
+        translated = bool(terms)
+    for record in matches:
+        row = registry.get("unesco:" + record.id)
+        if row and row["official_name"] == record.name and row["status"] != "unavailable":
+            record.korean_name, record.name_review_status = row["korean_name"], row["status"]
+        elif record.id in KOREAN_NAMES:
+            record.korean_name, record.name_review_status = KOREAN_NAMES[record.id], "guidance"
     return UnescoResult(
         records=matches[offset : offset + limit],
         total=len(matches),
@@ -319,4 +348,12 @@ def search_unesco(
         feed_source_url=source_url,
         source_format=source_format,
         license_url=license_url,
+        notice=(
+            "AI가 검색어를 영어로 옮겨 공식 목록 안에서 찾은 후보입니다. "
+            "이름·대상 범위를 확인하세요. "
+            if translated
+            else ""
+        )
+        + "세계유산 등재 목록입니다. 등재연도는 건립연도가 아닙니다. "
+        "한국어 안내명은 검토 상태를 확인하세요.",
     )

@@ -235,6 +235,8 @@ def _extracted_field_cards(fields: list[ExtractedField]) -> None:
             ui.label("추가 확인 필요" if field.value else "근거 부족").classes("font-semibold")
             ui.label(field.value or "현재 자료에서 해당 항목을 추출하지 못했습니다.")
             ui.label(field.note).classes("cb-muted")
+            if field.date_event:
+                ui.label("연대가 가리키는 사건: " + field.date_event).classes("cb-muted")
             if field.evidence_quote:
                 ui.label("원문 근거: " + field.evidence_quote).style("white-space: pre-wrap")
             if field.source_url:
@@ -718,6 +720,7 @@ def comparison_page(
             for point in result.common_points:
                 ui.label(f"• {point}").classes("text-base")
             for common in result.common_evidence:
+                ui.label(common.context_note).classes("cb-muted")
                 with ui.expansion("공통 후보의 양쪽 원문 근거").classes("w-full"):
                     _extracted_field_cards([common.left_evidence, common.right_evidence])
 
@@ -1061,6 +1064,10 @@ async def quiz_page(
                     )
                     for explanation in result.explanations:
                         ui.label(explanation).classes("text-base")
+                    if result.review_steps:
+                        ui.label("틀린 문제 다시 살펴보기").classes("cb-title text-xl")
+                        for step in result.review_steps:
+                            ui.label(step).classes("text-base")
                     if result.evidence:
                         ui.label("퀴즈의 저장된 원문 근거").classes("cb-title text-xl")
                         _extracted_field_cards(result.evidence)

@@ -110,6 +110,7 @@ class ExtractedField(BaseModel):
     verification_status: VerificationStatus = VerificationStatus.INSUFFICIENT_EVIDENCE
     method: Literal["local", "gemini"] = "local"
     note: str
+    date_event: str | None = None
 
 
 class CommonEvidence(BaseModel):
@@ -118,6 +119,8 @@ class CommonEvidence(BaseModel):
     left_evidence: ExtractedField
     right_evidence: ExtractedField
     verification_status: VerificationStatus = VerificationStatus.NEEDS_REVIEW
+    context_note: str = "양쪽 원문 표현의 후보입니다. 의미·대상 범위는 추가 검토가 필요합니다."
+    method: Literal["local", "gemini"] = "local"
 
 
 class ComparisonResult(BaseModel):
@@ -323,6 +326,7 @@ class QuizAttemptResult(BaseModel):
     total: int
     explanations: list[str]
     evidence: list[ExtractedField] = Field(default_factory=list)
+    review_steps: list[str] = Field(default_factory=list)
 
 
 ExplorationResult.model_rebuild()

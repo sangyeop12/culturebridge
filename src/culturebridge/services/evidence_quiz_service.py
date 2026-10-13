@@ -9,7 +9,8 @@ from culturebridge.domain.models import (
     VerificationStatus,
 )
 from culturebridge.services.comparison_service import get_saved_comparison
-from culturebridge.services.curriculum_service import plan_learning
+from culturebridge.services.curriculum_service import evidence_suits_goal, plan_learning
+from culturebridge.services.display_service import display_name
 from culturebridge.services.evidence_comparison_service import supported_fields
 from culturebridge.services.quiz_draft_service import try_draft_quiz
 
@@ -24,6 +25,13 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     if (comparison.left.id, comparison.right.id) != (left_id, right_id):
         raise EvidenceQuizError("저장된 비교의 대상과 퀴즈 대상이 다릅니다.")
     fields = supported_fields(comparison)
+    if left_id.startswith(("khs:", "unesco:")) or right_id.startswith(("khs:", "unesco:")):
+        if not evidence_suits_goal(
+            {f.category for f in fields if f.heritage_id == left_id},
+            {f.category for f in fields if f.heritage_id == right_id},
+            comparison.goal.value + " " + comparison.goal_text,
+        ):
+            raise EvidenceQuizError("학습 목표의 양쪽 근거가 부족해 자동 퀴즈를 보류합니다.")
     _, focus = plan_learning(level, comparison.goal, comparison.goal_text, comparison.amount)
     fields.sort(
         key=lambda field: focus.index(field.category) if field.category in focus else len(focus)
@@ -33,7 +41,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
             "유효한 원문 근거가 없어 퀴즈를 만들 수 없습니다. 공식 자료 탐구를 다시 실행하세요."
         )
     first, second = fields[0], fields[1] if len(fields) > 1 else fields[0]
-    names = {comparison.left.id: comparison.left.name, comparison.right.id: comparison.right.name}
+    names = {h.id: display_name(h.id, h.name) for h in (comparison.left, comparison.right)}
     other_name = names[right_id if first.heritage_id == left_id else left_id]
     source = next(s for s in comparison.collected_sources if s.id == second.source_id)
     question_rows = {
@@ -225,6 +233,45 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
         )
     question, choices, explanation = question_rows[2]
     question_rows[2] = (f"'{focus[0]}' 목표 학습: {question}", choices, explanation)
+    # Read actual heritage content, not just generic source-literacy templates.
+    factual_rows = []
+    for field in fields:
+        if field.category not in focus or (
+            level is LearningLevel.BEGINNER and len(field.value) > 120
+        ):
+            continue
+        other_values = [
+            f.value
+            for f in fields
+            if f.category == field.category
+            and f.heritage_id != field.heritage_id
+            and f.value != field.value
+        ]
+        choices = list(
+            dict.fromkeys(
+                [field.value]
+                + other_values
+                + [
+                    "등재연도를 모든 건물의 건립연도로 적용한다",
+                    "다른 유산의 설명을 이 유산의 근거로 복사한다",
+                    "자료에서 확인하지 못한 특징을 추측해 채운다",
+                ]
+            )
+        )[:4]
+        if len(choices) != 4:
+            continue
+        factual_rows.append(
+            (
+                f"{names[field.heritage_id]}의 이 자료에서 찾은 '{field.category}' 설명은?",
+                choices,
+                f"복습 항목: {field.category} · 원문: {field.evidence_quote} · "
+                "해당 자료의 설명을 고르는 문제입니다. "
+                "추출의 역사적 의미는 추가 검토가 필요합니다.",
+            )
+        )
+        if len(factual_rows) == 3:
+            break
+    question_rows[: len(factual_rows)] = factual_rows
     drafted_rows, generation_note = try_draft_quiz(comparison, level, fields, focus)
     if drafted_rows:
         question_rows = drafted_rows

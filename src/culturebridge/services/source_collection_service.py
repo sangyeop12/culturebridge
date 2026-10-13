@@ -27,6 +27,11 @@ def collect_official_sources(
             source = dynamic_source(item.id, refresh)
             if source:
                 sources.append(source)
+            from culturebridge.services.official_page_service import cached_supplement
+
+            supplement = cached_supplement(item.id)
+            if supplement:
+                sources.append(supplement)
             continue
         if item.id == "seokguram":
             source_url = (

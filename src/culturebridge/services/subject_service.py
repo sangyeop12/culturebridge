@@ -11,16 +11,20 @@ def sentences(text):
 
 def primary_type(name, text=""):
     patterns = [
-        ("Pagoda", r"석탑|목탑|다보탑|삼층|오층|탑\b|pagoda|stupa"),
+        ("Pagoda", r"석탑|목탑|다보탑|탑\b|pagoda|stupa"),
         ("Grotto", r"석굴|grotto|cave"),
-        ("Tomb", r"고분|무덤|tomb|mausoleum"),
-        ("Palace", r"궁전|궁궐|palace"),
+        ("Tomb", r"고분|무덤|왕릉|[가-힣]+(?:총|릉)\b|tomb|mausoleum"),
+        ("Palace", r"궁전|궁궐|[가-힣]+궁\b|palace"),
         ("Fort", r"성곽|castle|fort"),
-        ("Temple", r"사찰|사원|temple|monastery"),
+        ("Hall", r"[가-힣]+(?:전|각|루)\b|\bhall\b|pavilion"),
+        ("Gate", r"[가-힣]+문\b|\bgate\b"),
+        ("Temple", r"사찰|사원|[가-힣]+사\b|temple|monastery"),
         ("Church", r"교회|church|cathedral"),
         ("Mosque", r"모스크|mosque"),
     ]
-    for candidate in (name, " ".join(sentences(text)[:1])):
+    # A compound Korean title identifies its last component, not its parent site.
+    title = name.split()[-1] if re.search(r"[가-힣]", name) else name
+    for candidate in (title, " ".join(sentences(text)[:1])):
         for label, pattern in patterns:
             if re.search(pattern, candidate, re.IGNORECASE):
                 return label
@@ -37,27 +41,118 @@ def is_group(name, text=""):
             name,
             re.IGNORECASE,
         )
-        or re.search(r"\b(?:thirty-three|\d{2,}) components\b", text, re.IGNORECASE)
+        or re.search(
+            r"\b(?:two|three|four|five|six|seven|eight|nine|ten|thirty-three|[2-9]|\d{2,})"
+            r"\s+(?:separate\s+)?components\b|[2-9]\d*개(?:의)?\s*(?:구성|유산|사찰|건물)",
+            text,
+            re.IGNORECASE,
+        )
     )
 
 
+def subtype(name, text=""):
+    """Only explicit material/type; an unknown subtype is not a mismatch."""
+    for value in (name, text):
+        if re.search(r"석탑|stone\s+(?:pagoda|stupa)", value, re.I):
+            return "stone_pagoda"
+        if re.search(r"목탑|wood(?:en)?\s+(?:pagoda|stupa)", value, re.I):
+            return "wooden_pagoda"
+    return None
+
+
+def date_event(quote):
+    if re.search(r"재건|중건|중창|복원|다시 세|rebuild|rebuilt|reconstruct|restor", quote, re.I):
+        return "재건·복원"
+    if re.search(r"창건|건립|조성|축조|설립|세운|세웠|built|construct|erect|found", quote, re.I):
+        return "건립·창건"
+    return "시대·사건 확인 필요"
+
+
 def focused_text(source):
-    if not source.heritage_id.startswith("khs:") or primary_type(source.title) != "Pagoda":
+    if source.content_kind not in {"individual_text", "listed_text"}:
+        return source.content
+    if is_group(source.title, source.content):
         return source.content
     short_name = source.title.split()[-1]
-    active = False
+    kind = primary_type(source.title, source.content)
+    generic = {
+        "Pagoda": r"탑|석탑|목탑|pagoda|stupa",
+        "Temple": r"사찰|사원|절|temple|monastery",
+        "Palace": r"궁|궁궐|궁전|palace",
+        "Tomb": r"고분|무덤|왕릉|능|묘|봉분|tomb|mausoleum|mound",
+        "Fort": r"성|성곽|fort|castle",
+        "Grotto": r"석굴|동굴|cave|grotto",
+        "Church": r"교회|성당|church|cathedral",
+        "Mosque": r"모스크|mosque",
+        "Hall": r"전각|건물|hall|pavilion",
+        "Gate": r"문|gate",
+    }.get(kind, r"탑|사찰|사원|궁궐|궁전|고분|무덤|성곽|석굴|pagoda|stupa|temple|palace|tomb|cave")
+    # A standalone provider introduction may omit the name ("Built in ...").
+    active = True
     selected = []
     for sentence in sentences(source.content):
-        # Ancestor/site history is not the construction date of the selected tower.
-        if re.match(
-            r"(?:불국사|석굴암|석가탑)(?:는|은|를|을|가|이|의|을 보면)", sentence
-        ) and not sentence.startswith(short_name):
+        # Lists of possessions/nearby monuments do not describe the site's own material.
+        if re.match(r"^(?:그 밖에|그밖에|현재 절 안에는|경내 비각에는)", sentence):
             active = False
             continue
-        if short_name in sentence:
+        component_object = re.search(
+            r"([가-힣]+(?:전|각|문|루|탑))(?:을|를)\s*(?:만들|세|건립|재건)", sentence
+        )
+        if component_object and component_object.group(1) != short_name:
+            active = False
+            continue
+        owned = re.match(
+            r"^[가-힣\s]+의\s+([가-힣]+(?:탑|전|각|문|사|궁|릉|총|묘|석굴))(?:은|는|이|가)",
+            sentence,
+        )
+        if owned and owned.group(1) != short_name:
+            active = False
+            continue
+        korean_subject = re.match(
+            r"^([가-힣·]+(?:\s+[가-힣·]+){0,2}?"
+            r"(?:탑|사|궁|궁궐|사찰|전|각|문|릉|총|묘|고분|무덤|석굴))(?:은|는|이|가|의)\s*",
+            sentence,
+        )
+        english_subject = re.match(
+            r"^(?:The\s+)?([A-Za-z -]*?\b"
+            r"(?:temple|palace|pagoda|stupa|tomb|hall|gate|cave|fort))\s+"
+            r"(?:was|is|were|has|dates|contains|stands)",
+            sentence,
+            re.I,
+        )
+        subject = korean_subject or english_subject
+        if subject:
+            named = subject.group(1).strip()
+            named = re.sub(r"^The\s+", "", named, flags=re.I)
+            is_target = source.title.casefold() in named.casefold() or (
+                bool(re.search(r"[가-힣]", short_name)) and short_name in named
+            )
+            is_generic = bool(
+                re.fullmatch(r"(?:이\s*|이곳의\s*)?(?:" + generic + r")", named, re.I)
+            )
+            if english_subject:
+                is_generic = is_generic or bool(
+                    re.fullmatch(
+                        r"(?:(?:a|an)\s+)?(?:(?:ancient|artificial|stone|wooden|royal|"
+                        r"Buddhist|marble|granite|brick)\s+)*(?:" + generic + r")",
+                        named,
+                        re.I,
+                    )
+                )
+            if not is_target and not is_generic:
+                active = False
+                continue
             active = True
-        if re.match(r"(?:탑이|탑은|이 탑|이탑)", sentence):
+        elif short_name in sentence or source.title in sentence:
             active = True
+        elif re.match(
+            r"^(?:이\s*|이곳의\s*)?(?:" + generic + r")(?:은|는|이|가|의)\s*", sentence, re.I
+        ):
+            active = True
+        # A person's biography is not the age of the monument.
+        if re.search(r"태어|생몰|출생|born|lived from", sentence, re.I):
+            active = False
+            continue
         if active:
             selected.append(sentence)
     return "\n".join(selected)

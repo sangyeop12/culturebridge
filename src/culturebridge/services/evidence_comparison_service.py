@@ -8,6 +8,7 @@ from culturebridge.domain.models import (
     ComparisonResult,
     VerificationStatus,
 )
+from culturebridge.services.common_context_service import review_common_context
 from culturebridge.services.curriculum_service import plan_learning
 from culturebridge.services.extraction_service import DraftField, usable_source, validate_extraction
 
@@ -94,6 +95,7 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
             (r"기독교|Christian", "기독교 관련 맥락"),
         ],
         "재료": [
+            (r"석재|석탑|\bstone\b", "석재 재료"),
             (r"화강암|granite", "화강암 재료"),
             (r"목재|wood", "목재 재료"),
             (r"벽돌|brick", "벽돌 재료"),
@@ -108,7 +110,19 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
         if not left or not right:
             continue
         for pattern, label in terms:
-            if all(re.search(pattern, f.evidence_quote, re.IGNORECASE) for f in (left, right)):
+
+            def affirmed(field, pattern=pattern):
+                quote = field.evidence_quote
+                # Literal overlap with a negated / imitated / uncertain feature isn't support.
+                if re.search(
+                    r"아니|않|없|모방|본떠|표현한|not\b|without|imitat|reproduc|추정|추측|probably|estimated",
+                    quote,
+                    re.I,
+                ):
+                    return False
+                return bool(re.search(pattern, quote, re.I))
+
+            if all(affirmed(f) for f in (left, right)):
                 comparison.common_evidence.append(
                     CommonEvidence(
                         statement=f"양쪽 원문의 공통 후보: {label}. 범위 검토가 필요합니다.",
@@ -117,6 +131,7 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
                         right_evidence=right,
                     )
                 )
+    comparison.common_evidence = review_common_context(comparison.common_evidence)
     comparison.common_points = [item.statement for item in comparison.common_evidence] or [
         "양쪽 원문에서 같은 특징의 근거를 확보하지 못했습니다. 공통점을 추측하지 않습니다."
     ]

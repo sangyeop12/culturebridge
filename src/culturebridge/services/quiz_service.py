@@ -242,6 +242,7 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
 
     score = 0
     explanations = []
+    review_steps = []
     for position, (row, answer) in enumerate(zip(rows, answers, strict=True), start=1):
         choices = json.loads(row["choices_json"])
         correct_index = row["correct_index"]
@@ -249,6 +250,11 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
         score += int(is_correct)
         result_label = "정답" if is_correct else f"오답 · 정답: {choices[correct_index]}"
         explanations.append(f"{position}번 {result_label} · {row['explanation']}")
+        if not is_correct:
+            review_steps.append(
+                f"{position}번 다시 보기: {row['question']} → 정답: {choices[correct_index]} · "
+                f"{row['explanation']}"
+            )
 
     save_learning_result(
         session_id=quiz_id,
@@ -262,6 +268,7 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
         score=score,
         total=len(rows),
         explanations=explanations,
+        review_steps=review_steps,
         evidence=[
             ExtractedField.model_validate(field) for field in json.loads(rows[0]["evidence_json"])
         ],
