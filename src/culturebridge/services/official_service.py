@@ -68,8 +68,15 @@ def _fetch(
         ) from exc
 
 
-def search_official_heritages(query: str, page: int = 1, page_size: int = 10):
-    if not 1 <= len(query.strip()) <= 100 or not 1 <= page <= 10000 or not 1 <= page_size <= 50:
+def search_official_heritages(
+    query: str, page: int = 1, page_size: int = 10, *, allow_empty: bool = False
+):
+    if (
+        (not query.strip() and not allow_empty)
+        or len(query.strip()) > 100
+        or not 1 <= page <= 10000
+        or not 1 <= page_size <= 50
+    ):
         raise ValueError("검색어·페이지 범위를 확인해 주세요.")
     root, _ = _fetch(
         "SearchKindOpenapiList.do",

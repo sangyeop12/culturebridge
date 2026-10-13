@@ -28,6 +28,7 @@ from culturebridge.services.comparison_service import (
 )
 from culturebridge.services.curriculum_service import AMOUNT_LABELS, GOAL_LABELS
 from culturebridge.services.evidence_quiz_service import EvidenceQuizError
+from culturebridge.services.home_search_service import get_home_suggestions, search_home
 from culturebridge.services.location_service import get_official_location
 from culturebridge.services.official_service import (
     SEOKGURAM_CODES,
@@ -255,9 +256,9 @@ def home_page() -> None:
         ui.link("UNESCO 세계유산 목록", "/unesco").classes("text-blue-800 font-semibold")
         with ui.column().classes("gap-2"):
             ui.label("문화유산에서 시작하는 비교 탐구").classes("cb-title text-4xl")
-            ui.label("한국·중국·일본의 불교 문화유산을 공식 출처와 함께 비교해 보세요.").classes(
-                "cb-muted text-lg"
-            )
+            ui.label(
+                "한국 문화유산과 세계유산을 검색하고, 지원 유산은 비교 학습으로 이어가세요."
+            ).classes("cb-muted text-lg")
 
         with ui.card().classes("cb-card w-full p-6 gap-5"):
             ui.label("1. 학습 수준을 선택하세요").classes("cb-title text-xl")
@@ -274,21 +275,48 @@ def home_page() -> None:
             )
 
             ui.label("2. 문화유산을 검색하세요").classes("cb-title text-xl")
+            scope = ui.select(
+                {"all": "통합 검색", "korea": "한국 · 국가유산청", "world": "세계 · UNESCO"},
+                value="all",
+                label="검색 범위",
+            ).classes("w-full")
             search = (
-                ui.input(label="문화유산 검색", placeholder="예: 석굴암, 대한민국, 8세기")
+                ui.input(
+                    label="문화유산 검색",
+                    placeholder="예: 불국사, 경복궁, 만리장성, 타지마할, Japan",
+                )
                 .props("outlined clearable maxlength=100")
                 .classes("w-full")
             )
+            ui.label(
+                "한국은 국가유산청, 세계는 UNESCO 등재 목록에서 찾습니다. "
+                "해외 유산은 등록된 한글 별칭·공식 영문 이름·국가명으로 검색하세요."
+            ).classes("cb-muted text-sm")
+            suggestions = (
+                ui.column().classes("w-full gap-1").props('role=group aria-label="홈 검색어 제안"')
+            )
             results = ui.column().classes("w-full gap-3")
+            official_results = (
+                ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
+            )
+            suggestion_index = get_home_suggestions(limit=6000)
+            search.set_autocomplete([item.value for item in suggestion_index])
+            search_version = 0
+            busy = False
 
             def render_results() -> None:
                 results.clear()
                 with results:
+                    ui.label("비교·퀴즈 지원 유산 (현재 3개)").classes("font-semibold")
                     items = list_heritages(search.value)
+                    if scope.value == "korea":
+                        items = [item for item in items if item.country == "대한민국"]
+                    if scope.value == "world":
+                        items = [item for item in items if item.country != "대한민국"]
                     if not items:
-                        ui.label("검색 결과가 없습니다. 다른 검색어를 입력해 보세요.").classes(
-                            "cb-muted p-4"
-                        )
+                        ui.label(
+                            "등록된 비교 유산은 없습니다. 공식 자료 검색으로 더 찾아보세요."
+                        ).classes("cb-muted p-4")
                         return
                     for item in items:
                         with ui.row().classes(
@@ -309,7 +337,149 @@ def home_page() -> None:
                                 "cb-action"
                             )
 
-            search.on("update:model-value", lambda _: render_results())
+            async def submit_search(page: int = 1) -> None:
+                nonlocal busy, suggestion_index
+                query = (search.value or "").strip()
+                selected_scope = scope.value
+                version = search_version
+                if busy:
+                    return
+                if not 1 <= len(query) <= 100:
+                    ui.notify("검색어를 1~100글자로 입력해 주세요.", color="warning")
+                    return
+                busy = True
+                search_button.disable()
+                official_results.clear()
+                with official_results:
+                    ui.label("국내·세계 공식 자료를 검색하고 있습니다…")
+                    ui.spinner()
+                try:
+                    response = await run.io_bound(search_home, query, selected_scope, page)
+                    if version != search_version:
+                        return  # Never show a completed search under a different input.
+                    official_results.clear()
+                    suggestion_index = get_home_suggestions(limit=6000, scope=selected_scope)
+                    search.set_autocomplete([item.value for item in suggestion_index])
+                    with official_results:
+                        ui.label(f"'{query}' 공식 자료 검색 결과 · {page}페이지").classes(
+                            "cb-title text-xl"
+                        )
+                        for notice in response.notices:
+                            ui.label(notice).props("role=alert")
+                        ui.label(
+                            "공식 자료 조회는 비교·퀴즈 지원과 다릅니다. "
+                            "미등록 결과를 자동으로 비교하지 않습니다."
+                        )
+                        if response.korean is not None:
+                            ui.label(
+                                f"국가유산청 · 총 {response.korean.total}건 (최대 10건)"
+                            ).classes("font-semibold")
+                            for item in response.korean.items:
+                                with ui.card().classes("cb-card w-full p-4 gap-2"):
+                                    ui.label(item.name).classes("cb-title text-xl")
+                                    ui.label(
+                                        f"대한민국 · {item.designation} · {item.region} {item.city}"
+                                    )
+                                    ui.link(
+                                        "공식 설명 보기",
+                                        f"/official/{item.kind_code}/{item.asset_number}/{item.region_code}",
+                                    )
+                            ui.link(
+                                "국가유산청 검색 화면에서 더 찾기",
+                                "/official?" + urlencode({"q": query}),
+                            )
+                        if response.world is not None:
+                            ui.label(f"UNESCO · 총 {response.world.total}건 (최대 10건)").classes(
+                                "font-semibold"
+                            )
+                            if response.world.stale:
+                                ui.label(
+                                    "연결 실패로 이전 UNESCO 자료를 표시합니다. 갱신이 필요합니다."
+                                )
+                            for item in response.world.records:
+                                with ui.card().classes("cb-card w-full p-4 gap-2"):
+                                    ui.link(item.name, str(item.source_url), new_tab=True)
+                                    ui.label(f"{item.countries} · 등재연도 {item.inscription_year}")
+                                    ui.label(
+                                        "등재 유산군은 개별 건물과 다를 수 있습니다. "
+                                        "등재연도는 건립연도가 아닙니다."
+                                    )
+                            ui.link(
+                                "UNESCO 검색 화면에서 더 찾기", "/unesco?" + urlencode({"q": query})
+                            )
+                            ui.link(
+                                "UNESCO 데이터 출처·이용 조건",
+                                response.world.license_url,
+                                new_tab=True,
+                            )
+                        count = (response.korean.total if response.korean else 0) + (
+                            response.world.total if response.world else 0
+                        )
+                        with ui.row().classes("gap-3"):
+                            if page > 1:
+                                ui.button("이전 결과", on_click=lambda: submit_search(page - 1))
+                            largest = max(
+                                response.korean.total if response.korean else 0,
+                                response.world.total if response.world else 0,
+                            )
+                            if page * 10 < largest:
+                                ui.button("다음 결과", on_click=lambda: submit_search(page + 1))
+                        if not count:
+                            ui.label(
+                                "공식 자료 결과가 없습니다. "
+                                "이름·국가명·영문 표기를 바꾸거나 다시 검색해 주세요."
+                            )
+                except (sqlite3.Error, ValueError):
+                    if version == search_version:
+                        official_results.clear()
+                        with official_results:
+                            ui.label("검색 자료를 확인하지 못했습니다. 다시 시도해 주세요.").props(
+                                "role=alert"
+                            )
+                finally:
+                    busy = False
+                    search_button.enable()
+
+            async def choose_suggestion(value: str) -> None:
+                search.set_value(value)
+                await submit_search()
+
+            def input_changed() -> None:
+                nonlocal search_version
+                search_version += 1
+                official_results.clear()
+                render_results()
+                suggestions.clear()
+                term = normalize_search(search.value or "")
+                if not term:
+                    return
+                options = [
+                    item for item in suggestion_index if term in normalize_search(item.value)
+                ]
+                options.sort(
+                    key=lambda item: (
+                        normalize_search(item.value) != term,
+                        not normalize_search(item.value).startswith(term),
+                    )
+                )
+                with suggestions:
+                    for item in options[:8]:
+                        ui.button(
+                            item.label, on_click=lambda value=item.value: choose_suggestion(value)
+                        ).props("flat no-caps align=left").classes("w-full cb-action")
+
+            def scope_changed() -> None:
+                nonlocal suggestion_index
+                suggestion_index = get_home_suggestions(limit=6000, scope=scope.value)
+                search.set_autocomplete([item.value for item in suggestion_index])
+                input_changed()
+
+            search.on_value_change(lambda _: input_changed())
+            scope.on_value_change(lambda _: scope_changed())
+            search.on("keydown.enter", lambda _: submit_search())
+            search_button = ui.button(
+                "공식 자료 통합 검색", on_click=lambda: submit_search()
+            ).classes("cb-action")
             render_results()
 
 
@@ -889,13 +1059,13 @@ def comparison_history_page(page: int = 1) -> None:
 
 
 @ui.page("/official")
-def official_search_page() -> None:
+def official_search_page(q: str = "석굴암") -> None:
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-5 py-10"):
         ui.label("국가유산청 공식 자료 검색").classes("cb-title text-3xl")
         ui.label("실제 국가유산청 API에서 검색합니다. 상세 자료를 열면 원문과 조회일을 저장합니다.")
-        search = ui.input(label="국가유산 이름", value="석굴암").props("outlined maxlength=100")
+        search = ui.input(label="국가유산 이름", value=q[:100]).props("outlined maxlength=100")
         results = ui.column().classes("w-full gap-4").props("role=status aria-live=polite")
 
         async def submit_search() -> None:
@@ -1023,7 +1193,7 @@ async def official_detail_page(kind: str, number: str, region: str) -> None:
 
 
 @ui.page("/unesco")
-def unesco_page() -> None:
+def unesco_page(q: str = "") -> None:
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-5 py-10"):
@@ -1034,7 +1204,11 @@ def unesco_page() -> None:
         ui.link("공식 XML 및 이용 조건", UNESCO_TERMS_URL, new_tab=True)
         ui.label("이용 조건을 확인하세요. 목록 데이터는 AI 번역·요약에 전달하지 않습니다.")
         query = (
-            ui.input(label="유산 이름·국가·등재 ID", placeholder="예: 호류지, 석굴암, 일본, 660")
+            ui.input(
+                label="유산 이름·국가·등재 ID",
+                value=q[:100],
+                placeholder="예: 타지마할, 호류지, 일본, 660",
+            )
             .props("outlined clearable maxlength=100")
             .classes("w-full")
         )

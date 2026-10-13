@@ -43,6 +43,13 @@ from culturebridge.services.comparison_service import (
     list_saved_comparisons,
 )
 from culturebridge.services.evidence_quiz_service import EvidenceQuizError
+from culturebridge.services.home_search_service import (
+    HomeSearchResult,
+    HomeSuggestion,
+    SearchScope,
+    get_home_suggestions,
+    search_home,
+)
 from culturebridge.services.location_service import get_official_location
 from culturebridge.services.official_service import (
     OfficialDocumentNotFoundError,
@@ -70,6 +77,27 @@ router = APIRouter(prefix="/api", tags=["CultureBridge"])
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "CultureBridge"}
+
+
+@router.get("/search", response_model=HomeSearchResult)
+def home_search(
+    q: str = Query(min_length=1, max_length=100),
+    scope: SearchScope = "all",
+    page: int = Query(default=1, ge=1, le=10000),
+):
+    try:
+        return search_home(q, scope, page)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/search/suggestions", response_model=list[HomeSuggestion])
+def home_suggestions(
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=8, ge=1, le=20),
+    scope: SearchScope = "all",
+):
+    return get_home_suggestions(q, limit, scope)
 
 
 @router.get("/unesco/heritages", response_model=UnescoResult)

@@ -67,6 +67,12 @@ CREATE TABLE IF NOT EXISTS agent_source_cache (
     retrieved_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS official_search_terms (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS quiz_items (
     id TEXT PRIMARY KEY,
     quiz_id TEXT NOT NULL,
