@@ -186,6 +186,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     }[level]
     if level is LearningLevel.BEGINNER and first.category == "재료":
         material_names = {
+            "석재": "석재",
             "화강암": "화강암",
             "granite": "화강암",
             "목재": "목재",
@@ -204,9 +205,12 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
         )
         if short_field:
             answer = material_names[short_field.value.strip().casefold()]
-            choices = [answer] + [
-                name for name in ("화강암", "목재", "벽돌", "금속") if name != answer
-            ]
+            choices = (
+                ["석재", "목재", "벽돌", "금속"]
+                if answer == "석재"
+                else [answer]
+                + [name for name in ("화강암", "목재", "벽돌", "금속") if name != answer]
+            )
             question_rows[0] = (
                 f"자료에서 찾은 후보에 따르면 {names[short_field.heritage_id]}의 재료는?",
                 choices,

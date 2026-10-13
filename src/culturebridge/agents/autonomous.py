@@ -14,7 +14,8 @@ from culturebridge.domain.models import (
     VerificationStatus,
 )
 from culturebridge.services.agent_discovery_service import discover_candidates
-from culturebridge.services.dynamic_heritage_service import OfficialTarget
+from culturebridge.services.dynamic_heritage_service import OfficialTarget, dynamic_source
+from culturebridge.services.extraction_service import _local_extraction, validate_extraction
 
 
 class AutonomousRequest(BaseModel):
@@ -56,6 +57,16 @@ def run_autonomous(request: AutonomousRequest):
         "verification_note": "공식 자료에서 적합한 비교 후보를 확보하지 못해 판단을 보류했습니다.",
     }
     if not candidates:
+        return result
+    selected_source = dynamic_source(detail.id)
+    evidence = _local_extraction([selected_source]) if selected_source else []
+    if len({d.category for d in evidence if validate_extraction(d, [selected_source])}) < 2:
+        result["verification_note"] = (
+            "비교 후보는 찾았지만 선택 유산 자체의 근거가 부족해 자동 비교를 보류했습니다."
+        )
+        result["execution_trace"].append(
+            "verification_agent: 선택 대상의 직접 근거 부족·자동 선택 보류"
+        )
         return result
     state = exploration_graph.invoke(
         {

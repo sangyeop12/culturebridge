@@ -218,7 +218,7 @@ def test_model_cannot_choose_an_index_outside_official_results(configured, monke
 
 
 def test_model_discovery_is_not_limited_to_local_theme_dictionary(configured, monkeypatch):
-    configured[0]["101"].name = "A new cultural landscape"
+    configured[0]["101"].name = "An unclassified ceremonial site"
     configured[0]["101"].description = "A landscape containing archaeological evidence."
     monkeypatch.setattr(get_settings(), "gemini_enabled", True)
     monkeypatch.setattr(get_settings(), "gemini_api_key", "test-key")

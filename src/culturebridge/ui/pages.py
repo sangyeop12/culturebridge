@@ -29,6 +29,15 @@ from culturebridge.services.comparison_service import (
     list_saved_comparisons,
 )
 from culturebridge.services.curriculum_service import AMOUNT_LABELS, GOAL_LABELS
+from culturebridge.services.display_service import (
+    display_country,
+    display_name,
+    korean_name,
+    learner_status,
+    learning_title,
+    readable_reason,
+    readable_trace,
+)
 from culturebridge.services.dynamic_heritage_service import OfficialTarget
 from culturebridge.services.evidence_quiz_service import EvidenceQuizError
 from culturebridge.services.home_search_service import get_home_suggestions, search_home
@@ -48,6 +57,7 @@ from culturebridge.services.quiz_service import (
     load_quiz,
 )
 from culturebridge.services.source_claim_service import ClaimTargetMismatchError
+from culturebridge.services.subject_service import is_group
 from culturebridge.services.unesco_service import (
     UNESCO_TERMS_URL,
     get_unesco_suggestions,
@@ -219,7 +229,8 @@ def _extracted_field_cards(fields: list[ExtractedField]) -> None:
     for field in fields:
         with ui.card().classes("cb-card w-full p-5 gap-2"):
             ui.label(
-                f"{names.get(field.heritage_id, field.heritage_id)} · {field.category}"
+                display_name(field.heritage_id, names.get(field.heritage_id, field.heritage_id))
+                + f" · {field.category}"
             ).classes("cb-title text-xl")
             ui.label("추가 확인 필요" if field.value else "근거 부족").classes("font-semibold")
             ui.label(field.value or "현재 자료에서 해당 항목을 추출하지 못했습니다.")
@@ -239,7 +250,11 @@ def _collected_source_cards(sources: list[CollectedSource]) -> None:
     }
     for source in sources:
         with ui.card().classes("cb-card w-full p-5 gap-2"):
-            ui.label(f"{source.organization} · {source.title}").classes("cb-title text-xl")
+            ui.label(
+                source.organization.replace("UNESCO", "유네스코(UNESCO)")
+                + " · "
+                + display_name(source.id, source.title)
+            ).classes("cb-title text-xl")
             ui.label(labels[source.status]).classes("font-semibold")
             ui.label(source.scope_note).classes("cb-muted")
             if source.retrieved_at:
@@ -417,7 +432,11 @@ def home_page() -> None:
                                 )
                             for item in response.world.records:
                                 with ui.card().classes("cb-card w-full p-4 gap-2"):
-                                    ui.link(item.name, str(item.source_url), new_tab=True)
+                                    ui.link(
+                                        display_name("unesco:" + item.id, item.name),
+                                        str(item.source_url),
+                                        new_tab=True,
+                                    )
                                     ui.button(
                                         "이 등재 유산으로 Agent 탐구",
                                         on_click=lambda selected=item: ui.navigate.to(
@@ -425,7 +444,10 @@ def home_page() -> None:
                                             + _goal_query(goal.value, goal_text.value, amount.value)
                                         ),
                                     )
-                                    ui.label(f"{item.countries} · 등재연도 {item.inscription_year}")
+                                    ui.label(
+                                        display_country(item.countries)
+                                        + f" · 등재연도 {item.inscription_year}"
+                                    )
                                     ui.label(
                                         "등재 유산군은 개별 건물과 다를 수 있습니다. "
                                         "등재연도는 건립연도가 아닙니다."
@@ -662,7 +684,11 @@ def comparison_page(
     with ui.column().classes(f"cb-shell gap-7 py-10 {'cb-kiosk' if _is_kiosk(mode) else ''}"):
         with ui.column().classes("gap-1"):
             ui.label("문화유산 비교").classes("cb-title text-3xl")
-            ui.label(f"{result.left.name} ↔ {result.right.name}").classes("text-xl font-semibold")
+            ui.label(
+                display_name(result.left.id, result.left.name)
+                + " ↔ "
+                + display_name(result.right.id, result.right.name)
+            ).classes("text-xl font-semibold")
             ui.label(f"학습 수준: {LEVEL_LABELS[learning_level.value]}").classes("cb-muted")
             if result.learning_goal:
                 ui.label(f"학습 목표: {result.learning_goal}").classes("text-lg font-semibold")
@@ -696,7 +722,7 @@ def comparison_page(
                     _extracted_field_cards([common.left_evidence, common.right_evidence])
 
         if result.collected_sources:
-            ui.label("Agent가 수집한 공식 자료").classes("cb-title text-2xl")
+            ui.label("비교에 사용한 공식 자료").classes("cb-title text-2xl")
             ui.label(
                 "아래 비교는 원문 추출 후보로 구성했습니다. 의미 검토가 필요합니다."
                 if result.basis == "extracted"
@@ -713,10 +739,14 @@ def comparison_page(
                 ui.label(point.category).classes("cb-title text-xl")
                 with ui.element("div").classes("cb-compare-grid w-full gap-4"):
                     with ui.column().classes("gap-1 rounded-lg p-4").style(f"background: {PALE}"):
-                        ui.label(result.left.name).classes("font-bold")
+                        ui.label(display_name(result.left.id, result.left.name)).classes(
+                            "font-bold"
+                        )
                         ui.label(point.left)
                     with ui.column().classes("gap-1 rounded-lg p-4").style(f"background: {PALE}"):
-                        ui.label(result.right.name).classes("font-bold")
+                        ui.label(display_name(result.right.id, result.right.name)).classes(
+                            "font-bold"
+                        )
                         ui.label(point.right)
                 ui.label(point.explanation).classes("cb-muted")
 
@@ -737,7 +767,9 @@ def comparison_page(
             ui.label(result.verification_note).classes("cb-muted")
             for source in sources:
                 ui.link(
-                    f"{source.organization} · {source.title}",
+                    source.organization.replace("UNESCO", "유네스코(UNESCO)")
+                    + " · "
+                    + display_name(source.id, source.title),
                     str(source.url),
                     new_tab=True,
                 ).classes("text-blue-700")
@@ -747,7 +779,7 @@ def comparison_page(
                     ui.label(source.scope_note).classes("cb-muted text-sm")
 
         with ui.card().classes("cb-card w-full p-6 gap-4"):
-            ui.label("Agent에게 자유 질문").classes("cb-title text-2xl")
+            ui.label("궁금한 점 질문하기").classes("cb-title text-2xl")
             ui.label(
                 "시대·구조·재료·종교적 배경을 질문하면 근거 범위와 검증 상태를 함께 표시합니다."
             ).classes("cb-muted")
@@ -883,7 +915,9 @@ def comparison_page(
                             ui.link("근거 원문", str(entry.source_url), new_tab=True)
                     for source in checked.sources:
                         ui.link(
-                            f"{source.organization} · {source.title}",
+                            source.organization.replace("UNESCO", "유네스코(UNESCO)")
+                            + " · "
+                            + display_name(source.id, source.title),
                             str(source.url),
                             new_tab=True,
                         )
@@ -1299,8 +1333,12 @@ def unesco_page(q: str = "") -> None:
                     ui.label("연결 실패로 이전 자료를 표시합니다. 갱신이 필요합니다.")
                 for record in response.records:
                     with ui.card().classes("cb-card w-full p-5"):
-                        ui.link(record.name, str(record.source_url), new_tab=True)
-                        ui.label(record.countries)
+                        ui.link(
+                            display_name("unesco:" + record.id, record.name),
+                            str(record.source_url),
+                            new_tab=True,
+                        )
+                        ui.label(display_country(record.countries))
                         ui.label(f"등재연도 {record.inscription_year} · ID {record.id}")
                 if response.source_format == "json":
                     ui.label("출처: UNESCO · CC BY-SA 4.0")
@@ -1464,10 +1502,10 @@ async def autonomous_page(
         _error_page("공식 대상 식별자를 확인해 주세요.", "web")
         return
     with ui.column().classes("cb-shell gap-5 py-10"):
-        ui.label("검색 결과에서 시작하는 자율 탐구").classes("cb-title text-3xl")
+        title = ui.label("함께 살펴볼 문화유산을 찾아요").classes("cb-title text-3xl")
         panel = ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
         with panel:
-            ui.label("공식 원문을 확인하고 비교 후보를 탐색하고 있습니다…")
+            ui.label("공식 자료를 읽고 비교 후보를 탐색하고 있어요…")
             ui.spinner()
         client = ui.context.client
         await client.connected()
@@ -1485,32 +1523,71 @@ async def autonomous_page(
             return
         panel.clear()
         with panel:
-            ui.label(result["target"]["name"]).classes("cb-title text-2xl")
-            ui.label(
-                "AI 검색 계획" if result["used_ai_planner"] else "원문 키워드 기반 대체 검색 계획"
+            target = result["target"]
+            title.set_text(
+                learning_title(korean_name(target["id"], target["name"]) or "선택한 유산")
             )
-            ui.label(result["verification_note"])
-            with ui.expansion("Agent 계획·검색·판단 기록").classes("w-full"):
+            ui.label("선택한 유산: " + display_name(target["id"], target["name"])).classes(
+                "text-lg"
+            )
+            ui.label(
+                "AI가 공식 자료를 읽고 검색 방법을 정했어요."
+                if result["used_ai_planner"]
+                else "AI 검색 대신 공식 자료의 특징을 바탕으로 찾았어요."
+            )
+            ui.label(learner_status(result, request.level is LearningLevel.BEGINNER))
+            if (
+                result["candidates"]
+                and target.get("country")
+                and all(
+                    display_country(c["heritage"]["country"]) == display_country(target["country"])
+                    for c in result["candidates"]
+                )
+            ):
+                ui.label(
+                    "이번 검색에서 조건에 맞는 해외 근거를 충분히 찾지 못했어요. "
+                    "같은 나라의 후보를 보여드렸어요."
+                ).classes("cb-muted")
+            ui.label("한국어 이름은 학습용 안내 표기이며, 괄호 안은 공식 영문 이름입니다.").classes(
+                "cb-muted text-sm"
+            )
+            with ui.expansion("자료를 찾고 비교한 과정 보기").classes("w-full"):
+                ui.label(result["verification_note"])
                 for step in result["execution_trace"]:
-                    ui.label(step)
+                    ui.label(readable_trace(step))
             for candidate in result["candidates"]:
                 with ui.card().classes("cb-card w-full p-4"):
-                    ui.label(candidate["heritage"]["name"])
-                    ui.label(candidate["reason"])
+                    item = candidate["heritage"]
+                    ui.label(display_name(item["id"], item["name"])).classes(
+                        "cb-title text-xl"
+                    ).style("overflow-wrap:anywhere")
+                    ui.label(display_country(item["country"])).classes("cb-muted")
+                    ui.label(
+                        "여러 유산을 묶은 자료 · 전체 범위로 비교해요"
+                        if is_group(item["name"])
+                        else "개별 대상 비교 후보 · 원문의 설명 범위를 함께 확인해요"
+                    ).classes("cb-muted text-sm")
+                    ui.label(
+                        readable_reason(
+                            candidate.get("criteria", []), request.level is LearningLevel.BEGINNER
+                        )
+                    )
+                    with ui.expansion("추천 이유 자세히 보기"):
+                        ui.label(candidate["reason"])
                     ui.link(
-                        "이 후보로 다시 탐구",
+                        "이 유산과 비교하기",
                         f"/research/{result['target']['id']}/{candidate['heritage']['id']}"
                         f"?level={level}&" + _goal_query(goal, goal_text, amount),
                     )
             if result["comparison"]:
                 comparison = result["comparison"]
                 ui.link(
-                    "Agent가 선택한 비교 결과 보기",
+                    "먼저 살펴본 비교 결과 보기",
                     f"/compare/{comparison['left']['id']}/{comparison['right']['id']}?saved_id={comparison['saved_id']}",
                 )
                 if result["quiz"]:
                     ui.link(
-                        "근거 기반 퀴즈 풀기",
+                        "배운 내용 퀴즈 풀기",
                         f"/quiz/{comparison['left']['id']}/{comparison['right']['id']}?quiz_id={result['quiz']['quiz_id']}",
                     )
                 else:

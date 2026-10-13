@@ -10,11 +10,13 @@ from pydantic import BaseModel, Field
 from culturebridge.config import get_settings
 from culturebridge.domain.models import HeritageSummary, RelatedHeritage
 from culturebridge.services.dynamic_heritage_service import OfficialTarget, fetch_target
+from culturebridge.services.extraction_service import _local_extraction, validate_extraction
 from culturebridge.services.official_service import OfficialServiceError, search_official_heritages
+from culturebridge.services.subject_service import focused_text, is_group, primary_type
 from culturebridge.services.unesco_service import search_unesco
 
 THEMES = {
-    "Buddhist": r"불교|불상|사찰|buddhis|buddha",
+    "Buddhist": r"불교|불상|사찰|부처|법화경|buddhis|buddha",
     "Islamic": r"이슬람|Islam|Muslim",
     "Hindu": r"힌두|Hindu",
     "Church": r"기독교|교회|Christian|church|cathedral",
@@ -141,18 +143,27 @@ def _model_plan(detail, source, goal_text):
 
 def discover_candidates(target: OfficialTarget, goal_text=""):
     detail, source = fetch_target(target)
-    text = detail.name + " " + source.content
+    focus = focused_text(source)
+    text = detail.name + " " + focus
+    primary = primary_type(detail.name, focus)
+    group = is_group(detail.name, source.content)
     themes = _themes(text)
     trace = ["target_tool: 선택한 공식 ID 확인·원문 수집"]
     settings = get_settings()
     used_ai = False
     plan = SearchPlan(
-        queries=themes[:3] or [detail.name[:80]],
+        queries=([primary] + [t for t in themes if t != primary])[:3]
+        if primary
+        else themes[:3] or [detail.name[:80]],
         reason="공식 원문에 나타난 유형·주제의 명칭을 검색합니다.",
     )
     if settings.gemini_api_key and settings.gemini_enabled:
         try:
-            plan = _model_plan(detail, source, goal_text)
+            plan = _model_plan(detail, source.model_copy(update={"content": focus}), goal_text)
+            if primary:
+                plan.queries = (
+                    [primary] + [q for q in plan.queries if q.casefold() != primary.casefold()]
+                )[:3]
             used_ai = True
         except Exception:
             trace.append("planner_agent: AI 연결/계획 실패·원문 키워드 계획으로 전환")
@@ -186,8 +197,8 @@ def discover_candidates(target: OfficialTarget, goal_text=""):
         "Tomb": "고분",
         "Grotto": "석굴",
     }
-    if detail.country != "대한민국" and themes:
-        query = korean_terms[themes[0]]
+    if primary or (detail.country != "대한민국" and themes):
+        query = korean_terms[primary or themes[0]]
         try:
             result = search_official_heritages(query, page_size=5)
             for record in result.items:
@@ -207,6 +218,13 @@ def discover_candidates(target: OfficialTarget, goal_text=""):
             trace.append("search_tool: 국가유산청 조회 실패")
     ranked = []
     for _candidate_id, (candidate_target, name, country, description) in hits.items():
+        if candidate_target.id == target.id:
+            continue
+        if is_group(name, description) != group:
+            continue
+        candidate_type = primary_type(name, description)
+        if primary and candidate_type != primary:
+            continue
         shared = set(themes) & set(_themes(name + " " + description))
         if not shared and not used_ai:
             continue
@@ -220,7 +238,11 @@ def discover_candidates(target: OfficialTarget, goal_text=""):
             continue  # Shared faith alone does not make an architectural comparison suitable.
         different_country = _different_country(country, detail.country)
         score = min(
-            1, len(shared) * 0.2 + (0.3 if different_country else 0) + (0.1 if description else 0)
+            1,
+            (0.6 if primary and candidate_type == primary else min(len(shared), 2) * 0.2)
+            + (0.1 if different_country else 0)
+            + 0.1
+            + (0.1 if description else 0),
         )
         ranked.append((score, candidate_target, name, country, shared))
     ranked.sort(key=lambda row: row[0], reverse=True)
@@ -236,15 +258,31 @@ def discover_candidates(target: OfficialTarget, goal_text=""):
     candidates = []
     for score, candidate_target, _name, country, shared in ranked[:3]:
         try:
-            candidate, _ = fetch_target(candidate_target)
+            candidate, candidate_source = fetch_target(candidate_target)
         except OfficialServiceError:
             trace.append("candidate_tool: 후보 원문 조회 실패·후보 제외")
+            continue
+        if is_group(candidate.name, candidate_source.content) != group or (
+            primary and primary_type(candidate.name, focused_text(candidate_source)) != primary
+        ):
+            trace.append("candidate_tool: 대상 유형·자료 단위 불일치로 자동 비교 제외")
+            continue
+        supported = {
+            d.category
+            for d in _local_extraction([candidate_source])
+            if validate_extraction(d, [candidate_source])
+        }
+        if len(supported) < 2 or (primary and "구조" not in supported):
+            trace.append("candidate_tool: 항목별 직접 근거 부족으로 자동 비교 제외")
             continue
         criteria = (
             ["공식 명칭·소개에서 겹치는 주제: " + ", ".join(sorted(shared))]
             if shared
             else ["모델 검색 계획·선정 후보입니다. 유형 적합성은 추가 검토가 필요합니다."]
         )
+        if primary:
+            criteria.insert(0, "같은 핵심 유형: " + primary)
+        criteria.append("자료 단위 1차 점검 · 원문 항목 근거 확인")
         if _different_country(country, detail.country):
             criteria.append("다른 국가/등재 지역")
         candidates.append(

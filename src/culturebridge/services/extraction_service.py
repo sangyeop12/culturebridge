@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from culturebridge.config import get_settings
 from culturebridge.domain.models import CollectedSource, ExtractedField, VerificationStatus
+from culturebridge.services.subject_service import focused_text, quote_matches_subject, sentences
 
 CATEGORIES = ("시대", "구조", "재료", "종교적 배경")
 
@@ -59,15 +60,36 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
         return None
     if draft.evidence_quote not in source.content or not draft.evidence_quote.strip():
         return None
+    if not quote_matches_subject(source, draft.evidence_quote):
+        return None
+    if draft.category == "시대" and re.search(
+        r"추측|추정|probably|estimated", draft.evidence_quote, re.I
+    ):
+        if not re.search(r"추측|추정|probably|estimated", draft.value, re.I):
+            return None
+    if draft.category == "재료":
+        if re.search(r"화강암|granite", draft.value, re.I) and not re.search(
+            r"화강암|granite", draft.evidence_quote, re.I
+        ):
+            return None
+        if (
+            re.search(r"목재|wood", draft.value, re.I)
+            and re.search(r"목조건축|wood.*architecture", draft.evidence_quote, re.I)
+            and re.search(r"표현|모방|본떠|reproduc|imitat", draft.evidence_quote, re.I)
+        ):
+            return None
     markers = {
         "시대": r"\d{3,4}|\d{1,2}(?:th|st|nd|rd)|세기|시대|dynasty",
         "구조": (
             r"전실|주실|통로|석굴|탑|건축|궁전|가람|성곽|grotto|pagoda|architecture|layout"
-            r"|temple|building|palace|fort|tomb|mausoleum"
+            r"|temple|building|palace|fort|tomb|mausoleum|stupa"
         ),
-        "재료": r"화강암|목재|벽돌|석재|대리석|석회암|granite|wood|brick|stone|marble|limestone",
+        "재료": (
+            r"화강암|목재|벽돌|석재|석탑|대리석|석회암|granite|wood|brick|stone"
+            r"|marble|limestone"
+        ),
         "종교적 배경": (
-            r"불교|불상|사찰|경전|기독교|힌두|이슬람|Buddhis|Buddha|sutra|scripture"
+            r"불교|불상|부처|법화경|사찰|경전|기독교|힌두|이슬람|Buddhis|Buddha|sutra|scripture"
             r"|Christian|Hindu|Islam|Muslim"
         ),
     }
@@ -96,16 +118,19 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
 def _local_extraction(sources: list[CollectedSource]) -> list[DraftField]:
     patterns = {
         "시대": (
-            r"(?:\d{3,4}년|\(\d{3,4}\)|\d{1,2}th century|\d{1,2}세기"
+            r"(?:\d{3,4}년|\(\d{3,4}\)|\d{1,2}(?:th|st|nd|rd)[ -]century|\d{1,2}세기"
             r"|(?:built|constructed|erected|founded).*?\d{3,4})"
         ),
         "구조": (
-            r"(?:전실|주실|통로|가람|건축|궁전|성곽|grotto|pagoda|architecture|layout"
-            r"|temple|palace|fort|tomb|mausoleum)"
+            r"(?:전실|주실|통로|가람|건축|궁전|성곽|석탑|기단|탑신|난간|grotto|pagoda|architecture|layout"
+            r"|temple|palace|fort|tomb|mausoleum|stupa)"
         ),
-        "재료": r"(?:화강암|목재|벽돌|석재|대리석|granite|wooden|brick|marble|limestone|sandstone)",
+        "재료": (
+            r"(?:화강암|목재|벽돌|석재|석탑|대리석|granite|wooden|brick|marble"
+            r"|limestone|sandstone|\bstone\b)"
+        ),
         "종교적 배경": (
-            r"(?:불교|불상|사찰|기독교|힌두|이슬람|Buddhist|Buddhism"
+            r"(?:불교|불상|부처|법화경|사찰|기독교|힌두|이슬람|Buddhist|Buddhism"
             r"|Christian|Hindu|Islam|Muslim)"
         ),
     }
@@ -113,20 +138,22 @@ def _local_extraction(sources: list[CollectedSource]) -> list[DraftField]:
     for source in sources:
         if not usable_source(source) or source.status not in {"fresh", "cached"}:
             continue
-        sentences = re.split(r"(?<=[.!?])\s+|\n+", source.content)
+        source_sentences = sentences(focused_text(source))
         for category, pattern in patterns.items():
-            for sentence in sentences:
+            for sentence in source_sentences:
                 if len(sentence) <= 1000 and re.search(pattern, sentence, flags=re.IGNORECASE):
-                    drafts.append(
-                        DraftField(
-                            heritage_id=source.heritage_id,
-                            category=category,
-                            value=sentence[:300],
-                            source_id=source.id,
-                            evidence_quote=sentence,
-                        )
+                    draft = DraftField(
+                        heritage_id=source.heritage_id,
+                        category=category,
+                        value="석재"
+                        if category == "재료" and "석탑" in sentence and "화강암" not in sentence
+                        else sentence[:300],
+                        source_id=source.id,
+                        evidence_quote=sentence,
                     )
-                    break
+                    if validate_extraction(draft, [source]):
+                        drafts.append(draft)
+                        break
     return drafts
 
 

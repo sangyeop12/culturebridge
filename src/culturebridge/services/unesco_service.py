@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, HttpUrl
 
 from culturebridge.config import get_settings
 from culturebridge.database import transaction
+from culturebridge.services.display_service import KOREAN_NAMES
 from culturebridge.services.official_service import OfficialServiceError, _PlainText
 
 UNESCO_XML_URL = "https://whc.unesco.org/en/list/xml"
@@ -74,7 +75,9 @@ def _matches_query(record, query: str) -> bool:
     term = normalize_search(query)
     if term.isdecimal():
         return record.id == term
-    aliases = HERITAGE_ALIASES.get(record.id, ())
+    aliases = HERITAGE_ALIASES.get(record.id, ()) + (
+        (KOREAN_NAMES[record.id],) if record.id in KOREAN_NAMES else ()
+    )
     if any(term in normalize_search(alias) for alias in aliases):
         return True
     return term in normalize_search(record.name) or term in normalize_search(record.countries)
@@ -91,7 +94,10 @@ def get_unesco_suggestions(query: str = "", limit: int = 8) -> list[UnescoSugges
     suggestions = []
     countries = {part.strip() for record in records for part in record.countries.split(";")}
     for record in records:
-        for alias in HERITAGE_ALIASES.get(record.id, ()):
+        aliases = HERITAGE_ALIASES.get(record.id, ()) + (
+            (KOREAN_NAMES[record.id],) if record.id in KOREAN_NAMES else ()
+        )
+        for alias in aliases:
             label = f"{alias} · {record.name}"
             if alias == "대안탑":
                 label = "대안탑 · 실크로드 등재 유산군"
