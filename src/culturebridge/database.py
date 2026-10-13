@@ -1,0 +1,241 @@
+import json
+import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
+from culturebridge.config import get_settings
+from culturebridge.data.catalog import HERITAGES, SOURCES
+
+SCHEMA = """
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS heritages (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    country TEXT NOT NULL,
+    period TEXT NOT NULL,
+    location TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    structure TEXT NOT NULL,
+    material TEXT NOT NULL,
+    religious_context TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sources (
+    id TEXT PRIMARY KEY,
+    heritage_id TEXT NOT NULL REFERENCES heritages(id),
+    title TEXT NOT NULL,
+    organization TEXT NOT NULL,
+    url TEXT NOT NULL,
+    retrieved_at TEXT NOT NULL,
+    license_note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS comparisons (
+    id TEXT PRIMARY KEY,
+    left_id TEXT NOT NULL REFERENCES heritages(id),
+    right_id TEXT NOT NULL REFERENCES heritages(id),
+    level TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    verification_status TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS quiz_items (
+    id TEXT PRIMARY KEY,
+    quiz_id TEXT NOT NULL,
+    heritage_id TEXT NOT NULL REFERENCES heritages(id),
+    level TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    choices_json TEXT NOT NULL,
+    correct_index INTEGER NOT NULL CHECK(correct_index BETWEEN 0 AND 3),
+    explanation TEXT NOT NULL,
+    UNIQUE(quiz_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS learning_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    heritage_id TEXT NOT NULL REFERENCES heritages(id),
+    level TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    total INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+
+def database_path() -> Path:
+    return get_settings().db_path
+
+
+def connect(path: Path | None = None) -> sqlite3.Connection:
+    target = path or database_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(target)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
+
+
+@contextmanager
+def transaction(path: Path | None = None) -> Iterator[sqlite3.Connection]:
+    connection = connect(path)
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def initialize_database(path: Path | None = None) -> Path:
+    target = path or database_path()
+    with transaction(target) as connection:
+        connection.executescript(SCHEMA)
+        _migrate_quiz_items(connection)
+        source_columns = {row["name"] for row in connection.execute("PRAGMA table_info(sources)")}
+        for column in ("summary", "scope_note"):
+            if column not in source_columns:
+                connection.execute(
+                    f"ALTER TABLE sources ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
+                )
+        for heritage in HERITAGES.values():
+            connection.execute(
+                """
+                INSERT INTO heritages (
+                    id, name, country, period, location, summary,
+                    structure, material, religious_context
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    country = excluded.country,
+                    period = excluded.period,
+                    location = excluded.location,
+                    summary = excluded.summary,
+                    structure = excluded.structure,
+                    material = excluded.material,
+                    religious_context = excluded.religious_context
+                """,
+                (
+                    heritage.id,
+                    heritage.name,
+                    heritage.country,
+                    heritage.period,
+                    heritage.location,
+                    heritage.summary,
+                    heritage.structure,
+                    heritage.material,
+                    heritage.religious_context,
+                ),
+            )
+            for source_id in heritage.source_ids:
+                source = SOURCES[source_id]
+                connection.execute(
+                    """
+                    INSERT INTO sources (
+                        id, heritage_id, title, organization, url, retrieved_at, license_note,
+                        summary, scope_note
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        heritage_id = excluded.heritage_id,
+                        title = excluded.title,
+                        organization = excluded.organization,
+                        url = excluded.url,
+                        retrieved_at = excluded.retrieved_at,
+                        license_note = excluded.license_note,
+                        summary = excluded.summary,
+                        scope_note = excluded.scope_note
+                    """,
+                    (
+                        source.id,
+                        heritage.id,
+                        source.title,
+                        source.organization,
+                        str(source.url),
+                        source.retrieved_at.isoformat(),
+                        source.license_note,
+                        source.summary,
+                        source.scope_note,
+                    ),
+                )
+    return target
+
+
+def _migrate_quiz_items(connection: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(quiz_items)")}
+    if "heritage_id" not in columns:
+        connection.execute(
+            "ALTER TABLE quiz_items ADD COLUMN heritage_id TEXT NOT NULL DEFAULT 'seokguram'"
+        )
+    if "level" not in columns:
+        connection.execute(
+            "ALTER TABLE quiz_items ADD COLUMN level TEXT NOT NULL DEFAULT 'beginner'"
+        )
+
+
+def save_quiz_items(
+    quiz_id: str,
+    heritage_id: str,
+    level: str,
+    items: list[tuple[str, str, list[str], int, str]],
+    path: Path | None = None,
+) -> None:
+    with transaction(path) as connection:
+        for position, (item_id, question, choices, correct_index, explanation) in enumerate(items):
+            connection.execute(
+                """
+                INSERT INTO quiz_items (
+                    id, quiz_id, heritage_id, level, position,
+                    question, choices_json, correct_index, explanation
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item_id,
+                    quiz_id,
+                    heritage_id,
+                    level,
+                    position,
+                    question,
+                    json.dumps(choices, ensure_ascii=False),
+                    correct_index,
+                    explanation,
+                ),
+            )
+
+
+def load_quiz_items(quiz_id: str, path: Path | None = None) -> list[sqlite3.Row]:
+    with connect(path) as connection:
+        return list(
+            connection.execute(
+                """
+                SELECT id, heritage_id, level, question, choices_json, correct_index, explanation
+                FROM quiz_items
+                WHERE quiz_id = ?
+                ORDER BY position
+                """,
+                (quiz_id,),
+            )
+        )
+
+
+def save_learning_result(
+    session_id: str,
+    heritage_id: str,
+    level: str,
+    score: int,
+    total: int,
+    path: Path | None = None,
+) -> None:
+    with transaction(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO learning_history (session_id, heritage_id, level, score, total)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (session_id, heritage_id, level, score, total),
+        )

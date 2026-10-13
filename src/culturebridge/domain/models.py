@@ -1,0 +1,222 @@
+from datetime import date, datetime
+from enum import StrEnum
+
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+
+
+class LearningLevel(StrEnum):
+    BEGINNER = "beginner"
+    INTERMEDIATE = "intermediate"
+    ADVANCED = "advanced"
+
+
+class VerificationStatus(StrEnum):
+    VERIFIED = "verified"
+    NEEDS_REVIEW = "needs_review"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+
+
+class SourceRecord(BaseModel):
+    id: str
+    title: str
+    organization: str
+    url: HttpUrl
+    retrieved_at: date
+    license_note: str | None = None
+    summary: str = ""
+    scope_note: str = ""
+
+
+class HeritageSummary(BaseModel):
+    id: str
+    name: str
+    country: str
+    period: str
+    location: str
+    summary: str
+
+
+class HeritageDetail(HeritageSummary):
+    verification_status: VerificationStatus = VerificationStatus.VERIFIED
+    structure: str
+    material: str
+    religious_context: str
+    source_ids: list[str]
+
+
+class RelatedHeritage(BaseModel):
+    heritage: HeritageSummary
+    reason: str
+    score: float = Field(ge=0, le=1)
+
+
+class ComparisonRequest(BaseModel):
+    left_id: str
+    right_id: str
+    level: LearningLevel = LearningLevel.BEGINNER
+
+    @model_validator(mode="after")
+    def different_heritages(self) -> "ComparisonRequest":
+        if self.left_id == self.right_id:
+            raise ValueError("서로 다른 문화유산을 선택해야 합니다.")
+        return self
+
+
+class ComparisonPoint(BaseModel):
+    category: str
+    left: str
+    right: str
+    explanation: str
+
+
+class ComparisonResult(BaseModel):
+    saved_id: str | None = None
+    learning_goal: str = ""
+    left: HeritageSummary
+    right: HeritageSummary
+    level: LearningLevel
+    common_points: list[str]
+    differences: list[ComparisonPoint]
+    source_ids: list[str]
+    verification_status: VerificationStatus
+    verification_note: str
+
+
+class SavedComparison(BaseModel):
+    id: str
+    created_at: datetime
+    comparison: ComparisonResult
+    sources: list[SourceRecord]
+
+
+class SavedComparisonSummary(BaseModel):
+    id: str
+    created_at: datetime
+    left_name: str
+    right_name: str
+    level: LearningLevel
+
+
+class ExplorationRequest(BaseModel):
+    heritage_id: str
+    comparison_id: str | None = None
+    level: LearningLevel = LearningLevel.BEGINNER
+
+    @model_validator(mode="after")
+    def different_comparison_target(self) -> "ExplorationRequest":
+        if self.comparison_id == self.heritage_id:
+            raise ValueError("서로 다른 문화유산을 선택해야 합니다.")
+        return self
+
+
+class ExplorationResult(BaseModel):
+    heritage_id: str
+    comparison_id: str
+    level: LearningLevel
+    curriculum: list[str]
+    candidates: list[RelatedHeritage]
+    comparison: ComparisonResult
+    verification_status: VerificationStatus
+    verification_note: str
+
+
+class QuestionRequest(BaseModel):
+    left_id: str
+    right_id: str
+    question: str = Field(min_length=2, max_length=500)
+    level: LearningLevel = LearningLevel.BEGINNER
+
+    @field_validator("question")
+    @classmethod
+    def normalize_question(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 2:
+            raise ValueError("질문을 두 글자 이상 입력해야 합니다.")
+        return normalized
+
+    @model_validator(mode="after")
+    def different_heritages(self) -> "QuestionRequest":
+        if self.left_id == self.right_id:
+            raise ValueError("서로 다른 문화유산을 선택해야 합니다.")
+        return self
+
+
+class QuestionAnswer(BaseModel):
+    question: str
+    answer: str
+    source_ids: list[str]
+    verification_status: VerificationStatus
+    verification_note: str
+    used_ai: bool
+
+
+class ClaimRequest(ComparisonRequest):
+    claim: str = Field(min_length=2, max_length=500)
+
+    @field_validator("claim")
+    @classmethod
+    def normalize_claim(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 2:
+            raise ValueError("주장을 두 글자 이상 입력해야 합니다.")
+        return normalized
+
+
+class ClaimEvidence(BaseModel):
+    heritage_id: str
+    category: str
+    fact: str
+    source_ids: list[str]
+
+
+class ClaimResult(BaseModel):
+    claim: str
+    verification_status: VerificationStatus
+    explanation: str
+    evidence: list[ClaimEvidence]
+    sources: list[SourceRecord]
+    scope_note: str
+
+
+class QuizChoice(BaseModel):
+    id: int = Field(ge=0, le=3)
+    text: str
+
+
+class QuizItem(BaseModel):
+    id: str
+    question: str
+    choices: list[QuizChoice]
+    correct_index: int = Field(ge=0, le=3, exclude=True)
+    explanation: str = Field(exclude=True)
+
+
+class QuizRequest(BaseModel):
+    left_id: str
+    right_id: str
+    level: LearningLevel = LearningLevel.BEGINNER
+
+    @model_validator(mode="after")
+    def different_heritages(self) -> "QuizRequest":
+        if self.left_id == self.right_id:
+            raise ValueError("서로 다른 문화유산을 선택해야 합니다.")
+        return self
+
+
+class QuizResponse(BaseModel):
+    quiz_id: str
+    level: LearningLevel = LearningLevel.BEGINNER
+    learning_goal: str = ""
+    items: list[QuizItem]
+
+
+class QuizAttemptRequest(BaseModel):
+    quiz_id: str
+    answers: list[int] = Field(min_length=1, max_length=5)
+
+
+class QuizAttemptResult(BaseModel):
+    quiz_id: str
+    score: int
+    total: int
+    explanations: list[str]
