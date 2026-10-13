@@ -1,8 +1,8 @@
-param()
+param([ValidateSet('.venv', '.venv313')][string]$Environment = '.venv')
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$pythonPath = Join-Path $projectRoot '.venv\Scripts\python.exe'
+$pythonPath = Join-Path $projectRoot "$Environment\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
     throw 'Python environment missing. Follow README section 2.'
 }

@@ -3,7 +3,13 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from culturebridge.agents.quiz_agent import create_learning_quiz
-from culturebridge.domain.models import CollectedSource, ExtractedField, LearningGoal, LearningLevel
+from culturebridge.domain.models import (
+    CollectedSource,
+    ExtractedField,
+    LearningAmount,
+    LearningGoal,
+    LearningLevel,
+)
 from culturebridge.services.catalog_service import recommend_related
 from culturebridge.services.comparison_service import create_saved_comparison
 from culturebridge.services.curriculum_service import plan_learning
@@ -18,6 +24,7 @@ class ExplorationState(TypedDict, total=False):
     level: str
     goal: str
     goal_text: str
+    amount: str
     curriculum: list[str]
     focus_categories: list[str]
     candidates: list[dict]
@@ -38,10 +45,12 @@ def plan_curriculum(state):
         LearningLevel(state.get("level", "beginner")),
         LearningGoal(state.get("goal", "compare")),
     )
-    steps, focus = plan_learning(level, goal, state.get("goal_text", ""))
+    amount = LearningAmount(state.get("amount", "standard"))
+    steps, focus = plan_learning(level, goal, state.get("goal_text", ""), amount)
     return {
         "level": level.value,
         "goal": goal.value,
+        "amount": amount.value,
         "curriculum": steps,
         "focus_categories": focus,
         "retry_count": 0,
@@ -121,6 +130,7 @@ def build_comparison(state):
         goal=LearningGoal(state["goal"]),
         goal_text=state.get("goal_text", ""),
         curriculum=state["curriculum"],
+        amount=LearningAmount(state["amount"]),
     )
     return {
         "comparison": result.model_dump(mode="json"),

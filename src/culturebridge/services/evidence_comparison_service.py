@@ -8,6 +8,7 @@ from culturebridge.domain.models import (
     ComparisonResult,
     VerificationStatus,
 )
+from culturebridge.services.curriculum_service import plan_learning
 from culturebridge.services.extraction_service import DraftField, validate_extraction
 
 
@@ -51,9 +52,19 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
     fields = supported_fields(comparison)
     lookup = {(f.heritage_id, f.category): f for f in fields}
     points = []
-    for category in ("시대", "구조", "재료", "종교적 배경"):
+    _, focus = plan_learning(
+        comparison.level, comparison.goal, comparison.goal_text, comparison.amount
+    )
+    categories = focus + [c for c in ("시대", "구조", "재료", "종교적 배경") if c not in focus]
+    comparison.learning_notices = []
+    for category in categories:
         left = lookup.get((comparison.left.id, category))
         right = lookup.get((comparison.right.id, category))
+        if category in focus and (not left or not right):
+            comparison.learning_notices.append(
+                f"목표 항목 '{category}'의 양쪽 근거가 부족합니다. "
+                "비교 판단은 보류하고 확보된 출처·자료 범위를 확인하세요."
+            )
         points.append(
             ComparisonPoint(
                 category=category,
@@ -68,6 +79,11 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
             )
         )
     comparison.basis = "extracted"
+    for point in points:
+        if point.category not in focus:
+            point.explanation = "보조 항목입니다. 이번 학습은 선택 목표 항목을 우선합니다."
+        elif comparison.amount.value == "deep":
+            point.explanation += " 각 원문이 개별 유산·건립·재건 중 무엇을 가리키는지 대조하세요."
     comparison.differences = points
     comparison.common_evidence = []
     shared_terms = {

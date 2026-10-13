@@ -11,6 +11,7 @@ from culturebridge.domain.models import (
 from culturebridge.services.comparison_service import get_saved_comparison
 from culturebridge.services.curriculum_service import plan_learning
 from culturebridge.services.evidence_comparison_service import supported_fields
+from culturebridge.services.quiz_draft_service import try_draft_quiz
 
 
 class EvidenceQuizError(ValueError):
@@ -23,7 +24,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     if (comparison.left.id, comparison.right.id) != (left_id, right_id):
         raise EvidenceQuizError("저장된 비교의 대상과 퀴즈 대상이 다릅니다.")
     fields = supported_fields(comparison)
-    _, focus = plan_learning(level, comparison.goal, comparison.goal_text)
+    _, focus = plan_learning(level, comparison.goal, comparison.goal_text, comparison.amount)
     fields.sort(
         key=lambda field: focus.index(field.category) if field.category in focus else len(focus)
     )
@@ -183,7 +184,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
             ),
         ],
     }[level]
-    if level is LearningLevel.BEGINNER:
+    if level is LearningLevel.BEGINNER and first.category == "재료":
         material_names = {
             "화강암": "화강암",
             "granite": "화강암",
@@ -211,6 +212,18 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
                 choices,
                 "원문에서 찾은 재료 후보예요. 원문과 함께 확인해요.",
             )
+    # At least the first two fallback questions follow the selected focus.
+    if level is LearningLevel.BEGINNER and first.category != "재료":
+        question_rows[0] = (
+            f"{names[first.heritage_id]}의 '{first.category}' 자료 카드 주인공은 누구인가요?",
+            [names[first.heritage_id], other_name, "두 유산 모두", "자료 없음"],
+            "선택한 목표 항목의 유산 이름과 원문 근거를 함께 확인해요.",
+        )
+    question, choices, explanation = question_rows[2]
+    question_rows[2] = (f"'{focus[0]}' 목표 학습: {question}", choices, explanation)
+    drafted_rows, generation_note = try_draft_quiz(comparison, level, fields, focus)
+    if drafted_rows:
+        question_rows = drafted_rows
     quiz_id = uuid4().hex
     raw_items = []
     items = []
@@ -242,7 +255,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     return QuizResponse(
         quiz_id=quiz_id,
         level=level,
-        learning_goal="저장된 공식 근거 읽기·비교·한계 판단",
+        learning_goal=f"{comparison.goal.value}: 공식 근거 읽기·비교·한계 판단 · {generation_note}",
         items=items,
         comparison_id=comparison_id,
         basis="extracted",

@@ -6,7 +6,13 @@ from nicegui import run, ui
 
 from culturebridge.agents.quiz_agent import evaluate_learning_quiz
 from culturebridge.agents.workflow import exploration_graph
-from culturebridge.domain.models import CollectedSource, ExtractedField, LearningGoal, LearningLevel
+from culturebridge.domain.models import (
+    CollectedSource,
+    ExtractedField,
+    LearningAmount,
+    LearningGoal,
+    LearningLevel,
+)
 from culturebridge.services.catalog_service import (
     HeritageNotFoundError,
     get_sources,
@@ -20,7 +26,7 @@ from culturebridge.services.comparison_service import (
     get_saved_comparison,
     list_saved_comparisons,
 )
-from culturebridge.services.curriculum_service import GOAL_LABELS
+from culturebridge.services.curriculum_service import AMOUNT_LABELS, GOAL_LABELS
 from culturebridge.services.evidence_quiz_service import EvidenceQuizError
 from culturebridge.services.location_service import get_official_location
 from culturebridge.services.official_service import (
@@ -163,8 +169,15 @@ def _home_route(mode: str) -> str:
     return "/kiosk" if _is_kiosk(mode) else "/"
 
 
-def _goal_query(goal, goal_text=""):
-    return urlencode({"goal": goal, "goal_text": (goal_text or "")[:200]})
+def _goal_query(goal, goal_text="", amount="standard"):
+    return urlencode({"goal": goal, "goal_text": (goal_text or "")[:200], "amount": amount})
+
+
+def _amount(value):
+    try:
+        return LearningAmount(value)
+    except ValueError:
+        return LearningAmount.STANDARD
 
 
 def _goal(value: str) -> LearningGoal:
@@ -253,6 +266,7 @@ def home_page() -> None:
                 value=LearningLevel.BEGINNER.value,
             ).classes("w-full")
             goal = ui.select(GOAL_LABELS, value="compare", label="학습 목표").classes("w-full")
+            amount = ui.select(AMOUNT_LABELS, value="standard", label="학습 분량").classes("w-full")
             goal_text = (
                 ui.input(label="세부 목표 (선택)", placeholder="예: 재료와 불교의 관계가 궁금해요")
                 .props("maxlength=200")
@@ -289,7 +303,7 @@ def home_page() -> None:
                                 "비교 후보 보기",
                                 on_click=lambda heritage_id=item.id: ui.navigate.to(
                                     f"/explore/{heritage_id}?level={level.value}&"
-                                    + _goal_query(goal.value, goal_text.value)
+                                    + _goal_query(goal.value, goal_text.value, amount.value)
                                 ),
                             ).props("unelevated").style(f"background: {ACCENT}").classes(
                                 "cb-action"
@@ -327,6 +341,7 @@ def kiosk_page(reset: str | None = None) -> None:
 
             ui.label("2. 문화유산 선택").classes("cb-title text-3xl mt-2")
             goal = ui.select(GOAL_LABELS, value="observe", label="체험 목표").classes("w-full")
+            amount = ui.select(AMOUNT_LABELS, value="brief", label="체험 분량").classes("w-full")
             with ui.element("div").classes("cb-kiosk-grid w-full gap-5"):
                 for item in list_heritages():
                     with ui.card().classes("cb-kiosk-card w-full justify-between p-6 gap-3"):
@@ -336,7 +351,7 @@ def kiosk_page(reset: str | None = None) -> None:
                             f"{item.name} 선택",
                             on_click=lambda heritage_id=item.id: ui.navigate.to(
                                 f"/explore/{heritage_id}?level={level.value}&mode={KIOSK_MODE}&"
-                                + _goal_query(goal.value)
+                                + _goal_query(goal.value, amount=amount.value)
                             ),
                         ).classes("cb-kiosk-action w-full").props("unelevated")
 
@@ -352,6 +367,7 @@ def explore_page(
     mode: str = "web",
     goal: str = "compare",
     goal_text: str = "",
+    amount: str = "standard",
 ) -> None:
     _base_styles()
     _page_header(mode)
@@ -370,6 +386,7 @@ def explore_page(
         ui.label(f"선택한 문화유산: {selected.name}").classes("text-lg font-semibold")
         ui.label(f"학습 수준: {LEVEL_LABELS.get(level, '초급')}").classes("cb-muted")
         ui.label("학습 목표: " + GOAL_LABELS[learning_goal.value])
+        ui.label("학습 분량: " + AMOUNT_LABELS[_amount(amount).value])
         if goal_text:
             ui.label("세부 목표: " + goal_text[:200])
 
@@ -391,7 +408,7 @@ def explore_page(
                     on_click=lambda right_id=candidate.heritage.id: ui.navigate.to(
                         _route(
                             f"/research/{heritage_id}/{right_id}?level={level}&"
-                            + _goal_query(learning_goal.value, goal_text),
+                            + _goal_query(learning_goal.value, goal_text, _amount(amount).value),
                             mode,
                         )
                     ),
@@ -448,6 +465,9 @@ def comparison_page(
                 if result.goal_text:
                     ui.label("세부 목표: " + result.goal_text)
                 ui.label("학습 순서: " + " → ".join(result.curriculum))
+                ui.label("학습 분량: " + AMOUNT_LABELS[result.amount.value])
+                for notice in result.learning_notices:
+                    ui.label(notice).classes("cb-muted")
             if saved_id:
                 ui.label(
                     "저장 당시의 비교와 출처입니다. 자유 질문은 현재 등록 자료를 사용합니다."
@@ -630,6 +650,11 @@ def comparison_page(
                     ui.label("입력한 주장: " + checked.claim)
                     ui.label(labels[checked.verification_status.value]).classes("cb-title text-xl")
                     ui.label(checked.explanation)
+                    if checked.execution_trace:
+                        with ui.expansion(f"주장 재검토 기록 · 추가 조회 {checked.retry_count}회"):
+                            for step in checked.execution_trace:
+                                ui.label(step)
+                        _collected_source_cards(checked.collected_sources)
                     if checked.unsupported_parts:
                         ui.label("개별 근거가 없는 주장 부분").classes("font-semibold")
                         for part in checked.unsupported_parts:
@@ -689,7 +714,7 @@ def comparison_page(
 
 
 @ui.page("/quiz/{left_id}/{right_id}")
-def quiz_page(
+async def quiz_page(
     left_id: str,
     right_id: str,
     level: str = LearningLevel.BEGINNER.value,
@@ -703,12 +728,29 @@ def quiz_page(
     if left_id == right_id:
         _error_page("서로 다른 문화유산을 선택해 주세요.", mode)
         return
+    loading = None
+    settings = None
+    if comparison_id and not quiz_id:
+        from culturebridge.config import get_settings
+
+        settings = get_settings()
+    if settings and settings.gemini_api_key and settings.gemini_enabled:
+        loading = ui.column().classes("cb-shell py-10").props("role=status aria-live=polite")
+        with loading:
+            ui.label("공식 근거에 맞는 퀴즈를 준비하고 있습니다…")
+            ui.spinner()
+        await ui.context.client.connected()
+        if ui.context.client.is_deleted:
+            return
     try:
-        quiz = (
-            load_quiz(quiz_id, left_id, right_id)
-            if quiz_id
-            else generate_quiz(left_id, right_id, learning_level, comparison_id=comparison_id)
-        )
+        if quiz_id:
+            quiz = load_quiz(quiz_id, left_id, right_id)
+        elif loading:
+            quiz = await run.io_bound(
+                generate_quiz, left_id, right_id, learning_level, comparison_id=comparison_id
+            )
+        else:
+            quiz = generate_quiz(left_id, right_id, learning_level, comparison_id=comparison_id)
         comparison_id, learning_level = quiz.comparison_id, quiz.level
     except (ComparisonNotFoundError, EvidenceQuizError) as exc:
         _error_page(
@@ -726,6 +768,9 @@ def quiz_page(
         logger.exception("Quiz storage failed")
         _error_page("퀴즈를 준비할 수 없습니다.", mode)
         return
+    finally:
+        if loading:
+            loading.delete()
     radios = []
 
     with ui.column().classes(f"cb-shell gap-6 py-10 {'cb-kiosk' if _is_kiosk(mode) else ''}"):
@@ -1103,6 +1148,7 @@ async def research_page(
     mode: str = "web",
     goal: str = "compare",
     goal_text: str = "",
+    amount: str = "standard",
 ) -> None:
     _base_styles()
     _page_header(mode)
@@ -1130,6 +1176,7 @@ async def research_page(
                     "level": learning_level.value,
                     "goal": _goal(goal).value,
                     "goal_text": goal_text[:200],
+                    "amount": _amount(amount).value,
                 },
             )
         except (HeritageNotFoundError, sqlite3.Error):
@@ -1140,6 +1187,8 @@ async def research_page(
         with panel:
             ui.label(state["verification_note"]).classes("cb-muted")
             ui.label("학습 순서: " + " → ".join(state["curriculum"]))
+            for notice in state["comparison"]["learning_notices"]:
+                ui.label(notice).classes("cb-muted")
             with ui.expansion("Agent 실행·재검색 기록").classes("w-full"):
                 for step in state["execution_trace"]:
                     ui.label(step)
@@ -1147,7 +1196,7 @@ async def research_page(
             _collected_source_cards(
                 [CollectedSource.model_validate(s) for s in state["collected_sources"]]
             )
-            ui.label("시대·구조·재료 추출 결과").classes("cb-title text-2xl")
+            ui.label("시대·구조·재료·종교적 배경 추출 결과").classes("cb-title text-2xl")
             _extracted_field_cards(
                 [ExtractedField.model_validate(f) for f in state["extracted_fields"]]
             )

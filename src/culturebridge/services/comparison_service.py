@@ -7,6 +7,7 @@ from culturebridge.domain.models import (
     CollectedSource,
     ComparisonResult,
     ExtractedField,
+    LearningAmount,
     LearningGoal,
     LearningLevel,
     SavedComparison,
@@ -14,6 +15,7 @@ from culturebridge.domain.models import (
     SourceRecord,
 )
 from culturebridge.services.catalog_service import compare_heritages, get_sources
+from culturebridge.services.curriculum_service import GOAL_LABELS
 from culturebridge.services.evidence_comparison_service import apply_extracted_comparison
 
 
@@ -32,13 +34,16 @@ def create_saved_comparison(
     goal: LearningGoal = LearningGoal.COMPARE,
     goal_text: str = "",
     curriculum: list[str] | None = None,
+    amount: LearningAmount = LearningAmount.STANDARD,
 ) -> ComparisonResult:
     result = compare_heritages(left_id, right_id, level)
     result.collected_sources = collected_sources or []
     result.extracted_fields = extracted_fields or []
     result.goal, result.goal_text = goal, goal_text
+    result.amount = amount
     result.curriculum = curriculum or []
     if extracted_fields is not None:
+        result.learning_goal = GOAL_LABELS[goal.value] + " · 공식 원문 근거와 한계 확인"
         result = apply_extracted_comparison(result)
     source_records = get_sources(result.source_ids)
     if result.basis == "extracted":

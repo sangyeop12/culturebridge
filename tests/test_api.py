@@ -29,6 +29,9 @@ def isolated_api_database(tmp_path, monkeypatch):
     monkeypatch.setattr(
         workflow, "retry_missing_sources", lambda left, right, current, missing: current
     )
+    with TestClient(app) as running_client:
+        monkeypatch.setitem(globals(), "client", running_client)
+        yield
 
 
 def test_complete_local_learning_flow():

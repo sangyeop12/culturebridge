@@ -11,6 +11,7 @@ from culturebridge.domain.models import ClaimEvidence, ClaimResult, SourceRecord
 from culturebridge.services.catalog_service import get_heritage
 from culturebridge.services.comparison_service import get_saved_comparison
 from culturebridge.services.evidence_comparison_service import supported_fields
+from culturebridge.services.research_retry_service import retry_missing_sources
 
 
 class ClaimTargetMismatchError(ValueError):
@@ -132,10 +133,9 @@ def _validate_report(report, sources):
     return valid, missing_parts
 
 
-def verify_source_claim(left_id, right_id, claim, comparison_id):
+def _verify_once(left_id, right_id, claim, comparison_id, comparison):
     get_heritage(left_id)
     get_heritage(right_id)
-    comparison = get_saved_comparison(comparison_id).comparison
     if (comparison.left.id, comparison.right.id) != (left_id, right_id):
         raise ClaimTargetMismatchError("저장된 비교와 주장 검증의 대상이 다릅니다.")
     sources = [
@@ -147,7 +147,7 @@ def verify_source_claim(left_id, right_id, claim, comparison_id):
         and s.content
     ]
     scope = (
-        "선택한 비교의 개별 공식 원문 저장본을 대조했습니다. 최신 자료를 재수집하지 않았습니다. "
+        "선택한 두 유산의 개별 공식 원문과 대조했습니다. "
         "AI 지지·반박 판정은 검토 후보이며 원문 인용 일치가 의미 검증 완료를 뜻하지 않습니다."
     )
     result = ClaimResult(
@@ -255,4 +255,53 @@ def verify_source_claim(left_id, right_id, claim, comparison_id):
         for s in sources
         if s.id in used_ids and s.retrieved_at
     ]
+    return result
+
+
+def verify_source_claim(left_id, right_id, claim, comparison_id):
+    comparison = get_saved_comparison(comparison_id).comparison
+    result = _verify_once(left_id, right_id, claim, comparison_id, comparison)
+    trace = ["verification_agent: 저장 원문·개별 주장 점검"]
+    needs_retry = result.assessment != "source_match" and (
+        bool(result.unsupported_parts)
+        or not result.evidence
+        or any(entry.relation == "related" for entry in result.evidence)
+    )
+    if needs_retry:
+        from culturebridge.services.claim_service import ALIASES
+        from culturebridge.services.extraction_service import extract_fields
+
+        missing_text = " ".join(result.unsupported_parts) or claim
+        targets = [
+            heritage_id
+            for heritage_id in (left_id, right_id)
+            if any(name in missing_text for name in ALIASES[heritage_id])
+        ] or [left_id, right_id]
+        trace.append("research_retry_tool: 부족한 주장 대상의 공식 자료 추가 조회 1회")
+        # Keep the comparison snapshot immutable. Only provider caches may be refreshed.
+        try:
+            sources = retry_missing_sources(
+                left_id, right_id, comparison.collected_sources, targets
+            )
+        except Exception:
+            sources = comparison.collected_sources
+            trace.append("research_retry_tool: 조회 실패·기존 근거 유지")
+        updated = comparison.model_copy(deep=True)
+        updated.collected_sources = sources
+        updated.extracted_fields = extract_fields(sources, [left_id, right_id])
+        reassessed = _verify_once(left_id, right_id, claim, comparison_id, updated)
+        # An unsuccessful second assessment must not discard already validated citations.
+        if reassessed.evidence or not result.evidence:
+            result = reassessed
+        result.retry_count = 1
+        result.collected_sources = sources
+        trace.append("verification_agent: 추가 자료 재검토·미해결 주장 판단 보류")
+        if (
+            not result.evidence
+            or result.unsupported_parts
+            or any(entry.relation == "related" for entry in result.evidence)
+        ):
+            result.explanation += " 추가 조회 후에도 의미 판단이 불충분한 부분은 보류합니다."
+        result.scope_note += " 추가 조회는 최대 1회이며 기존 비교 저장본은 변경하지 않았습니다."
+    result.execution_trace = trace
     return result

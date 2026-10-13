@@ -134,15 +134,19 @@ def test_api_quiz_ready_and_ui_reuses_same_quiz(configured):
             "comparison_id": "horyuji",
             "goal": "religion",
             "goal_text": "불교 공간을 비교하고 싶어요",
+            "amount": "brief",
         },
     )
     assert response.status_code == 200
     result = response.json()
     assert result["goal_text"] == "불교 공간을 비교하고 싶어요"
+    assert result["amount"] == result["comparison"]["amount"] == "brief"
+    assert result["comparison"]["differences"][0]["category"] == "종교적 배경"
     quiz_id = result["quiz"]["quiz_id"]
     reused = load_quiz(quiz_id, "seokguram", "horyuji")
     assert reused.quiz_id == quiz_id and reused.comparison_id == result["comparison"]["saved_id"]
-    page = client.get(f"/quiz/seokguram/horyuji?quiz_id={quiz_id}")
+    with TestClient(app) as page_client:
+        page = page_client.get(f"/quiz/seokguram/horyuji?quiz_id={quiz_id}")
     assert page.status_code == 200
     with connect() as connection:
         assert connection.execute("SELECT COUNT(*) FROM quiz_items").fetchone()[0] == 5

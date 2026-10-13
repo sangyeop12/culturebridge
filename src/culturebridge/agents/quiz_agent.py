@@ -13,7 +13,7 @@ def create_learning_quiz(state):
         )
         return {
             "quiz": quiz.model_dump(mode="json"),
-            "quiz_notice": "공식 근거 퀴즈가 준비됐습니다.",
+            "quiz_notice": "공식 근거 퀴즈가 준비됐습니다. " + quiz.learning_goal,
             "execution_trace": state.get("execution_trace", []) + ["quiz_agent: 5문항 생성"],
         }
     except EvidenceQuizError:

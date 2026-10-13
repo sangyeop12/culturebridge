@@ -23,6 +23,9 @@ QUOTE = "The grotto was constructed of granite."
 def comparison(tmp_path, monkeypatch):
     monkeypatch.setattr(get_settings(), "db_path", tmp_path / "claims.db")
     monkeypatch.setattr(get_settings(), "gemini_api_key", None)
+    monkeypatch.setattr(
+        service, "retry_missing_sources", lambda left, right, sources, targets: sources
+    )
     initialize_database()
     source = CollectedSource(
         id="test",
@@ -181,3 +184,58 @@ def test_local_response_limits_remain_enforced_after_provider_schema_simplificat
         payload = {"parts": [{"statement": "Test", "citations": [cite().model_dump()] * 11}]}
     with pytest.raises(ValidationError):
         service.ClaimReport.model_validate(payload)
+
+
+def test_missing_claim_retries_once_and_reassesses_without_changing_snapshot(
+    comparison, monkeypatch
+):
+    reports = iter(
+        [
+            service.ClaimReport(parts=[service.ClaimPart(statement="석굴암 재료", citations=[])]),
+            service.ClaimReport(
+                parts=[service.ClaimPart(statement="석굴암 재료", citations=[cite()])]
+            ),
+        ]
+    )
+    calls = []
+    mock_ai(monkeypatch, None)
+    monkeypatch.setattr(service, "_assess_with_gemini", lambda *args: next(reports))
+
+    def retry(left, right, sources, targets):
+        calls.append(targets)
+        return sources
+
+    monkeypatch.setattr(service, "retry_missing_sources", retry)
+    from culturebridge.services.comparison_service import get_saved_comparison
+
+    before = get_saved_comparison(comparison.saved_id).model_dump_json()
+    result = service.verify_source_claim(
+        "seokguram", "horyuji", "석굴암의 재료는 화강암이다", comparison.saved_id
+    )
+    assert result.retry_count == 1 and calls == [["seokguram"]]
+    assert result.assessment == "support_candidate" and result.used_ai
+    assert len(result.execution_trace) == 3
+    assert get_saved_comparison(comparison.saved_id).model_dump_json() == before
+
+
+def test_unresolved_claim_stops_after_single_retry(comparison, monkeypatch):
+    mock_ai(
+        monkeypatch,
+        service.ClaimReport(parts=[service.ClaimPart(statement="직접 영향 관계", citations=[])]),
+    )
+    result = service.verify_source_claim(
+        "seokguram", "horyuji", "두 유산은 직접 영향을 주었다", comparison.saved_id
+    )
+    assert result.retry_count == 1
+    assert result.verification_status is VerificationStatus.INSUFFICIENT_EVIDENCE
+    assert result.unsupported_parts == ["직접 영향 관계"]
+    assert "보류" in result.explanation
+
+
+def test_source_match_does_not_retry(comparison, monkeypatch):
+    def fail(*args):
+        pytest.fail("A verbatim source match does not require research")
+
+    monkeypatch.setattr(service, "retry_missing_sources", fail)
+    result = service.verify_source_claim("seokguram", "horyuji", QUOTE, comparison.saved_id)
+    assert result.retry_count == 0

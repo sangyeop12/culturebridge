@@ -200,6 +200,7 @@ def create_exploration(request: ExplorationRequest):
         "level": request.level.value,
         "goal": request.goal.value,
         "goal_text": request.goal_text,
+        "amount": request.amount.value,
     }
     if request.comparison_id:
         state["comparison_id"] = request.comparison_id
@@ -220,6 +221,7 @@ def create_exploration(request: ExplorationRequest):
         extracted_fields=result["extracted_fields"],
         goal=result["goal"],
         goal_text=request.goal_text,
+        amount=result["amount"],
         retry_count=result["retry_count"],
         execution_trace=result["execution_trace"],
         quiz=result["quiz"],

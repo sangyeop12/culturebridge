@@ -18,6 +18,12 @@ class LearningGoal(StrEnum):
     VERIFY = "verify"
 
 
+class LearningAmount(StrEnum):
+    BRIEF = "brief"
+    STANDARD = "standard"
+    DEEP = "deep"
+
+
 class VerificationStatus(StrEnum):
     VERIFIED = "verified"
     NEEDS_REVIEW = "needs_review"
@@ -122,6 +128,8 @@ class ComparisonResult(BaseModel):
     basis: Literal["curated", "extracted"] = "curated"
     goal: LearningGoal = LearningGoal.COMPARE
     goal_text: str = ""
+    amount: LearningAmount = LearningAmount.STANDARD
+    learning_notices: list[str] = Field(default_factory=list)
     curriculum: list[str] = Field(default_factory=list)
     common_evidence: list[CommonEvidence] = Field(default_factory=list)
     left: HeritageSummary
@@ -155,6 +163,7 @@ class ExplorationRequest(BaseModel):
     level: LearningLevel = LearningLevel.BEGINNER
     goal: LearningGoal = LearningGoal.COMPARE
     goal_text: str = Field(default="", max_length=200)
+    amount: LearningAmount = LearningAmount.STANDARD
 
     @model_validator(mode="after")
     def different_comparison_target(self) -> "ExplorationRequest":
@@ -176,6 +185,7 @@ class ExplorationResult(BaseModel):
     extracted_fields: list[ExtractedField] = Field(default_factory=list)
     goal: LearningGoal = LearningGoal.COMPARE
     goal_text: str = ""
+    amount: LearningAmount = LearningAmount.STANDARD
     retry_count: int = 0
     execution_trace: list[str] = Field(default_factory=list)
     quiz: "QuizPreview | None" = None
@@ -250,6 +260,9 @@ class ClaimResult(BaseModel):
         "source_match", "support_candidate", "contradiction_candidate", "mixed", "insufficient"
     ] = "insufficient"
     unsupported_parts: list[str] = Field(default_factory=list)
+    retry_count: int = 0
+    execution_trace: list[str] = Field(default_factory=list)
+    collected_sources: list[CollectedSource] = Field(default_factory=list)
 
 
 class QuizChoice(BaseModel):

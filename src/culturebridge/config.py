@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = Field(default=None, validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-2.5-flash", validation_alias="GEMINI_MODEL")
     gemini_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
+    quiz_timeout_ms: int = Field(default=30000, ge=1000, le=60000)
     gemini_enabled: bool = True
     heritage_timeout_seconds: int = Field(default=10, ge=1, le=30)
     heritage_cache_hours: int = Field(default=24, ge=1, le=168)
