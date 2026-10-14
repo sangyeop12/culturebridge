@@ -243,7 +243,7 @@ def _comparison_entry(
     domestic_url=None,
 ):
     if comparison_scope is ComparisonScope.OVERSEAS:
-        with ui.expansion("부가 기능 · 국내 문화유산과 비교").classes("w-full"):
+        with ui.expansion("국내 문화유산과 비교").classes("w-full"):
             ui.label(
                 "한국 문화유산끼리 비교하거나 해외 유산을 한국 유산과 비교하고 싶을 때 이용하세요."
             )
@@ -259,7 +259,7 @@ def _comparison_entry(
             ).props("outline no-caps")
     else:
         ui.button(
-            "기본 학습 · 해외 문화유산과 비교",
+            "해외 문화유산과 비교",
             on_click=lambda: ui.navigate.to(
                 scope_return(
                     context() if context else home_context(q=q, level=level),
@@ -407,9 +407,9 @@ def home_page(
     with ui.column().classes("cb-shell gap-7 py-10"):
         ui.label(SCOPE_LABELS[comparison_scope.value]).classes("cb-title text-xl")
         ui.label(
-            "기본 학습 · 한국 밖의 유산을 추천해요."
+            "한국 밖의 유산을 추천해요."
             if comparison_scope is ComparisonScope.OVERSEAS
-            else "부가 기능 · 한국의 유산을 추천해요."
+            else "한국의 유산을 추천해요."
         ).classes("cb-muted")
         _comparison_entry(q, level, comparison_scope, context=lambda: return_context(page))
         ui.link("비교 기록 모아보기", "/comparisons").classes("text-blue-800 font-semibold")
@@ -1869,7 +1869,7 @@ async def research_page(
             panel.clear()
             _error_page(
                 "선택한 비교 범위에서 탐구 자료를 확인하지 못했습니다. "
-                "국내 비교는 부가 기능에서 선택해 주세요.",
+                "한국의 유산과 비교하려면 ‘국내 문화유산과 비교’를 선택해 주세요.",
                 mode,
             )
             return

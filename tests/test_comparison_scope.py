@@ -251,8 +251,12 @@ def test_domestic_has_separate_entry_and_keeps_current_controls(configured, monk
         ]
         domestic = client.get("/domestic?q=불국사&level=advanced")
     assert response.status_code == domestic.status_code == 200
-    assert "부가 기능 · 한국의 유산을 추천해요" in domestic.text
-    assert "부가 기능 · 국내 문화유산과 비교" in response.text
+    assert "한국의 유산을 추천해요" in domestic.text
+    assert "국내 문화유산과 비교" in response.text
+    assert "부가 기능" not in domestic.text
+    assert "부가 기능" not in response.text
+    assert "기본 학습" not in domestic.text
+    assert "기본 학습" not in response.text
 
 
 def test_domestic_context_stays_domestic_through_navigation():
