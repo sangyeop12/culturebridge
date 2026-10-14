@@ -8,7 +8,7 @@ AMOUNT_LABELS = {
 
 GOAL_LABELS = {
     "observe": "모양·재료 관찰",
-    "compare": "시대·구조 비교",
+    "compare": "유사점과 차이점 알아보기",
     "religion": "종교적 배경과 맥락",
     "verify": "출처와 근거 검토",
 }
@@ -32,6 +32,13 @@ def required_categories(goal_text):
         category for category, words in GOAL_WORDS.items() if any(w in goal_text for w in words)
     }
     mode = goal_text.split(" ", 1)[0]
+    free_text = (
+        goal_text.split(" ", 1)[1] if mode in GOAL_LABELS and " " in goal_text else goal_text
+    )
+    if not requested and free_text.strip() and free_text.strip() not in GOAL_LABELS:
+        from culturebridge.services.goal_interpretation_service import interpreted_categories
+
+        requested.update(interpreted_categories(free_text))
     if mode == "religion":
         requested.add("종교적 배경")
     elif mode == "observe":
@@ -57,6 +64,10 @@ def plan_learning(
         if positions:
             requested.append((min(positions), category))
     priority = [category for _, category in sorted(requested)]
+    if not priority and goal_text.strip():
+        from culturebridge.services.goal_interpretation_service import interpreted_categories
+
+        priority = interpreted_categories(goal_text)
     focus = priority + [category for category in focus if category not in priority]
     if amount is LearningAmount.BRIEF:
         focus = focus[:2]

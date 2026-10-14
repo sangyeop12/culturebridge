@@ -6,9 +6,22 @@ from pathlib import Path
 
 from culturebridge.config import get_settings
 from culturebridge.data.catalog import HERITAGES, SOURCES
+from culturebridge.services.operation_service import owner_key, session_owner
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS resource_owners (
+    kind TEXT NOT NULL, id TEXT NOT NULL, owner TEXT NOT NULL,
+    PRIMARY KEY (kind, id)
+);
+CREATE TABLE IF NOT EXISTS comparison_keys (
+    fingerprint TEXT PRIMARY KEY, comparison_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS learning_reviews (
+    history_id INTEGER PRIMARY KEY REFERENCES learning_history(id),
+    quiz_id TEXT NOT NULL, result_json TEXT NOT NULL, owner TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS heritages (
     id TEXT PRIMARY KEY,
@@ -269,10 +282,17 @@ def save_quiz_items(
                     json.dumps(evidence or [], ensure_ascii=False),
                 ),
             )
+        connection.execute("INSERT INTO resource_owners VALUES('quiz',?,?)", (quiz_id, owner_key()))
 
 
 def load_quiz_items(quiz_id: str, path: Path | None = None) -> list[sqlite3.Row]:
     with connect(path) as connection:
+        if get_settings().public_mode and session_owner.get():
+            owner = connection.execute(
+                "SELECT owner FROM resource_owners WHERE kind='quiz' AND id=?", (quiz_id,)
+            ).fetchone()
+            if not owner or owner["owner"] != owner_key():
+                return []
         return list(
             connection.execute(
                 """
@@ -294,12 +314,13 @@ def save_learning_result(
     score: int,
     total: int,
     path: Path | None = None,
-) -> None:
+) -> int:
     with transaction(path) as connection:
-        connection.execute(
+        cursor = connection.execute(
             """
             INSERT INTO learning_history (session_id, heritage_id, level, score, total)
             VALUES (?, ?, ?, ?, ?)
             """,
             (session_id, heritage_id, level, score, total),
         )
+        return cursor.lastrowid

@@ -8,6 +8,7 @@ from culturebridge.domain.models import (
     VerificationStatus,
 )
 from culturebridge.services.catalog_service import get_heritage, get_sources
+from culturebridge.services.operation_service import reused_operation
 
 ALIASES = {
     "seokguram": ("석굴암",),
@@ -22,6 +23,7 @@ SCOPE_NOTE = (
 )
 
 
+@reused_operation("claim")
 def verify_claim(
     left_id: str, right_id: str, claim: str, *, comparison_id: str | None = None
 ) -> ClaimResult:

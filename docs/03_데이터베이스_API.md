@@ -9,6 +9,9 @@
 | comparisons | id | 문화유산 비교 분석 결과 |
 | quiz_items | id | 학습 내용과 연결된 문제 |
 | learning_history | id | 임시 세션과 퀴즈 결과 |
+| resource_owners | kind·id | 비교/퀴즈의 익명 세션 소유자 |
+| comparison_keys | fingerprint | 같은 비교 내용의 중복 저장 방지 |
+| learning_reviews | history_id | 채점 해설·오답 복습 저장, learning_history 참조 |
 | official_documents | id | 국가유산청 상세 원문·정규화 내용·출처·조회 시각 캐시 |
 | official_location_feeds | kind_code | 공간정보 API 종목별 XML·조회 시각 캐시 |
 | unesco_feeds | language | UNESCO 영문 JSON 또는 XML·출처·이용 조건·조회 시각 캐시 |

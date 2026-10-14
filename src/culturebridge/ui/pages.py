@@ -1,12 +1,15 @@
 import logging
 import sqlite3
+from contextvars import copy_context
+from functools import partial
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from nicegui import run, ui
 
 from culturebridge.agents.autonomous import AutonomousRequest, run_autonomous
 from culturebridge.agents.quiz_agent import evaluate_learning_quiz
-from culturebridge.agents.workflow import exploration_graph
+from culturebridge.agents.workflow import run_exploration
+from culturebridge.config import get_settings
 from culturebridge.domain.models import (
     CollectedSource,
     ComparisonScope,
@@ -34,7 +37,7 @@ from culturebridge.services.comparison_service import (
     get_saved_comparison,
     list_saved_comparisons,
 )
-from culturebridge.services.curriculum_service import AMOUNT_LABELS, GOAL_LABELS
+from culturebridge.services.curriculum_service import AMOUNT_LABELS, GOAL_LABELS, plan_learning
 from culturebridge.services.display_service import (
     display_country,
     display_name,
@@ -47,6 +50,7 @@ from culturebridge.services.display_service import (
 from culturebridge.services.dynamic_heritage_service import OfficialTarget
 from culturebridge.services.evidence_quiz_service import EvidenceQuizError
 from culturebridge.services.home_search_service import get_home_suggestions, search_home
+from culturebridge.services.learning_history_service import list_learning_reviews
 from culturebridge.services.lesson_service import beginner_text, explain_source, official_source
 from culturebridge.services.location_service import get_official_location
 from culturebridge.services.navigation_service import (
@@ -63,6 +67,7 @@ from culturebridge.services.official_service import (
     get_official_document,
     search_official_heritages,
 )
+from culturebridge.services.operation_service import OperationBusyError, session_owner
 from culturebridge.services.question_service import answer_question
 from culturebridge.services.quiz_service import (
     InvalidQuizAttemptError,
@@ -81,6 +86,19 @@ from culturebridge.services.unesco_service import (
 from culturebridge.ui.theme import ACCENT, BRAND, PALE, THEME_HEAD
 
 logger = logging.getLogger(__name__)
+
+
+async def _io_bound(callback, *args, **kwargs):
+    # NiceGUI's executor doesn't propagate ContextVars; keep anonymous ownership in workers.
+    try:
+        owner = getattr(ui.context.client.request.state, "cb_owner", None)
+    except (RuntimeError, AttributeError):
+        owner = None
+    context = copy_context()
+    if owner:
+        context.run(session_owner.set, owner)
+    return await run.io_bound(context.run, partial(callback, *args, **kwargs))
+
 
 KIOSK_MODE = "kiosk"
 KIOSK_TIMEOUT_SECONDS = 300
@@ -132,7 +150,7 @@ def _kiosk_header() -> None:
             ui.label("CultureBridge").classes("text-2xl font-bold text-white")
             ui.label("박물관 터치 체험").classes("text-sm text-blue-100")
         ui.space()
-        ui.button("처음으로", on_click=lambda: ui.navigate.to("/kiosk")).props(
+        ui.button("처음으로", on_click=lambda: ui.navigate.to("/kiosk?reset=manual")).props(
             "unelevated icon=home"
         ).classes("cb-kiosk-action").style(f"background: white; color: {BRAND}")
 
@@ -187,7 +205,7 @@ def _route(path: str, mode: str) -> str:
 
 
 def _home_route(mode: str) -> str:
-    return "/kiosk" if _is_kiosk(mode) else "/"
+    return "/kiosk?reset=manual" if _is_kiosk(mode) else "/"
 
 
 def _return_button(return_to="", fallback="/", label="검색 결과로", mode="web"):
@@ -341,6 +359,8 @@ def _lesson_content(source, level):
             ui.label(section.text).classes("cb-reading").style(
                 "white-space: pre-wrap; overflow-wrap: anywhere"
             )
+            if section.check_question and level is LearningLevel.BEGINNER:
+                ui.label("생각해 보기 · " + section.check_question).classes("cb-muted text-sm")
             if level is LearningLevel.INTERMEDIATE and section.event:
                 ui.label("연대가 가리키는 사건: " + section.event).classes("cb-muted")
             if level is LearningLevel.INTERMEDIATE and section.evidence_quote:
@@ -571,7 +591,7 @@ def home_page(
                     ui.label("국내·세계 공식 자료를 검색하고 있습니다…")
                     ui.spinner()
                 try:
-                    response = await run.io_bound(search_home, query, selected_scope, page)
+                    response = await _io_bound(search_home, query, selected_scope, page)
                     if version != search_version:
                         return  # Never show a completed search under a different input.
                     official_results.clear()
@@ -706,6 +726,15 @@ def home_page(
                                 "공식 자료 결과가 없습니다. "
                                 "이름·국가명·영문 표기를 바꾸거나 다시 검색해 주세요."
                             )
+                            from culturebridge.services.search_help_service import (
+                                suggested_search_terms,
+                            )
+
+                            for term in suggested_search_terms(query):
+                                ui.button(
+                                    term + "로 다시 검색",
+                                    on_click=lambda text=term: choose_suggestion(text),
+                                ).props("outline")
                 except (sqlite3.Error, ValueError):
                     if version == search_version:
                         official_results.clear()
@@ -849,7 +878,7 @@ def explore_page(
 ) -> None:
     _base_styles()
     _page_header(mode)
-    if heritage_id.startswith(("khs:", "unesco:")):
+    if heritage_id.startswith(("khs:", "unesco:", "official:")):
         provider, identity = heritage_id.split(":", 1)
         with ui.column().classes("cb-shell py-10"):
             _return_button(return_to, _home_route(mode), mode=mode)
@@ -896,6 +925,18 @@ def explore_page(
                     ),
                 )
         ui.label(f"선택한 문화유산: {selected.name}").classes("text-lg font-semibold")
+        from culturebridge.services.heritage_identity_service import canonical_id
+
+        official_identity = canonical_id(heritage_id)
+        provider, identifier = official_identity.split(":", 1)
+        ui.link(
+            "이 유산의 공식 자료로 탐구하기",
+            with_return(
+                f"/discover/{provider}/{identifier}?level={level}&"
+                + _goal_query(learning_goal.value, goal_text, amount, comparison_scope),
+                return_to,
+            ),
+        )
         ui.label(f"학습 수준: {LEVEL_LABELS.get(level, '초급')}").classes("cb-muted")
         ui.label("학습 목표: " + GOAL_LABELS[learning_goal.value])
         ui.label("학습 분량: " + AMOUNT_LABELS[_amount(amount).value])
@@ -979,7 +1020,17 @@ def comparison_page(
         else:
             validate_pair_scope(get_heritage(right_id).country, comparison_scope)
             result = create_saved_comparison(
-                left_id, right_id, learning_level, comparison_scope=comparison_scope
+                left_id,
+                right_id,
+                learning_level,
+                comparison_scope=comparison_scope,
+                goal=_goal(goal),
+                goal_text=goal_text[:200],
+                amount=_amount(amount),
+                curriculum=plan_learning(
+                    learning_level, _goal(goal), goal_text[:200], _amount(amount)
+                )[0],
+                reuse=True,
             )
             sources = get_sources(result.source_ids)
     except (ComparisonNotFoundError, HeritageNotFoundError, ValueError):
@@ -1027,7 +1078,10 @@ def comparison_page(
                     ui.label(notice).classes("cb-muted")
             if saved_id:
                 ui.label(
-                    "저장 당시의 비교와 출처입니다. 자유 질문은 현재 등록 자료를 사용합니다."
+                    "저장 당시의 비교와 출처입니다. 자유 질문도 이 저장본의 원문을 사용합니다."
+                    if result.collected_sources
+                    else "저장 당시의 비교와 출처입니다. "
+                    "이 기본 예제의 자유 질문은 현재 등록된 요약 자료를 사용합니다."
                 ).classes("cb-muted")
             if result.saved_id and not _is_kiosk(mode):
                 ui.link(
@@ -1049,21 +1103,16 @@ def comparison_page(
                         [common.left_evidence, common.right_evidence], learning_level
                     )
 
-        if result.collected_sources:
-            ui.label("두 유산의 이야기 읽기").classes("cb-title text-2xl")
+        if result.collected_sources or result.extracted_fields:
             ui.label(
-                "원문에서 찾은 설명으로 비교했어요. 설명의 뜻과 대상은 추가 확인이 필요해요."
-                if result.basis == "extracted"
-                else "아래 비교는 기존 검토된 데이터로 작성됐습니다."
-            )
-            _collected_source_cards(result.collected_sources, learning_level)
-        if result.extracted_fields:
-            ui.label(
-                "원문을 바탕으로 살펴볼 특징"
-                if learning_level is LearningLevel.ADVANCED
-                else "문화유산의 핵심 특징"
-            ).classes("cb-title text-2xl")
-            _extracted_field_cards(result.extracted_fields, learning_level)
+                "설명의 뜻과 대상은 추가 확인이 필요합니다. "
+                "핵심 비교 아래에서 공식 원문과 상세 설명을 확인할 수 있어요."
+            ).classes("cb-muted")
+            with ui.expansion("자세한 설명과 공식 원문 읽기").classes("w-full"):
+                if result.collected_sources:
+                    _collected_source_cards(result.collected_sources, learning_level)
+                if result.extracted_fields:
+                    _extracted_field_cards(result.extracted_fields, learning_level)
 
         ui.label(
             "원문과 별도로 보는 항목별 비교"
@@ -1135,6 +1184,11 @@ def comparison_page(
                 .classes("w-full")
             )
             answer_box = ui.column().props("role=status aria-live=polite").classes("w-full gap-3")
+            chat_history = []
+            chat_cards = []
+            ui.label(
+                "이전 대화는 질문 맥락에만 사용하며, 역사적 근거로 취급하지 않습니다."
+            ).classes("cb-muted text-sm")
 
             async def submit_question() -> None:
                 question = (question_input.value or "").strip()
@@ -1143,13 +1197,14 @@ def comparison_page(
                     return
                 ask_button.disable()
                 try:
-                    answer = await run.io_bound(
+                    answer = await _io_bound(
                         answer_question,
                         left_id,
                         right_id,
                         question,
                         learning_level,
                         comparison_id=result.saved_id if result.collected_sources else None,
+                        history=chat_history[-6:],
                     )
                 except Exception:
                     logger.exception("Question answering failed")
@@ -1165,18 +1220,32 @@ def comparison_page(
                     "insufficient_evidence": ("근거 부족", "text-red-700"),
                 }
                 status_text, status_class = status_labels[answer.verification_status.value]
-                answer_box.clear()
+                chat_history.extend(
+                    [
+                        {"role": "user", "text": question},
+                        {"role": "assistant", "text": answer.answer[:1500]},
+                    ]
+                )
+                del chat_history[:-6]
                 with answer_box:
                     with (
                         ui.column()
                         .classes("w-full gap-2 rounded-lg p-5")
                         .style(f"background: {PALE}")
-                    ):
+                    ) as message:
+                        ui.label("질문: " + question).classes("font-semibold")
                         ui.label(status_text).classes(f"font-bold {status_class}")
                         ui.label(answer.answer).classes("text-base")
                         ui.label(answer.verification_note).classes("cb-muted text-sm")
+                        for citation in answer.citations:
+                            with ui.expansion("이 문장의 근거"):
+                                ui.label(citation.sentence)
+                                ui.label(citation.quote).style("white-space:pre-wrap")
                         for source in answer.sources:
                             ui.link(source.title, str(source.url), new_tab=True)
+                chat_cards.append(message)
+                if len(chat_cards) > 3:
+                    chat_cards.pop(0).delete()
 
             ask_button = (
                 ui.button("질문하기", on_click=submit_question)
@@ -1189,9 +1258,11 @@ def comparison_page(
             ui.label("이 설명은 근거가 있을까요?").classes("cb-title text-2xl")
             if result.collected_sources:
                 ui.label("이 비교에 저장된 개별 원문과 대조합니다. AI 판정은 검토 후보입니다.")
-            ui.label("한 가지 사실을 입력하세요. 예: 석굴암의 재료는 화강암이다").classes(
-                "cb-muted"
-            )
+            ui.label(
+                "확인할 사실을 입력하세요. 원문 비교에서는 복합 주장도 나누어 검토해요."
+                if result.collected_sources
+                else "한 가지 사실을 입력하세요. 예: 석굴암의 재료는 화강암이다"
+            ).classes("cb-muted")
             claim_input = (
                 ui.textarea(
                     label="확인하고 싶은 설명",
@@ -1209,7 +1280,7 @@ def comparison_page(
                     return
                 claim_button.disable()
                 try:
-                    checked = await run.io_bound(
+                    checked = await _io_bound(
                         verify_claim,
                         left_id,
                         right_id,
@@ -1340,7 +1411,7 @@ async def quiz_page(
         if quiz_id:
             quiz = load_quiz(quiz_id, left_id, right_id)
         elif loading:
-            quiz = await run.io_bound(
+            quiz = await _io_bound(
                 generate_quiz, left_id, right_id, learning_level, comparison_id=comparison_id
             )
         else:
@@ -1354,6 +1425,9 @@ async def quiz_page(
         return
     except HeritageNotFoundError:
         _error_page("퀴즈에 사용할 문화유산을 찾을 수 없습니다.", mode)
+        return
+    except OperationBusyError as exc:
+        _error_page(str(exc), mode)
         return
     except (QuizNotFoundError, InvalidQuizAttemptError):
         _error_page("저장된 퀴즈를 확인할 수 없습니다. 탐구를 다시 시작해 주세요.", mode)
@@ -1389,6 +1463,8 @@ async def quiz_page(
         ).classes(_action_classes(mode))
         with ui.column().classes("gap-1"):
             ui.label("배운 내용 퀴즈로 확인하기").classes("cb-title text-3xl")
+            if not _is_kiosk(mode):
+                ui.link("지난 퀴즈와 오답 복습", "/learning-history")
             ui.label(f"{LEVEL_LABELS[quiz.level.value]} · {quiz.learning_goal}").classes(
                 "text-lg font-semibold"
             )
@@ -1411,13 +1487,18 @@ async def quiz_page(
 
         result_box = ui.column().props("role=status aria-live=polite").classes("w-full gap-3")
 
-        def submit_answers() -> None:
+        async def submit_answers() -> None:
             answers = [radio.value for radio in radios]
             if any(answer is None for answer in answers):
                 ui.notify("모든 문항에 답해 주세요.", color="warning")
                 return
             try:
-                result = evaluate_learning_quiz(quiz.quiz_id, [int(answer) for answer in answers])
+                result = await _io_bound(
+                    evaluate_learning_quiz, quiz.quiz_id, [int(answer) for answer in answers]
+                )
+            except OperationBusyError as exc:
+                ui.notify(str(exc), color="warning")
+                return
             except (QuizNotFoundError, InvalidQuizAttemptError):
                 ui.notify("퀴즈를 확인할 수 없습니다. 새로 시작해 주세요.", color="warning")
                 return
@@ -1473,9 +1554,13 @@ def comparison_history_page(page: int = 1) -> None:
         return
     with ui.column().classes("cb-shell gap-5 py-10"):
         ui.label("다시 보는 비교 기록").classes("cb-title text-3xl")
-        ui.label("이 기기에서 생성한 비교를 저장 당시 내용과 출처로 다시 볼 수 있습니다.").classes(
-            "cb-muted"
-        )
+        ui.label(
+            "이 브라우저 세션의 비교 기록입니다. "
+            "브라우저를 닫거나 쿠키를 지우면 접근이 종료될 수 있어요."
+            if get_settings().public_mode
+            else "로컬 공유 모드입니다. 이 서버에 저장된 비교 기록을 보여줍니다."
+        ).classes("cb-muted")
+        ui.link("퀴즈 결과와 오답 복습", "/learning-history")
         if not records:
             ui.label("아직 저장된 비교가 없습니다. 문화유산을 선택해 비교를 시작하세요.")
         for record in records[:20]:
@@ -1500,6 +1585,60 @@ def comparison_history_page(page: int = 1) -> None:
             if len(records) > 20:
                 ui.link("다음 페이지", f"/comparisons?page={page + 1}")
             ui.link("새 비교 시작", "/")
+
+
+@ui.page("/learning-history")
+def learning_history_page() -> None:
+    _base_styles()
+    _header()
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("학습 기록과 오답 복습").classes("cb-title text-3xl")
+        ui.label(
+            "브라우저 세션별 기록" if get_settings().public_mode else "로컬 서버의 공유 학습 기록"
+        ).classes("cb-muted")
+        reviews = list_learning_reviews()
+        if not reviews:
+            ui.label("아직 퀴즈 기록이 없어요. 비교 학습을 마치고 퀴즈를 풀어보세요.")
+        for review in reviews:
+            with ui.card().classes("cb-card w-full p-5 gap-3"):
+                ui.label(review["heritage_name"]).classes("cb-title text-xl")
+                ui.label(
+                    f"{LEVEL_LABELS[review['level']]} · {review['score']}/{review['total']} · "
+                    f"{review['created_at']}"
+                )
+                items = review["result"].get("review_items", [])
+                if items:
+                    for item in items:
+                        ui.label(f"{item['number']}번 · {item['question']}").classes(
+                            "font-semibold"
+                        )
+                        ui.label("내 답: " + item["selected"]).classes("cb-muted")
+                        ui.label("정답: " + item["correct_answer"])
+                        ui.label("다시 해보기 · " + item["activity"])
+                        if item.get("quote"):
+                            with ui.expansion("이 문항의 원문 근거"):
+                                ui.label(item["quote"])
+                                if item.get("source_url"):
+                                    ui.link("공식 출처 보기", item["source_url"], new_tab=True)
+                else:
+                    for step in review["result"].get("review_steps", []):
+                        ui.label(step)
+                if not review["result"].get("review_steps"):
+                    ui.label("모든 문항을 맞혔어요. 원문 근거를 다시 확인해 보세요.")
+                if review["comparison_id"]:
+                    try:
+                        comparison = get_saved_comparison(review["comparison_id"]).comparison
+                        ui.link(
+                            "설명 다시 읽기",
+                            f"/compare/{comparison.left.id}/{comparison.right.id}?saved_id={comparison.saved_id}",
+                        )
+                        ui.link(
+                            "퀴즈 다시 풀기",
+                            f"/quiz/{comparison.left.id}/{comparison.right.id}?quiz_id={review['quiz_id']}",
+                        )
+                    except ComparisonNotFoundError:
+                        ui.label("이 비교 기록은 현재 세션에서 열 수 없습니다.")
+        ui.link("비교 기록 모아보기", "/comparisons")
 
 
 @ui.page("/official")
@@ -1528,7 +1667,7 @@ def official_search_page(
             search_button.disable()
             results.clear()
             try:
-                response = await run.io_bound(search_official_heritages, query)
+                response = await _io_bound(search_official_heritages, query)
             except OfficialServiceError as exc:
                 with results:
                     ui.label(str(exc)).props("role=alert")
@@ -1578,7 +1717,7 @@ async def official_detail_page(
     _header()
     learning_level = _learning_level(level)
     try:
-        document = await run.io_bound(get_official_document, kind, number, region)
+        document = await _io_bound(get_official_document, kind, number, region)
     except (OfficialServiceError, OfficialDocumentNotFoundError, ValueError):
         _error_page(
             "공식 자료를 불러올 수 없습니다. 조회 코드를 확인하거나 다시 시도하세요.", "web"
@@ -1632,7 +1771,7 @@ async def official_detail_page(
                 location_button.disable()
                 location_box.clear()
                 try:
-                    location = await run.io_bound(get_official_location, kind, number, region)
+                    location = await _io_bound(get_official_location, kind, number, region)
                 except OfficialDocumentNotFoundError:
                     with location_box:
                         ui.label("일치하는 공식 위치 자료가 없습니다.")
@@ -1738,10 +1877,10 @@ def unesco_page(
             suggestions.clear()
             results.clear()
             try:
-                response = await run.io_bound(
+                response = await _io_bound(
                     search_unesco, (query.value or "")[:100], refresh=refresh
                 )
-                suggestion_index = await run.io_bound(get_unesco_suggestions, "", 2000)
+                suggestion_index = await _io_bound(get_unesco_suggestions, "", 2000)
                 query.set_autocomplete([item.value for item in suggestion_index])
             except OfficialServiceError as exc:
                 with results:
@@ -1882,8 +2021,8 @@ async def research_page(
         if client.is_deleted:
             return
         try:
-            state = await run.io_bound(
-                exploration_graph.invoke,
+            state = await _io_bound(
+                run_exploration,
                 {
                     "heritage_id": left_id,
                     "comparison_id": right_id,
@@ -1894,6 +2033,10 @@ async def research_page(
                     "comparison_scope": comparison_scope.value,
                 },
             )
+        except OperationBusyError as exc:
+            panel.clear()
+            _error_page(str(exc), mode)
+            return
         except (HeritageNotFoundError, sqlite3.Error, ValueError):
             panel.clear()
             _error_page(
@@ -1974,6 +2117,8 @@ async def autonomous_page(
     try:
         if provider == "unesco":
             target = OfficialTarget(provider=provider, record_id=identity)
+        elif provider == "official":
+            target = OfficialTarget(provider=provider, official_id=identity)
         else:
             kind, number, region = identity.split(":")
             target = OfficialTarget(provider=provider, kind=kind, number=number, region=region)
@@ -2023,7 +2168,13 @@ async def autonomous_page(
         if client.is_deleted:
             return
         try:
-            result = await run.io_bound(run_autonomous, request)
+            result = await _io_bound(run_autonomous, request)
+        except OperationBusyError as exc:
+            panel.clear()
+            with panel:
+                ui.label(str(exc)).props("role=alert")
+                ui.button("다시 시도", on_click=lambda: ui.navigate.to(str(client.request.url)))
+            return
         except (ValueError, OfficialServiceError, HeritageNotFoundError, sqlite3.Error):
             panel.clear()
             with panel:
@@ -2052,6 +2203,28 @@ async def autonomous_page(
                     "선택한 범위에서 조건에 맞는 근거를 확보하지 못해 비교를 보류했어요. "
                     "범위를 자동 변경하지 않아요."
                 ).classes("cb-muted")
+                if request.target.provider == "khs":
+                    ui.link(
+                        "선택한 유산의 설명 먼저 읽기",
+                        with_return(
+                            f"/official/{request.target.kind}/{request.target.number}/{request.target.region}"
+                            f"?level={level}&comparison_scope={comparison_scope.value}",
+                            return_to,
+                        ),
+                    )
+                ui.link(
+                    "학습 목표를 바꾸어 다시 찾기",
+                    search_return(
+                        return_to,
+                        home_context(
+                            q=target["name"],
+                            level=level,
+                            goal=goal,
+                            amount=amount,
+                            comparison_scope=comparison_scope,
+                        ),
+                    ),
+                )
             ui.label("한국어 이름은 학습용 안내 표기이며, 괄호 안은 공식 영문 이름입니다.").classes(
                 "cb-muted text-sm"
             )

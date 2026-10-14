@@ -21,7 +21,7 @@ def collect_official_sources(
     items = [get_heritage(left_id), get_heritage(right_id)]
     sources = []
     for item in items:
-        if item.id.startswith(("khs:", "unesco:")):
+        if item.id.startswith(("khs:", "unesco:", "official:")):
             from culturebridge.services.dynamic_heritage_service import dynamic_source
 
             source = dynamic_source(item.id, refresh)

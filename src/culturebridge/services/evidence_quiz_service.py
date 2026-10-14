@@ -9,7 +9,11 @@ from culturebridge.domain.models import (
     VerificationStatus,
 )
 from culturebridge.services.comparison_service import get_saved_comparison
-from culturebridge.services.curriculum_service import evidence_suits_goal, plan_learning
+from culturebridge.services.curriculum_service import (
+    GOAL_LABELS,
+    evidence_suits_goal,
+    plan_learning,
+)
 from culturebridge.services.display_service import display_name
 from culturebridge.services.evidence_comparison_service import supported_fields
 from culturebridge.services.quiz_draft_service import try_draft_quiz
@@ -25,7 +29,9 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     if (comparison.left.id, comparison.right.id) != (left_id, right_id):
         raise EvidenceQuizError("저장된 비교의 대상과 퀴즈 대상이 다릅니다.")
     fields = supported_fields(comparison)
-    if left_id.startswith(("khs:", "unesco:")) or right_id.startswith(("khs:", "unesco:")):
+    if left_id.startswith(("khs:", "unesco:", "official:")) or right_id.startswith(
+        ("khs:", "unesco:", "official:")
+    ):
         if not evidence_suits_goal(
             {f.category for f in fields if f.heritage_id == left_id},
             {f.category for f in fields if f.heritage_id == right_id},
@@ -192,17 +198,19 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
             ),
         ],
     }[level]
+    material_names = {
+        "석재": "석재",
+        "stone": "석재",
+        "화강암": "화강암",
+        "granite": "화강암",
+        "목재": "목재",
+        "wood": "목재",
+        "wooden": "목재",
+        "벽돌": "벽돌",
+        "brick": "벽돌",
+    }
+    short_field = None
     if level is LearningLevel.BEGINNER and first.category == "재료":
-        material_names = {
-            "석재": "석재",
-            "화강암": "화강암",
-            "granite": "화강암",
-            "목재": "목재",
-            "wood": "목재",
-            "wooden": "목재",
-            "벽돌": "벽돌",
-            "brick": "벽돌",
-        }
         short_field = next(
             (
                 f
@@ -235,43 +243,93 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     question_rows[2] = (f"'{focus[0]}' 목표 학습: {question}", choices, explanation)
     # Read actual heritage content, not just generic source-literacy templates.
     factual_rows = []
+    seen_quotes = set()
     for field in fields:
+        normalized_material = (
+            material_names.get(field.value.strip().casefold()) if field.category == "재료" else None
+        )
+        if short_field is field:
+            continue
         if field.category not in focus or (
-            level is LearningLevel.BEGINNER and len(field.value) > 120
+            level is LearningLevel.BEGINNER
+            and len(field.evidence_quote) > 120
+            and not normalized_material
         ):
             continue
+        if normalized_material:
+            choices = [normalized_material] + [
+                m for m in ("석재", "목재", "벽돌", "금속") if m != normalized_material
+            ][:3]
+            if normalized_material == "화강암":
+                choices = [normalized_material, "목재", "벽돌", "금속"]
+            factual_rows.append(
+                (
+                    f"원문에서 찾은 {names[field.heritage_id]}의 재료 후보는?",
+                    choices,
+                    "복습 항목: 재료 · 원문: "
+                    + field.evidence_quote
+                    + " · 재료 표현을 원문에서 찾아보세요.",
+                )
+            )
+            if len(factual_rows) == 3:
+                break
+            continue
+        if field.evidence_quote in seen_quotes:
+            continue
+        seen_quotes.add(field.evidence_quote)
         other_values = [
-            f.value
+            f.evidence_quote
             for f in fields
             if f.category == field.category
             and f.heritage_id != field.heritage_id
-            and f.value != field.value
+            and f.evidence_quote != field.evidence_quote
+            and (level is not LearningLevel.BEGINNER or len(f.evidence_quote) <= 120)
         ]
         choices = list(
             dict.fromkeys(
-                [field.value]
+                [field.evidence_quote]
                 + other_values
-                + [
-                    "등재연도를 모든 건물의 건립연도로 적용한다",
-                    "다른 유산의 설명을 이 유산의 근거로 복사한다",
-                    "자료에서 확인하지 못한 특징을 추측해 채운다",
-                ]
+                + {
+                    "시대": [
+                        "조선 시대에 처음 건립되었다",
+                        "근대에 처음 건립되었다",
+                        "고려 시대에 처음 건립되었다",
+                    ],
+                    "재료": [
+                        "주요 재료는 금속이다",
+                        "주요 재료는 목재이다",
+                        "주요 재료는 벽돌이다",
+                    ],
+                    "구조": [
+                        "원형 무덤과 봉분으로 구성된다",
+                        "성문과 방어 성벽으로 구성된다",
+                        "궁궐의 생활 공간으로 구성된다",
+                    ],
+                    "종교적 배경": [
+                        "왕실의 일상 생활 공간이다",
+                        "군사 방어 목적으로 사용되었다",
+                        "교역품을 저장하던 창고이다",
+                    ],
+                }[field.category]
             )
         )[:4]
         if len(choices) != 4:
             continue
         factual_rows.append(
             (
-                f"{names[field.heritage_id]}의 이 자료에서 찾은 '{field.category}' 설명은?",
+                f"{names[field.heritage_id]}의 '{field.category}' 원문에 그대로 나온 표현은?",
                 choices,
                 f"복습 항목: {field.category} · 원문: {field.evidence_quote} · "
                 "해당 자료의 설명을 고르는 문제입니다. "
-                "추출의 역사적 의미는 추가 검토가 필요합니다.",
+                "추출의 역사적 의미는 추가 검토가 필요합니다. "
+                f"보충 활동: {field.category}에 해당하는 말을 원문에서 표시하고 "
+                "다른 유산의 인용과 비교하세요.",
             )
         )
         if len(factual_rows) == 3:
             break
-    question_rows[: len(factual_rows)] = factual_rows
+    offset = 1 if short_field else 0
+    question_rows[offset : offset + len(factual_rows)] = factual_rows
     drafted_rows, generation_note = try_draft_quiz(comparison, level, fields, focus)
     if drafted_rows:
         question_rows = drafted_rows
@@ -306,7 +364,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     return QuizResponse(
         quiz_id=quiz_id,
         level=level,
-        learning_goal=f"{comparison.goal.value}: 공식 근거 읽기·비교·한계 판단 · {generation_note}",
+        learning_goal=f"{GOAL_LABELS[comparison.goal.value]} · 공식 근거 읽기 · {generation_note}",
         items=items,
         comparison_id=comparison_id,
         basis="extracted",

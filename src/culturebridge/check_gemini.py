@@ -23,7 +23,16 @@ def main() -> int:
         )
     except Exception as exc:
         # Do not print SDK exception text: it can contain request details.
-        print(json.dumps({"status": "failed", "error_type": type(exc).__name__}))
+        code = getattr(exc, "code", None)
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "error_type": type(exc).__name__,
+                    "error_code": code if isinstance(code, int) else None,
+                }
+            )
+        )
         return 1
     print(
         json.dumps(

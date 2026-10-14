@@ -82,6 +82,11 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
         if date_event(draft.evidence_quote) == "시대·사건 확인 필요":
             return None
     if draft.category == "재료":
+        negation = r"\bnot\b|without|아니|않|없"
+        if re.search(negation, draft.evidence_quote, re.I) and not re.search(
+            negation, draft.value, re.I
+        ):
+            return None
         if (
             "석탑" in draft.evidence_quote
             and primary_type(source.title, focused_text(source)) != "Pagoda"
@@ -97,6 +102,16 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
             and re.search(r"표현|모방|본떠|reproduc|imitat", draft.evidence_quote, re.I)
         ):
             return None
+    if (
+        draft.category == "구조"
+        and re.search(r"symbol|esteemed|상징", draft.evidence_quote, re.I)
+        and not re.search(
+            r"inside|layout|height|storey|floor|plan|chamber|층|높이|배치|평면|주실|전실",
+            draft.evidence_quote,
+            re.I,
+        )
+    ):
+        return None
     markers = {
         "시대": r"\d{3,4}|\d{1,2}(?:th|st|nd|rd)|세기|시대|dynasty",
         "구조": (

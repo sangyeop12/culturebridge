@@ -32,7 +32,7 @@ def test_research_loading_response_does_not_start_remote_work_before_client_conn
     def fail(*args):
         pytest.fail("Research must wait for the browser connection")
 
-    monkeypatch.setattr(pages.exploration_graph, "invoke", fail)
+    monkeypatch.setattr(pages, "run_exploration", fail)
     with TestClient(app) as client:
         response = client.get("/research/seokguram/horyuji")
     assert response.status_code == 200

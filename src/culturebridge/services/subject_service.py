@@ -91,6 +91,16 @@ def focused_text(source):
     active = True
     selected = []
     for sentence in sentences(source.content):
+        if (
+            re.search(r"[A-Za-z]", sentence)
+            and not re.search(r"[.!?]", sentence)
+            and not re.search(
+                r"\b(?:is|was|were|has|contains|stands|dates|built|constructed|founded|made|located)\b",
+                sentence,
+                re.I,
+            )
+        ):
+            continue  # A page title is not a descriptive sentence.
         # Lists of possessions/nearby monuments do not describe the site's own material.
         if re.match(r"^(?:그 밖에|그밖에|현재 절 안에는|경내 비각에는)", sentence):
             active = False

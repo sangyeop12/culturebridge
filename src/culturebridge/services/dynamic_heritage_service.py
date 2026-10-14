@@ -13,7 +13,8 @@ from culturebridge.services.unesco_service import search_unesco
 
 
 class OfficialTarget(BaseModel):
-    provider: Literal["khs", "unesco"]
+    provider: Literal["khs", "unesco", "official"]
+    official_id: Literal["horyuji-pagoda", "dayanta"] | None = None
     record_id: str | None = Field(default=None, pattern=r"^\d{1,10}$")
     kind: str | None = Field(default=None, pattern=r"^\d{2}$")
     number: str | None = Field(default=None, pattern=r"^\d{1,20}$")
@@ -21,6 +22,8 @@ class OfficialTarget(BaseModel):
 
     @model_validator(mode="after")
     def complete_identifier(self):
+        if self.provider == "official" and not self.official_id:
+            raise ValueError("등록된 개별 공식 자료 ID가 필요합니다.")
         if self.provider == "unesco" and not self.record_id:
             raise ValueError("UNESCO 등재 ID가 필요합니다.")
         if self.provider == "khs" and not all((self.kind, self.number, self.region)):
@@ -29,6 +32,8 @@ class OfficialTarget(BaseModel):
 
     @property
     def id(self):
+        if self.provider == "official":
+            return "official:" + self.official_id
         return (
             f"unesco:{self.record_id}"
             if self.provider == "unesco"
@@ -37,7 +42,13 @@ class OfficialTarget(BaseModel):
 
 
 def fetch_target(target: OfficialTarget, refresh=False):
-    if target.provider == "khs":
+    if target.provider == "official":
+        from culturebridge.services.individual_source_service import INDIVIDUALS, fetch_individual
+
+        record = INDIVIDUALS[target.official_id]
+        source = fetch_individual(target.official_id, refresh)
+        name, country, location = record["name"], record["country"], record["country"]
+    elif target.provider == "khs":
         document = get_official_document(target.kind, target.number, target.region, refresh=refresh)
         source = CollectedSource(
             id=target.id,

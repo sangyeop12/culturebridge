@@ -11,6 +11,7 @@ from culturebridge.domain.models import (
 from culturebridge.services.common_context_service import review_common_context
 from culturebridge.services.curriculum_service import plan_learning
 from culturebridge.services.extraction_service import DraftField, usable_source, validate_extraction
+from culturebridge.services.learning_analysis_service import comparison_explanation
 
 
 def supported_fields(comparison: ComparisonResult):
@@ -71,11 +72,7 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
                 category=category,
                 left=left.value if left else "근거 부족",
                 right=right.value if right else "근거 부족",
-                explanation=(
-                    "두 유산의 원문을 함께 읽어 봐요. 없는 내용은 추측하지 않아요."
-                    if comparison.level.value == "beginner"
-                    else "같은 항목의 원문 범위와 의미를 대조합니다. 추출 후보는 검토가 필요합니다."
-                ),
+                explanation=comparison_explanation(category, left, right, comparison.level.value),
                 source_ids=list(dict.fromkeys(f.source_id for f in (left, right) if f)),
             )
         )

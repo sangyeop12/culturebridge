@@ -10,6 +10,8 @@ from nicegui import ui
 from culturebridge.api.router import router
 from culturebridge.config import get_settings
 from culturebridge.database import initialize_database
+from culturebridge.services.operation_service import OperationBusyError
+from culturebridge.services.session_service import AnonymousSessionMiddleware
 from culturebridge.ui.pages import register_pages
 
 settings = get_settings()
@@ -17,6 +19,11 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if settings.public_mode and (
+        settings.storage_secret == "culturebridge-local-development"
+        or len(settings.storage_secret) < 32
+    ):
+        raise RuntimeError("공개 모드는 별도의 32자 이상 운영용 STORAGE_SECRET이 필요합니다.")
     initialize_database()
     yield
 
@@ -28,6 +35,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(router)
+app.add_middleware(AnonymousSessionMiddleware)
+
+
+@app.exception_handler(OperationBusyError)
+async def learning_busy_handler(_: Request, exc: OperationBusyError):
+    return JSONResponse(status_code=429, content={"detail": str(exc)}, headers={"Retry-After": "5"})
 
 
 @app.exception_handler(sqlite3.Error)

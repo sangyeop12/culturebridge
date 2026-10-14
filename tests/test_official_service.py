@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -128,7 +129,20 @@ def test_gemini_receives_collected_source_text_and_url(upstream, monkeypatch):
 
         def generate_content(self, **kwargs):
             captured.update(kwargs)
-            return SimpleNamespace(text="근거를 검토해야 하는 초안")
+            return SimpleNamespace(
+                text=json.dumps(
+                    {
+                        "citations": [
+                            {
+                                "sentence": "근거를 검토해야 하는 초안",
+                                "source_id": document.record_id,
+                                "quote": document.content,
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                )
+            )
 
         def close(self):
             pass

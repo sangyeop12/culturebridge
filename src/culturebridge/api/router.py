@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Path, Query
 
 from culturebridge.agents.autonomous import AutonomousRequest, AutonomousResult, run_autonomous
 from culturebridge.agents.quiz_agent import evaluate_learning_quiz
-from culturebridge.agents.workflow import exploration_graph
+from culturebridge.agents.workflow import run_exploration
 from culturebridge.domain.models import (
     ClaimRequest,
     ClaimResult,
@@ -54,6 +54,7 @@ from culturebridge.services.home_search_service import (
     get_home_suggestions,
     search_home,
 )
+from culturebridge.services.learning_history_service import list_learning_reviews
 from culturebridge.services.lesson_service import HeritageLesson, explain_source, official_source
 from culturebridge.services.location_service import get_official_location
 from culturebridge.services.official_service import (
@@ -242,6 +243,10 @@ def create_comparison(request: ComparisonRequest):
             request.right_id,
             request.level,
             comparison_scope=request.comparison_scope,
+            goal=request.goal,
+            goal_text=request.goal_text,
+            amount=request.amount,
+            reuse=True,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -278,7 +283,7 @@ def create_exploration(request: ExplorationRequest):
     if request.comparison_id:
         state["comparison_id"] = request.comparison_id
     try:
-        result = exploration_graph.invoke(state)
+        result = run_exploration(state)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except HeritageNotFoundError as exc:
@@ -313,6 +318,7 @@ def ask_question(request: QuestionRequest):
             request.question,
             request.level,
             comparison_id=request.comparison_id,
+            history=[turn.model_dump() for turn in request.history],
         )
     except ComparisonNotFoundError as exc:
         raise HTTPException(
@@ -368,3 +374,21 @@ def submit_quiz(request: QuizAttemptRequest):
         raise HTTPException(status_code=404, detail="퀴즈를 찾을 수 없습니다.") from exc
     except InvalidQuizAttemptError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/learning-history")
+def learning_history(
+    limit: int = Query(default=20, ge=1, le=100), offset: int = Query(default=0, ge=0)
+):
+    return list_learning_reviews(limit, offset)
+
+
+@router.get("/heritages/{heritage_id}/identity")
+def heritage_identity(heritage_id: str):
+    from culturebridge.services.heritage_identity_service import identity_info
+
+    try:
+        get_heritage(heritage_id)
+    except HeritageNotFoundError as exc:
+        raise HTTPException(404, "문화유산을 찾을 수 없습니다.") from exc
+    return identity_info(heritage_id)

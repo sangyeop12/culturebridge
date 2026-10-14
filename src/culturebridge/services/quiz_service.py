@@ -6,6 +6,7 @@ from culturebridge.database import (
     load_quiz_items,
     save_learning_result,
     save_quiz_items,
+    transaction,
 )
 from culturebridge.domain.models import (
     ExtractedField,
@@ -14,8 +15,10 @@ from culturebridge.domain.models import (
     QuizChoice,
     QuizItem,
     QuizResponse,
+    QuizReviewItem,
 )
 from culturebridge.services.catalog_service import LEARNING_GOALS, get_heritage
+from culturebridge.services.operation_service import owner_key, reused_operation
 
 
 class QuizNotFoundError(KeyError):
@@ -30,6 +33,7 @@ def _choice_index(choices: list[str], answer: str) -> int:
     return choices.index(answer)
 
 
+@reused_operation("quiz")
 def generate_quiz(
     left_id: str, right_id: str, level: LearningLevel, *, comparison_id: str | None = None
 ) -> QuizResponse:
@@ -40,7 +44,9 @@ def generate_quiz(
         from culturebridge.services.evidence_quiz_service import generate_evidence_quiz
 
         return generate_evidence_quiz(left_id, right_id, level, comparison_id)
-    if left_id.startswith(("khs:", "unesco:")) or right_id.startswith(("khs:", "unesco:")):
+    if left_id.startswith(("khs:", "unesco:", "official:")) or right_id.startswith(
+        ("khs:", "unesco:", "official:")
+    ):
         from culturebridge.services.evidence_quiz_service import EvidenceQuizError
 
         raise EvidenceQuizError("새 공식 대상의 퀴즈는 Agent가 만든 근거 비교 저장본이 필요합니다.")
@@ -231,6 +237,7 @@ def generate_quiz(
     )
 
 
+@reused_operation("grade")
 def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
     rows = load_quiz_items(quiz_id)
     if not rows:
@@ -243,6 +250,7 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
     score = 0
     explanations = []
     review_steps = []
+    review_items = []
     for position, (row, answer) in enumerate(zip(rows, answers, strict=True), start=1):
         choices = json.loads(row["choices_json"])
         correct_index = row["correct_index"]
@@ -251,28 +259,81 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
         result_label = "정답" if is_correct else f"오답 · 정답: {choices[correct_index]}"
         explanations.append(f"{position}번 {result_label} · {row['explanation']}")
         if not is_correct:
+            wrong = choices[answer]
+            followup = (
+                "등재 연도와 건립·재건 연대를 구분해 보세요."
+                if "등재" in wrong
+                else "어느 유산의 설명인지 이름과 인용 범위를 다시 확인하세요."
+                if "유산" in wrong
+                else "선택한 보기의 핵심 단어가 원문에 직접 나오는지 찾아보세요."
+            )
             review_steps.append(
                 f"{position}번 다시 보기: {row['question']} → 정답: {choices[correct_index]} · "
-                f"{row['explanation']}"
+                f"{row['explanation']} · 보충 학습: {followup}"
+            )
+            matched = next(
+                (
+                    field
+                    for field in json.loads(row["evidence_json"])
+                    if field.get("value") == choices[correct_index]
+                    or field.get("evidence_quote") == choices[correct_index]
+                ),
+                {},
+            )
+            if not matched:
+                materials = {
+                    "stone": "석재",
+                    "granite": "화강암",
+                    "wood": "목재",
+                    "wooden": "목재",
+                    "brick": "벽돌",
+                }
+                matched = next(
+                    (
+                        field
+                        for field in json.loads(row["evidence_json"])
+                        if field.get("category") == "재료"
+                        and materials.get(field.get("value", "").casefold())
+                        == choices[correct_index]
+                    ),
+                    {},
+                )
+            review_items.append(
+                QuizReviewItem(
+                    number=position,
+                    question=row["question"],
+                    selected=choices[answer],
+                    correct_answer=choices[correct_index],
+                    activity=followup,
+                    quote=matched.get("evidence_quote", ""),
+                    source_url=matched.get("source_url"),
+                )
             )
 
-    save_learning_result(
+    history_id = save_learning_result(
         session_id=quiz_id,
         heritage_id=rows[0]["heritage_id"],
         level=rows[0]["level"],
         score=score,
         total=len(rows),
     )
-    return QuizAttemptResult(
+    result = QuizAttemptResult(
         quiz_id=quiz_id,
         score=score,
         total=len(rows),
         explanations=explanations,
         review_steps=review_steps,
+        review_items=review_items,
         evidence=[
             ExtractedField.model_validate(field) for field in json.loads(rows[0]["evidence_json"])
         ],
     )
+    with transaction() as connection:
+        connection.execute(
+            "INSERT INTO learning_reviews VALUES(?,?,?,?)",
+            (history_id, quiz_id, result.model_dump_json(), owner_key()),
+        )
+    return result
 
 
 def load_quiz(quiz_id: str, left_id: str, right_id: str) -> QuizResponse:

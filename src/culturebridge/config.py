@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     gemini_enabled: bool = True
     heritage_timeout_seconds: int = Field(default=10, ge=1, le=30)
     heritage_cache_hours: int = Field(default=24, ge=1, le=168)
+    public_mode: bool = False
+    max_learning_jobs: int = Field(default=3, ge=1, le=16)
+    learning_reuse_seconds: int = Field(default=300, ge=0, le=3600)
+    requests_per_minute: int = Field(default=30, ge=1, le=120)
+    individual_sources_enabled: bool = True
 
 
 @lru_cache

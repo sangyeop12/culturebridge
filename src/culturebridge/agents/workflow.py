@@ -18,6 +18,7 @@ from culturebridge.services.comparison_scope_service import candidate_in_scope, 
 from culturebridge.services.comparison_service import create_saved_comparison
 from culturebridge.services.curriculum_service import plan_learning
 from culturebridge.services.extraction_service import extract_fields
+from culturebridge.services.operation_service import reused_operation
 from culturebridge.services.research_retry_service import retry_missing_sources
 from culturebridge.services.source_collection_service import collect_official_sources
 
@@ -65,7 +66,7 @@ def plan_curriculum(state):
 
 def explore_history(state):
     scope = ComparisonScope(state.get("comparison_scope", "overseas"))
-    if state["heritage_id"].startswith(("khs:", "unesco:")):
+    if state["heritage_id"].startswith(("khs:", "unesco:", "official:")):
         if not state.get("comparison_id"):
             from culturebridge.database import transaction
             from culturebridge.services.agent_discovery_service import discover_candidates
@@ -213,3 +214,8 @@ def build_exploration_graph():
 
 
 exploration_graph = build_exploration_graph()
+
+
+@reused_operation("exploration")
+def run_exploration(state):
+    return exploration_graph.invoke(state)

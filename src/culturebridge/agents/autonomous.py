@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from culturebridge.agents.workflow import exploration_graph
+from culturebridge.agents.workflow import run_exploration
 from culturebridge.domain.models import (
     CollectedSource,
     ComparisonResult,
@@ -20,6 +20,7 @@ from culturebridge.services.curriculum_service import required_categories
 from culturebridge.services.dynamic_heritage_service import OfficialTarget, dynamic_source
 from culturebridge.services.extraction_service import _local_extraction, validate_extraction
 from culturebridge.services.official_page_service import cached_supplement
+from culturebridge.services.operation_service import reused_operation
 
 
 class AutonomousRequest(BaseModel):
@@ -48,6 +49,7 @@ class AutonomousResult(BaseModel):
     curriculum: list[str] = Field(default_factory=list)
 
 
+@reused_operation("autonomous")
 def run_autonomous(request: AutonomousRequest):
     detail, candidates, trace, used_ai = discover_candidates(
         request.target,
@@ -67,6 +69,9 @@ def run_autonomous(request: AutonomousRequest):
         + " 범위에서 적합한 근거를 확보하지 못해 보류했습니다. 다른 범위로 자동 전환하지 않습니다.",
     }
     if not candidates:
+        selected_source = dynamic_source(detail.id)
+        if selected_source:
+            result["collected_sources"] = [selected_source.model_dump(mode="json")]
         return result
     selected_source = dynamic_source(detail.id)
     evidence = _local_extraction([selected_source]) if selected_source else []
@@ -87,7 +92,7 @@ def run_autonomous(request: AutonomousRequest):
             "verification_agent: 선택 대상의 직접 근거 부족·자동 선택 보류"
         )
         return result
-    state = exploration_graph.invoke(
+    state = run_exploration(
         {
             "heritage_id": detail.id,
             "comparison_id": candidates[0].heritage.id,

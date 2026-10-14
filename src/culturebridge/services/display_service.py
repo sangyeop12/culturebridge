@@ -90,6 +90,12 @@ THEME_LABELS = {
 
 
 def korean_name(heritage_id: str, official_name: str) -> str | None:
+    if heritage_id.startswith("official:"):
+        from culturebridge.services.individual_source_service import INDIVIDUALS
+
+        record = INDIVIDUALS.get(heritage_id.split(":", 1)[1])
+        if record:
+            return record["korean"]
     if re.search(r"[가-힣]", official_name):
         return official_name
     if heritage_id.startswith("unesco:"):

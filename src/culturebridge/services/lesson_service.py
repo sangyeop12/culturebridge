@@ -40,6 +40,7 @@ CATEGORY_LABELS = {
 
 
 class LessonSection(BaseModel):
+    check_question: str = ""
     category: str
     heading: str
     text: str
@@ -80,14 +81,14 @@ def beginner_text(category, quote):
                 if re.search(r"아니|않|없", quote):
                     caution += " 부정 표현이 있어 연대를 단정하지 않아요."
                 return f"원문에 나온 시기는 {when}이에요. 사건: {date_event(quote)}." + caution
-        if len(quote) > 180:
+        if len(quote) > 120:
             found = [
                 term + "(" + meaning + ")" for term, meaning in GLOSSARY.items() if term in quote
             ]
             if found:
                 return (
-                    "이 항목에서 살펴볼 표현: "
-                    + " · ".join(found[:3])
+                    "핵심 특징을 찾아봐요. "
+                    + "\n".join(found[:3])
                     + ". 자세한 문맥은 공식 원문에서 확인해요."
                 )
         return easy_korean(quote)
@@ -204,6 +205,12 @@ def explain_source(source, level=LearningLevel.BEGINNER):
                 else "원문 표현 해설: " + beginner_text(category, field.evidence_quote),
                 evidence_quote=field.evidence_quote,
                 event=field.date_event,
+                check_question={
+                    "시대": "이 연대는 처음 만든 때일까요, 다시 만든 때일까요?",
+                    "구조": "어떤 모양이나 공간을 찾아볼 수 있나요?",
+                    "재료": "무엇으로 만들었나요? 원문에서 찾아보세요.",
+                    "종교적 배경": "종교와 관련된 말이나 쓰임은 무엇인가요?",
+                }[category],
             )
         )
     lesson.glossary = {

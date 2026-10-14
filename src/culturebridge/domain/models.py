@@ -71,6 +71,9 @@ class RelatedHeritage(BaseModel):
 
 
 class ComparisonRequest(BaseModel):
+    goal: LearningGoal = LearningGoal.COMPARE
+    goal_text: str = Field(default="", max_length=200)
+    amount: LearningAmount = LearningAmount.STANDARD
     comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS
     left_id: str
     right_id: str
@@ -78,7 +81,9 @@ class ComparisonRequest(BaseModel):
 
     @model_validator(mode="after")
     def different_heritages(self) -> "ComparisonRequest":
-        if self.left_id == self.right_id:
+        from culturebridge.services.heritage_identity_service import canonical_id
+
+        if canonical_id(self.left_id) == canonical_id(self.right_id):
             raise ValueError("서로 다른 문화유산을 선택해야 합니다.")
         return self
 
@@ -204,6 +209,7 @@ class ExplorationResult(BaseModel):
 
 
 class QuestionRequest(BaseModel):
+    history: list["ConversationTurn"] = Field(default_factory=list, max_length=6)
     left_id: str
     right_id: str
     question: str = Field(min_length=2, max_length=500)
@@ -225,7 +231,19 @@ class QuestionRequest(BaseModel):
         return self
 
 
+class ConversationTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=1500)
+
+
+class AnswerCitation(BaseModel):
+    sentence: str = Field(min_length=1, max_length=1000)
+    source_id: str = Field(min_length=1, max_length=200)
+    quote: str = Field(min_length=10, max_length=2000)
+
+
 class QuestionAnswer(BaseModel):
+    citations: list[AnswerCitation] = Field(default_factory=list)
     question: str
     answer: str
     source_ids: list[str]
@@ -328,7 +346,18 @@ class QuizPreview(QuizResponse):
     items: list[QuizPreviewItem]
 
 
+class QuizReviewItem(BaseModel):
+    number: int
+    question: str
+    selected: str
+    correct_answer: str
+    activity: str
+    quote: str = ""
+    source_url: HttpUrl | None = None
+
+
 class QuizAttemptResult(BaseModel):
+    review_items: list[QuizReviewItem] = Field(default_factory=list)
     quiz_id: str
     score: int
     total: int
@@ -338,3 +367,4 @@ class QuizAttemptResult(BaseModel):
 
 
 ExplorationResult.model_rebuild()
+QuestionRequest.model_rebuild()

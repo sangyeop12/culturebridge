@@ -312,8 +312,7 @@ def discover_candidates(
         if primary and candidate_type != primary:
             continue
         candidate_subtype = subtype(name, description)
-        if selected_subtype and candidate_subtype and selected_subtype != candidate_subtype:
-            continue
+        # Stone/wood is an educational comparison axis, not a reason to reject a pagoda.
         shared = set(themes) & set(_themes(name + " " + description))
         if primary and candidate_type == primary:
             shared.add(primary)
@@ -359,9 +358,9 @@ def discover_candidates(
         if not candidate_in_scope(candidate.country, comparison_scope):
             trace.append("candidate_tool: 상세 자료 국가가 비교 범위와 달라 제외")
             continue
-        if selected_subtype and candidate_subtype and selected_subtype != candidate_subtype:
-            trace.append("candidate_tool: 석탑·목탑 세부 유형 불일치·후보 제외")
-            continue
+        material_difference = bool(
+            selected_subtype and candidate_subtype and selected_subtype != candidate_subtype
+        )
         if is_group(candidate.name, candidate_source.content) != group or (
             primary and primary_type(candidate.name, focused_text(candidate_source)) != primary
         ):
@@ -385,6 +384,10 @@ def discover_candidates(
         )
         if primary:
             criteria.insert(0, "같은 핵심 유형: " + primary)
+        if material_difference:
+            criteria.append(
+                "같은 탑 유형의 서로 다른 재료를 비교합니다. 재료 차이는 원문으로 확인하세요."
+            )
         criteria.append("자료 단위 1차 점검 · 원문 항목 근거 확인")
         if goal_text:
             criteria.append("양쪽 학습 근거: " + ", ".join(sorted(selected_categories & supported)))
@@ -406,6 +409,50 @@ def discover_candidates(
     target_can_compare = (
         len(selected_categories) >= 2 and required_categories(goal_text) <= selected_categories
     )
+    if (
+        not candidates
+        and target_can_compare
+        and not _attempt
+        and primary == "Pagoda"
+        and not group
+        and comparison_scope is ComparisonScope.OVERSEAS
+        and get_settings().individual_sources_enabled
+    ):
+        from culturebridge.services.individual_source_service import INDIVIDUALS
+
+        for identity, record in INDIVIDUALS.items():
+            candidate_target = OfficialTarget(provider="official", official_id=identity)
+            if candidate_target.id == target.id:
+                continue
+            try:
+                candidate, candidate_source = fetch_target(candidate_target)
+            except (OfficialServiceError, KeyError):
+                trace.append("individual_source_tool: 개별 해외 공식 설명 수집 실패·제외")
+                continue
+            fields = {
+                d.category
+                for d in _local_extraction([candidate_source])
+                if validate_extraction(d, [candidate_source])
+            }
+            if not evidence_suits_goal(selected_categories, fields, goal_text):
+                trace.append("individual_source_tool: 양쪽 목표 근거 부족·제외")
+                continue
+            candidates.append(
+                RelatedHeritage(
+                    heritage=HeritageSummary(
+                        **candidate.model_dump(include=set(HeritageSummary.model_fields))
+                    ),
+                    score=0.7,
+                    criteria=[
+                        "같은 핵심 유형: Pagoda",
+                        "개별 공식 소개의 직접 근거 확인",
+                        "서로 다른 재료·구조도 비교할 수 있어요",
+                    ],
+                    reason="같은 탑 유형의 개별 공식 자료입니다. "
+                    "재료·구조의 공통점과 차이를 원문으로 비교하며 영향 관계는 단정하지 않습니다.",
+                )
+            )
+            trace.append("individual_source_tool: " + record["korean"] + " · 유산군과 구분")
     if not candidates and not _attempt and target_can_compare:
         trace.append("research_retry_tool: 후보 탈락 후 검색어 변경·다음 결과 탐색 1회")
         _, candidates, retry_trace, retry_ai = discover_candidates(

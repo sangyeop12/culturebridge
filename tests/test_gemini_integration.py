@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -23,7 +24,23 @@ def test_gemini_response_status_fallback_and_cleanup(monkeypatch, behavior):
                 raise TimeoutError("test")
             if behavior == "auth":
                 raise RuntimeError("test auth rejection")
-            return SimpleNamespace(text="AI 비교 초안" if behavior == "success" else "")
+            source = json.loads(kwargs["contents"])["sources"][1]
+            return SimpleNamespace(
+                text=json.dumps(
+                    {
+                        "citations": [
+                            {
+                                "sentence": "AI 비교 초안",
+                                "source_id": source["id"],
+                                "quote": source["summary"],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                )
+                if behavior == "success"
+                else ""
+            )
 
         def close(self):
             captured["closed"] = True

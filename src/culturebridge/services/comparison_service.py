@@ -1,7 +1,10 @@
+import hashlib
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from culturebridge.config import get_settings
 from culturebridge.database import transaction
 from culturebridge.domain.models import (
     CollectedSource,
@@ -16,8 +19,10 @@ from culturebridge.domain.models import (
     SourceRecord,
 )
 from culturebridge.services.catalog_service import compare_heritages, get_sources
-from culturebridge.services.curriculum_service import GOAL_LABELS
+from culturebridge.services.curriculum_service import GOAL_LABELS, plan_learning
 from culturebridge.services.evidence_comparison_service import apply_extracted_comparison
+from culturebridge.services.heritage_identity_service import canonical_id
+from culturebridge.services.operation_service import owner_key, session_owner
 
 
 class ComparisonNotFoundError(KeyError):
@@ -37,14 +42,20 @@ def create_saved_comparison(
     curriculum: list[str] | None = None,
     amount: LearningAmount = LearningAmount.STANDARD,
     comparison_scope=None,
+    reuse: bool = False,
 ) -> ComparisonResult:
+    if canonical_id(left_id) == canonical_id(right_id):
+        raise ValueError("별칭이 다른 같은 유산은 비교할 수 없습니다.")
     result = compare_heritages(left_id, right_id, level)
     result.comparison_scope = ComparisonScope(comparison_scope) if comparison_scope else None
     result.collected_sources = collected_sources or []
     result.extracted_fields = extracted_fields or []
     result.goal, result.goal_text = goal, goal_text
     result.amount = amount
-    result.curriculum = curriculum or []
+    result.curriculum = (
+        curriculum if curriculum is not None else plan_learning(level, goal, goal_text, amount)[0]
+    )
+    result.learning_goal = GOAL_LABELS[goal.value] + " · 기본 예제 비교"
     if extracted_fields is not None:
         result.learning_goal = GOAL_LABELS[goal.value] + " · 공식 원문 근거와 한계 확인"
         result = apply_extracted_comparison(result)
@@ -70,6 +81,22 @@ def create_saved_comparison(
         sources=source_records,
     )
     with transaction(path) as connection:
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                [owner_key(), result.model_dump(mode="json", exclude={"saved_id"})],
+                sort_keys=True,
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()
+        if reuse:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT c.content_json FROM comparison_keys k JOIN comparisons c "
+                "ON c.id=k.comparison_id WHERE k.fingerprint=?",
+                (fingerprint,),
+            ).fetchone()
+            if existing:
+                return SavedComparison.model_validate_json(existing["content_json"]).comparison
         connection.execute(
             """
             INSERT INTO comparisons
@@ -86,6 +113,12 @@ def create_saved_comparison(
                 saved.created_at.isoformat(),
             ),
         )
+        connection.execute(
+            "INSERT OR IGNORE INTO comparison_keys VALUES(?,?)", (fingerprint, saved.id)
+        )
+        connection.execute(
+            "INSERT INTO resource_owners VALUES('comparison',?,?)", (saved.id, owner_key())
+        )
     return result
 
 
@@ -96,6 +129,13 @@ def get_saved_comparison(record_id: str, path: Path | None = None) -> SavedCompa
         ).fetchone()
     if row is None:
         raise ComparisonNotFoundError(record_id)
+    if get_settings().public_mode and session_owner.get():
+        with transaction(path) as connection:
+            owner = connection.execute(
+                "SELECT owner FROM resource_owners WHERE kind='comparison' AND id=?", (record_id,)
+            ).fetchone()
+        if not owner or owner["owner"] != owner_key():
+            raise ComparisonNotFoundError(record_id)
     return SavedComparison.model_validate_json(row["content_json"])
 
 
@@ -110,9 +150,16 @@ def list_saved_comparisons(
                 json_extract(content_json, '$.comparison.right.name') AS right_name,
                 level
             FROM comparisons
+            WHERE (? IS NULL OR id IN (
+                SELECT id FROM resource_owners WHERE kind='comparison' AND owner=?))
             ORDER BY created_at DESC, id DESC
             LIMIT ? OFFSET ?
             """,
-            (limit, offset),
+            (
+                owner_key() if get_settings().public_mode and session_owner.get() else None,
+                owner_key(),
+                limit,
+                offset,
+            ),
         ).fetchall()
     return [SavedComparisonSummary(**dict(row)) for row in rows]
