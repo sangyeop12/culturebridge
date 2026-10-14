@@ -78,12 +78,10 @@ from culturebridge.services.unesco_service import (
     normalize_search,
     search_unesco,
 )
+from culturebridge.ui.theme import ACCENT, BRAND, PALE, THEME_HEAD
 
 logger = logging.getLogger(__name__)
 
-BRAND = "#173B63"
-ACCENT = "#2F6FAF"
-PALE = "#EAF3FB"
 KIOSK_MODE = "kiosk"
 KIOSK_TIMEOUT_SECONDS = 300
 LEVEL_LABELS = {
@@ -94,43 +92,38 @@ LEVEL_LABELS = {
 
 
 def _base_styles() -> None:
-    ui.add_head_html(
-        f"""
-        <style>
-            body {{ background: #f7f9fc; color: #17202a; }}
-            .cb-shell {{ width: min(1120px, calc(100vw - 32px)); margin: 0 auto; }}
-            .cb-card {{ background: white; border: 1px solid #d9e2ec; border-radius: 18px; }}
-            .cb-title {{ color: {BRAND}; font-weight: 750; letter-spacing: -0.03em; }}
-            .cb-muted {{ color: #526779; }}
-            .cb-action {{ min-height: 52px; border-radius: 12px; font-weight: 700; }}
-            .cb-choice {{ min-height: 62px; border: 1px solid #c7d8ea; border-radius: 12px; }}
-            .cb-kiosk-action {{ min-height: 72px; border-radius: 16px; font-size: 1.15rem;
-                font-weight: 750; padding: 0 28px; }}
-            .cb-kiosk-card {{ min-height: 148px; border: 2px solid #c7d8ea;
-                border-radius: 22px; }}
-            :focus-visible {{ outline: 3px solid #b45309; outline-offset: 4px; }}
-            .cb-shell a {{ display: inline-flex; align-items: center; min-height: 44px;
-                overflow-wrap: anywhere; }}
-            .cb-shell .q-radio {{ min-height: 52px; padding: 8px; }}
-            .cb-kiosk .q-radio, .cb-kiosk .q-btn {{ min-height: 72px; }}
-            .cb-kiosk .q-radio {{ font-size: 1.1rem; }}
-            .cb-kiosk-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }}
-            .cb-compare-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-            @media (max-width: 720px) {{
-                .cb-shell {{ width: min(100% - 20px, 1120px); }}
-                .cb-compare-grid, .cb-kiosk-grid {{ grid-template-columns: minmax(0, 1fr); }}
-            }}
-        </style>
-        <script>document.documentElement.lang = 'ko';</script>
-        """
-    )
+    ui.colors(primary=ACCENT, secondary="#977444", accent="#977444")
+    ui.add_head_html(THEME_HEAD)
 
 
 def _header() -> None:
-    with ui.header().style(f"background: {BRAND}").classes("items-center px-6 py-3"):
-        ui.label("CultureBridge").classes("text-xl font-bold text-white")
-        ui.space()
-        ui.label("문화유산을 잇고, 배움을 넓히다").classes("text-sm text-blue-100")
+    path = ui.context.client.request.url.path if ui.context.client.request else "/"
+    with ui.header().classes("cb-header p-0"):
+        with ui.row().classes("cb-header-inner"):
+            ui.icon("account_balance", size="22px").classes("cb-brand-mark").props(
+                "aria-hidden=true"
+            )
+            ui.link("CultureBridge", "/").classes("cb-brand").props(
+                'aria-label="CultureBridge 처음으로"'
+            )
+            ui.space()
+            with ui.row().classes("cb-nav").props('role=navigation aria-label="주요 메뉴"'):
+                for label, route in (
+                    ("비교 학습", "/"),
+                    ("한국 문화유산", "/official"),
+                    ("세계유산", "/unesco"),
+                    ("비교 기록", "/comparisons"),
+                ):
+                    link = ui.link(label, route)
+                    learning_path = path == "/domestic" or path.startswith(
+                        ("/explore/", "/discover/", "/research/", "/compare/", "/quiz/")
+                    )
+                    if (
+                        path == route
+                        or (route == "/" and learning_path)
+                        or (route != "/" and path.startswith(route + "/"))
+                    ):
+                        link.props('aria-current="page"')
 
 
 def _kiosk_header() -> None:
@@ -141,7 +134,7 @@ def _kiosk_header() -> None:
         ui.space()
         ui.button("처음으로", on_click=lambda: ui.navigate.to("/kiosk")).props(
             "unelevated icon=home"
-        ).classes("cb-kiosk-action").style("background: white; color: #173B63")
+        ).classes("cb-kiosk-action").style(f"background: white; color: {BRAND}")
 
 
 def _enable_kiosk_timeout() -> None:
@@ -335,7 +328,7 @@ def _lesson_content(source, level):
     ui.label(lesson.intro).classes("font-semibold")
     ui.label(lesson.notice).classes("cb-muted")
     if level is LearningLevel.ADVANCED:
-        ui.label(lesson.original_text or "수집된 원문이 없습니다.").style(
+        ui.label(lesson.original_text or "수집된 원문이 없습니다.").classes("cb-reading").style(
             "white-space: pre-wrap; overflow-wrap: anywhere"
         )
         ui.label(
@@ -345,7 +338,9 @@ def _lesson_content(source, level):
     else:
         for section in lesson.sections:
             ui.label(section.heading).classes("cb-title text-lg")
-            ui.label(section.text).style("white-space: pre-wrap; overflow-wrap: anywhere")
+            ui.label(section.text).classes("cb-reading").style(
+                "white-space: pre-wrap; overflow-wrap: anywhere"
+            )
             if level is LearningLevel.INTERMEDIATE and section.event:
                 ui.label("연대가 가리키는 사건: " + section.event).classes("cb-muted")
             if level is LearningLevel.INTERMEDIATE and section.evidence_quote:
@@ -405,63 +400,93 @@ def home_page(
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-7 py-10"):
-        ui.label(SCOPE_LABELS[comparison_scope.value]).classes("cb-title text-xl")
-        ui.label(
-            "한국 밖의 유산을 추천해요."
-            if comparison_scope is ComparisonScope.OVERSEAS
-            else "한국의 유산을 추천해요."
-        ).classes("cb-muted")
-        _comparison_entry(q, level, comparison_scope, context=lambda: return_context(page))
-        ui.link("비교 기록 모아보기", "/comparisons").classes("text-blue-800 font-semibold")
-        ui.link("한국 문화유산 둘러보기", "/official").classes("text-blue-800 font-semibold")
-        ui.link("세계유산 둘러보기", "/unesco").classes("text-blue-800 font-semibold")
-        with ui.column().classes("gap-2"):
-            ui.label("하나의 문화유산에서 세계로").classes("cb-title text-4xl")
+        with ui.column().classes("cb-hero"):
+            ui.label("문화유산을 잇고, 배움을 넓히다").classes("cb-eyebrow")
+            ui.label("하나의 문화유산에서 세계로").classes("cb-hero-title").props(
+                "role=heading aria-level=1"
+            )
             ui.label(
                 "한국 문화유산과 세계유산을 검색하고, 지원 유산은 비교 학습으로 이어가세요."
-            ).classes("cb-muted text-lg")
+            ).classes("cb-hero-copy")
+            with ui.row().classes("gap-2"):
+                ui.label("국가유산청 · UNESCO 공식 자료").classes("cb-badge")
+                ui.label("초급부터 고급까지").classes("cb-badge")
+            ui.html(
+                '<div class="cb-study-steps" aria-label="학습 과정">'
+                "<span><b>1</b> 유산 찾기</span><span><b>2</b> 함께 비교하기</span>"
+                "<span><b>3</b> 퀴즈로 확인하기</span></div>"
+            )
+
+        with ui.element("section").classes("cb-mode-strip").props('aria-label="비교 범위"'):
+            with ui.column().classes("gap-1"):
+                ui.label(SCOPE_LABELS[comparison_scope.value]).classes("cb-title text-xl")
+                ui.label(
+                    "한국 밖의 유산을 추천해요."
+                    if comparison_scope is ComparisonScope.OVERSEAS
+                    else "한국의 유산을 추천해요."
+                ).classes("cb-muted text-sm")
+            _comparison_entry(q, level, comparison_scope, context=lambda: return_context(page))
 
         with ui.card().classes("cb-card w-full p-6 gap-5"):
-            ui.label("1. 학습 수준을 선택하세요").classes("cb-title text-xl")
-            level = ui.toggle(
-                LEVEL_LABELS,
-                value=_learning_level(level).value,
-            ).classes("w-full")
-            goal = ui.select(GOAL_LABELS, value=_goal(goal).value, label="학습 목표").classes(
-                "w-full"
+            ui.label("1. 학습 수준을 선택하세요").classes("cb-title text-xl cb-section-title")
+            level = (
+                ui.toggle(
+                    LEVEL_LABELS,
+                    value=_learning_level(level).value,
+                )
+                .classes("w-full")
+                .props('aria-label="학습 수준"')
             )
-            amount = ui.select(
-                AMOUNT_LABELS, value=_amount(amount).value, label="학습 분량"
-            ).classes("w-full")
+            with ui.element("div").classes("cb-form-grid"):
+                goal = (
+                    ui.select(GOAL_LABELS, value=_goal(goal).value, label="학습 목표")
+                    .props("outlined")
+                    .classes("w-full")
+                )
+                amount = (
+                    ui.select(AMOUNT_LABELS, value=_amount(amount).value, label="학습 분량")
+                    .props("outlined")
+                    .classes("w-full")
+                )
             goal_text = (
                 ui.input(
                     label="세부 목표 (선택)",
                     value=goal_text[:200],
                     placeholder="예: 재료와 불교의 관계가 궁금해요",
                 )
-                .props("maxlength=200")
+                .props("outlined maxlength=200")
                 .classes("w-full")
             )
 
-            ui.label("2. 문화유산을 검색하세요").classes("cb-title text-xl")
-            scope = ui.select(
-                {"all": "통합 검색", "korea": "한국 · 국가유산청", "world": "세계 · UNESCO"},
-                value=scope if scope in {"all", "korea", "world"} else "all",
-                label="검색 범위",
-            ).classes("w-full")
-            search = (
-                ui.input(
-                    label="문화유산 검색",
-                    value=q[:100],
-                    placeholder="예: 불국사, 경복궁, 만리장성, 타지마할, Japan",
+            ui.label("2. 문화유산을 검색하세요").classes("cb-title text-xl cb-section-title")
+            with ui.element("div").classes("cb-search-bar"):
+                scope = (
+                    ui.select(
+                        {
+                            "all": "통합 검색",
+                            "korea": "한국 · 국가유산청",
+                            "world": "세계 · UNESCO",
+                        },
+                        value=scope if scope in {"all", "korea", "world"} else "all",
+                        label="검색 범위",
+                    )
+                    .props("outlined")
+                    .classes("w-full")
                 )
-                .props("outlined clearable maxlength=100")
-                .classes("w-full")
-            )
+                search = (
+                    ui.input(
+                        label="문화유산 검색",
+                        value=q[:100],
+                        placeholder="예: 불국사, 경복궁, 만리장성, 타지마할, Japan",
+                    )
+                    .props("outlined clearable maxlength=100")
+                    .classes("w-full")
+                )
             ui.label(
                 "한국은 국가유산청, 세계는 UNESCO 등재 목록에서 찾습니다. "
                 "해외 유산은 등록된 한글 별칭·공식 영문 이름·국가명으로 검색하세요."
             ).classes("cb-muted text-sm")
+            search_submit = ui.row().classes("cb-search-submit")
             suggestions = (
                 ui.column().classes("w-full gap-1").props('role=group aria-label="홈 검색어 제안"')
             )
@@ -567,7 +592,7 @@ def home_page(
                                 f"국가유산청 · 총 {response.korean.total}건 (최대 10건)"
                             ).classes("font-semibold")
                             for item in response.korean.items:
-                                with ui.card().classes("cb-card w-full p-4 gap-2"):
+                                with ui.card().classes("cb-card cb-result-card w-full p-4 gap-2"):
                                     ui.label(item.name).classes("cb-title text-xl")
                                     ui.label(
                                         f"대한민국 · {item.designation} · {item.region} {item.city}"
@@ -729,9 +754,12 @@ def home_page(
             search.on_value_change(lambda _: input_changed())
             scope.on_value_change(lambda _: scope_changed())
             search.on("keydown.enter", lambda _: submit_search())
-            search_button = ui.button(
-                "공식 자료 통합 검색", on_click=lambda: submit_search()
-            ).classes("cb-action")
+            search_button = (
+                ui.button("공식 자료 통합 검색", on_click=lambda: submit_search())
+                .props("unelevated icon=search")
+                .classes("cb-action")
+            )
+            search_button.move(search_submit)
             render_results()
             if auto and q.strip():
                 _restore_results(lambda: submit_search(page=max(1, min(page, 10000))))
@@ -1574,15 +1602,16 @@ async def official_detail_page(
         )
         back_search = search_level(back_search, learning_level.value)
         _return_button(back_search)
-        ui.label(document.name).classes("cb-title text-3xl")
-        ui.label(f"{document.designation} · {document.period} · {document.address}")
-        ui.label(document.notice).props("role=status").classes("cb-muted")
-        ui.label(
-            f"조회 시각: {document.retrieved_at.astimezone().strftime('%Y-%m-%d %H:%M')} · "
-            + ("이전 수집 자료" if document.cached else "새로 수집한 자료")
-        )
-        if document.stale:
-            ui.label("갱신이 필요한 자료입니다.").classes("text-orange-800")
+        with ui.column().classes("w-full gap-2"):
+            ui.label(document.name).classes("cb-title text-3xl").props("role=heading aria-level=1")
+            ui.label(f"{document.designation} · {document.period} · {document.address}")
+            ui.label(document.notice).props("role=status").classes("cb-muted text-sm")
+            ui.label(
+                f"조회 시각: {document.retrieved_at.astimezone().strftime('%Y-%m-%d %H:%M')} · "
+                + ("이전 수집 자료" if document.cached else "새로 수집한 자료")
+            ).classes("cb-muted text-sm")
+            if document.stale:
+                ui.label("갱신이 필요한 자료입니다.").classes("text-orange-800")
         ui.toggle(LEVEL_LABELS, value=learning_level.value).on_value_change(
             lambda e: ui.navigate.to(
                 with_return(
