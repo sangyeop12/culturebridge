@@ -8,6 +8,7 @@ from culturebridge.domain.models import (
     ClaimResult,
     ComparisonRequest,
     ComparisonResult,
+    ComparisonScope,
     ExplorationRequest,
     ExplorationResult,
     HeritageDetail,
@@ -38,6 +39,7 @@ from culturebridge.services.catalog_service import (
     recommend_related,
 )
 from culturebridge.services.claim_service import verify_claim
+from culturebridge.services.comparison_scope_service import candidate_in_scope, validate_pair_scope
 from culturebridge.services.comparison_service import (
     ComparisonNotFoundError,
     create_saved_comparison,
@@ -216,9 +218,17 @@ def heritage_sources(heritage_id: str):
 
 
 @router.get("/heritages/{heritage_id}/related", response_model=list[RelatedHeritage])
-def related_heritages(heritage_id: str, goal: LearningGoal = LearningGoal.COMPARE):
+def related_heritages(
+    heritage_id: str,
+    goal: LearningGoal = LearningGoal.COMPARE,
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
+):
     try:
-        return recommend_related(heritage_id, goal)
+        return [
+            c
+            for c in recommend_related(heritage_id, goal)
+            if candidate_in_scope(c.heritage.country, comparison_scope)
+        ]
     except HeritageNotFoundError as exc:
         raise HTTPException(status_code=404, detail="문화유산을 찾을 수 없습니다.") from exc
 
@@ -226,7 +236,15 @@ def related_heritages(heritage_id: str, goal: LearningGoal = LearningGoal.COMPAR
 @router.post("/comparisons", response_model=ComparisonResult)
 def create_comparison(request: ComparisonRequest):
     try:
-        return create_saved_comparison(request.left_id, request.right_id, request.level)
+        validate_pair_scope(get_heritage(request.right_id).country, request.comparison_scope)
+        return create_saved_comparison(
+            request.left_id,
+            request.right_id,
+            request.level,
+            comparison_scope=request.comparison_scope,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except HeritageNotFoundError as exc:
         raise HTTPException(status_code=404, detail="비교할 문화유산을 찾을 수 없습니다.") from exc
 
@@ -255,6 +273,7 @@ def create_exploration(request: ExplorationRequest):
         "goal": request.goal.value,
         "goal_text": request.goal_text,
         "amount": request.amount.value,
+        "comparison_scope": request.comparison_scope.value,
     }
     if request.comparison_id:
         state["comparison_id"] = request.comparison_id

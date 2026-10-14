@@ -9,6 +9,7 @@ from culturebridge.agents.quiz_agent import evaluate_learning_quiz
 from culturebridge.agents.workflow import exploration_graph
 from culturebridge.domain.models import (
     CollectedSource,
+    ComparisonScope,
     ExtractedField,
     LearningAmount,
     LearningGoal,
@@ -22,6 +23,11 @@ from culturebridge.services.catalog_service import (
     recommend_related,
 )
 from culturebridge.services.claim_service import verify_claim
+from culturebridge.services.comparison_scope_service import (
+    SCOPE_LABELS,
+    candidate_in_scope,
+    validate_pair_scope,
+)
 from culturebridge.services.comparison_service import (
     ComparisonNotFoundError,
     create_saved_comparison,
@@ -45,6 +51,7 @@ from culturebridge.services.lesson_service import beginner_text, explain_source,
 from culturebridge.services.location_service import get_official_location
 from culturebridge.services.navigation_service import (
     home_context,
+    scope_return,
     search_level,
     search_return,
     with_return,
@@ -195,7 +202,7 @@ def _return_button(return_to="", fallback="/", label="검색 결과로", mode="w
     root = urlsplit(destination).path
     if root == "/comparisons":
         label = "비교 기록으로"
-    elif root == "/" and not parse_qs(urlsplit(destination).query).get("q"):
+    elif root in {"/", "/domestic"} and not parse_qs(urlsplit(destination).query).get("q"):
         label = "문화유산 선택으로"
     elif root == "/kiosk":
         label = "문화유산 선택으로"
@@ -217,8 +224,49 @@ def _restore_results(callback):
     ui.timer(0.1, restore, once=True)
 
 
-def _goal_query(goal, goal_text="", amount="standard"):
-    return urlencode({"goal": goal, "goal_text": (goal_text or "")[:200], "amount": amount})
+def _goal_query(goal, goal_text="", amount="standard", comparison_scope=ComparisonScope.OVERSEAS):
+    return urlencode(
+        {
+            "goal": goal,
+            "goal_text": (goal_text or "")[:200],
+            "amount": amount,
+            "comparison_scope": comparison_scope,
+        }
+    )
+
+
+def _comparison_entry(
+    q="",
+    level="beginner",
+    comparison_scope=ComparisonScope.OVERSEAS,
+    context=None,
+    domestic_url=None,
+):
+    if comparison_scope is ComparisonScope.OVERSEAS:
+        with ui.expansion("부가 기능 · 국내 문화유산과 비교").classes("w-full"):
+            ui.label(
+                "한국 문화유산끼리 비교하거나 해외 유산을 한국 유산과 비교하고 싶을 때 이용하세요."
+            )
+            ui.button(
+                "국내 문화유산과 비교",
+                on_click=lambda: ui.navigate.to(
+                    domestic_url
+                    or scope_return(
+                        context() if context else home_context(q=q, level=level),
+                        ComparisonScope.DOMESTIC,
+                    )
+                ),
+            ).props("outline no-caps")
+    else:
+        ui.button(
+            "기본 학습 · 해외 문화유산과 비교",
+            on_click=lambda: ui.navigate.to(
+                scope_return(
+                    context() if context else home_context(q=q, level=level),
+                    ComparisonScope.OVERSEAS,
+                )
+            ),
+        ).props("flat no-caps")
 
 
 def _amount(value):
@@ -352,10 +400,18 @@ def home_page(
     goal_text: str = "",
     amount: str = "standard",
     auto: bool = False,
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ) -> None:
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-7 py-10"):
+        ui.label(SCOPE_LABELS[comparison_scope.value]).classes("cb-title text-xl")
+        ui.label(
+            "기본 학습 · 한국 밖의 유산을 추천해요."
+            if comparison_scope is ComparisonScope.OVERSEAS
+            else "부가 기능 · 한국의 유산을 추천해요."
+        ).classes("cb-muted")
+        _comparison_entry(q, level, comparison_scope, context=lambda: return_context(page))
         ui.link("비교 기록 모아보기", "/comparisons").classes("text-blue-800 font-semibold")
         ui.link("한국 문화유산 둘러보기", "/official").classes("text-blue-800 font-semibold")
         ui.link("세계유산 둘러보기", "/unesco").classes("text-blue-800 font-semibold")
@@ -427,6 +483,7 @@ def home_page(
                     goal.value,
                     goal_text.value,
                     amount.value,
+                    comparison_scope,
                 )
 
             def render_results() -> None:
@@ -459,7 +516,12 @@ def home_page(
                                 on_click=lambda heritage_id=item.id: ui.navigate.to(
                                     with_return(
                                         f"/explore/{heritage_id}?level={level.value}&"
-                                        + _goal_query(goal.value, goal_text.value, amount.value),
+                                        + _goal_query(
+                                            goal.value,
+                                            goal_text.value,
+                                            amount.value,
+                                            comparison_scope,
+                                        ),
                                         return_context(page),
                                     )
                                 ),
@@ -515,7 +577,7 @@ def home_page(
                                         on_click=lambda selected=item, result_page=page: (
                                             ui.navigate.to(
                                                 with_return(
-                                                    f"/official/{selected.kind_code}/{selected.asset_number}/{selected.region_code}?level={level.value}",
+                                                    f"/official/{selected.kind_code}/{selected.asset_number}/{selected.region_code}?level={level.value}&comparison_scope={comparison_scope.value}",
                                                     return_context(result_page),
                                                 )
                                             )
@@ -528,7 +590,10 @@ def home_page(
                                                 f"/discover/khs/{selected.kind_code}:{selected.asset_number}:{selected.region_code}"
                                                 f"?level={level.value}&"
                                                 + _goal_query(
-                                                    goal.value, goal_text.value, amount.value
+                                                    goal.value,
+                                                    goal_text.value,
+                                                    amount.value,
+                                                    comparison_scope,
                                                 ),
                                                 return_context(page),
                                             )
@@ -536,7 +601,14 @@ def home_page(
                                     )
                             ui.link(
                                 "국가유산청 검색 화면에서 더 찾기",
-                                "/official?" + urlencode({"q": query, "level": level.value}),
+                                "/official?"
+                                + urlencode(
+                                    {
+                                        "q": query,
+                                        "level": level.value,
+                                        "comparison_scope": comparison_scope.value,
+                                    }
+                                ),
                             )
                         if response.world is not None:
                             ui.label(f"UNESCO · 총 {response.world.total}건 (최대 10건)").classes(
@@ -559,7 +631,10 @@ def home_page(
                                             with_return(
                                                 f"/discover/unesco/{selected.id}?level={level.value}&"
                                                 + _goal_query(
-                                                    goal.value, goal_text.value, amount.value
+                                                    goal.value,
+                                                    goal_text.value,
+                                                    amount.value,
+                                                    comparison_scope,
                                                 ),
                                                 return_context(page),
                                             )
@@ -575,7 +650,14 @@ def home_page(
                                     )
                             ui.link(
                                 "UNESCO 검색 화면에서 더 찾기",
-                                "/unesco?" + urlencode({"q": query, "level": level.value}),
+                                "/unesco?"
+                                + urlencode(
+                                    {
+                                        "q": query,
+                                        "level": level.value,
+                                        "comparison_scope": comparison_scope.value,
+                                    }
+                                ),
                             )
                             ui.link(
                                 "UNESCO 데이터 출처·이용 조건",
@@ -655,6 +737,30 @@ def home_page(
                 _restore_results(lambda: submit_search(page=max(1, min(page, 10000))))
 
 
+@ui.page("/domestic")
+def domestic_comparison_page(
+    q: str = "",
+    scope: str = "all",
+    page: int = 1,
+    level: str = "beginner",
+    goal: str = "compare",
+    goal_text: str = "",
+    amount: str = "standard",
+    auto: bool = False,
+):
+    home_page(
+        q=q,
+        scope=scope,
+        page=page,
+        level=level,
+        goal=goal,
+        goal_text=goal_text,
+        amount=amount,
+        auto=auto,
+        comparison_scope=ComparisonScope.DOMESTIC,
+    )
+
+
 @ui.page("/kiosk")
 def kiosk_page(reset: str | None = None) -> None:
     _base_styles()
@@ -711,6 +817,7 @@ def explore_page(
     goal_text: str = "",
     amount: str = "standard",
     return_to: str = "",
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ) -> None:
     _base_styles()
     _page_header(mode)
@@ -723,7 +830,7 @@ def explore_page(
                 "함께 살펴볼 유산 찾기",
                 with_return(
                     f"/discover/{provider}/{identity}?level={level}&"
-                    + _goal_query(goal, goal_text, amount),
+                    + _goal_query(goal, goal_text, amount, comparison_scope),
                     return_to,
                 ),
             )
@@ -741,6 +848,25 @@ def explore_page(
             return
 
         ui.label("함께 알아보면 좋은 문화유산").classes("cb-title text-3xl")
+        ui.label(SCOPE_LABELS[comparison_scope.value]).classes("font-semibold")
+        candidates = [
+            c
+            for c in recommend_related(heritage_id, learning_goal)
+            if candidate_in_scope(c.heritage.country, comparison_scope)
+        ]
+        if not candidates:
+            ui.label("선택한 범위에 등록된 비교 예제가 없습니다. 다른 범위로 자동 전환하지 않아요.")
+            if heritage_id == "seokguram" and comparison_scope is ComparisonScope.DOMESTIC:
+                ui.link(
+                    "국내 문화유산 자료에서 찾아보기",
+                    with_return(
+                        "/discover/khs/"
+                        + ":".join(SEOKGURAM_CODES)
+                        + f"?level={level}&"
+                        + _goal_query(learning_goal.value, goal_text, amount, comparison_scope),
+                        return_to,
+                    ),
+                )
         ui.label(f"선택한 문화유산: {selected.name}").classes("text-lg font-semibold")
         ui.label(f"학습 수준: {LEVEL_LABELS.get(level, '초급')}").classes("cb-muted")
         ui.label("학습 목표: " + GOAL_LABELS[learning_goal.value])
@@ -748,7 +874,7 @@ def explore_page(
         if goal_text:
             ui.label("세부 목표: " + goal_text[:200])
 
-        for candidate in recommend_related(heritage_id, learning_goal):
+        for candidate in candidates:
             with ui.card().classes("cb-card w-full p-6 gap-3"):
                 ui.label(candidate.heritage.name).classes("cb-title text-2xl")
                 ui.label(f"{candidate.heritage.country} · {candidate.heritage.period}").classes(
@@ -761,7 +887,9 @@ def explore_page(
                         with_return(
                             _route(
                                 f"/compare/{heritage_id}/{right_id}?level={level}&"
-                                + _goal_query(learning_goal.value, goal_text, amount),
+                                + _goal_query(
+                                    learning_goal.value, goal_text, amount, comparison_scope
+                                ),
                                 mode,
                             ),
                             return_to,
@@ -775,7 +903,10 @@ def explore_page(
                             _route(
                                 f"/research/{heritage_id}/{right_id}?level={level}&"
                                 + _goal_query(
-                                    learning_goal.value, goal_text, _amount(amount).value
+                                    learning_goal.value,
+                                    goal_text,
+                                    _amount(amount).value,
+                                    comparison_scope,
                                 ),
                                 mode,
                             ),
@@ -801,6 +932,7 @@ def comparison_page(
     goal: str = "compare",
     goal_text: str = "",
     amount: str = "standard",
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ) -> None:
     _base_styles()
     _page_header(mode)
@@ -817,9 +949,12 @@ def comparison_page(
             learning_level = result.level
             sources = saved.sources
         else:
-            result = create_saved_comparison(left_id, right_id, learning_level)
+            validate_pair_scope(get_heritage(right_id).country, comparison_scope)
+            result = create_saved_comparison(
+                left_id, right_id, learning_level, comparison_scope=comparison_scope
+            )
             sources = get_sources(result.source_ids)
-    except (ComparisonNotFoundError, HeritageNotFoundError):
+    except (ComparisonNotFoundError, HeritageNotFoundError, ValueError):
         _error_page("비교 결과를 찾을 수 없습니다.", mode)
         return
     except sqlite3.Error:
@@ -828,12 +963,18 @@ def comparison_page(
         return
 
     with ui.column().classes(f"cb-shell gap-7 py-10 {'cb-kiosk' if _is_kiosk(mode) else ''}"):
+        comparison_scope = result.comparison_scope or (
+            ComparisonScope.DOMESTIC
+            if candidate_in_scope(result.right.country, ComparisonScope.DOMESTIC)
+            else ComparisonScope.OVERSEAS
+        )
         recommendation_url = _route(
             f"/explore/{left_id}?level={learning_level.value}&"
             + _goal_query(
                 result.goal.value if saved_id else goal,
                 result.goal_text if saved_id else goal_text,
                 result.amount.value if saved_id else amount,
+                comparison_scope,
             ),
             mode,
         )
@@ -1334,7 +1475,12 @@ def comparison_history_page(page: int = 1) -> None:
 
 
 @ui.page("/official")
-def official_search_page(q: str = "석굴암", level: str = "beginner", auto: bool = False) -> None:
+def official_search_page(
+    q: str = "석굴암",
+    level: str = "beginner",
+    auto: bool = False,
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
+) -> None:
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-5 py-10"):
@@ -1372,8 +1518,16 @@ def official_search_page(q: str = "석굴암", level: str = "beginner", auto: bo
                         ui.link(
                             "공식 설명 보기",
                             with_return(
-                                f"/official/{item.kind_code}/{item.asset_number}/{item.region_code}?level={_learning_level(level).value}",
-                                "/official?" + urlencode({"q": query, "level": level, "auto": "1"}),
+                                f"/official/{item.kind_code}/{item.asset_number}/{item.region_code}?level={_learning_level(level).value}&comparison_scope={comparison_scope.value}",
+                                "/official?"
+                                + urlencode(
+                                    {
+                                        "q": query,
+                                        "level": level,
+                                        "auto": "1",
+                                        "comparison_scope": comparison_scope.value,
+                                    }
+                                ),
                             ),
                         )
 
@@ -1385,7 +1539,12 @@ def official_search_page(q: str = "석굴암", level: str = "beginner", auto: bo
 
 @ui.page("/official/{kind}/{number}/{region}")
 async def official_detail_page(
-    kind: str, number: str, region: str, level: str = "beginner", return_to: str = ""
+    kind: str,
+    number: str,
+    region: str,
+    level: str = "beginner",
+    return_to: str = "",
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ) -> None:
     _base_styles()
     _header()
@@ -1404,7 +1563,14 @@ async def official_detail_page(
         back_search = search_return(
             return_to,
             "/official?"
-            + urlencode({"q": document.name, "level": learning_level.value, "auto": "1"}),
+            + urlencode(
+                {
+                    "q": document.name,
+                    "level": learning_level.value,
+                    "auto": "1",
+                    "comparison_scope": comparison_scope.value,
+                }
+            ),
         )
         back_search = search_level(back_search, learning_level.value)
         _return_button(back_search)
@@ -1420,7 +1586,7 @@ async def official_detail_page(
         ui.toggle(LEVEL_LABELS, value=learning_level.value).on_value_change(
             lambda e: ui.navigate.to(
                 with_return(
-                    f"/official/{kind}/{number}/{region}?level={e.value}",
+                    f"/official/{kind}/{number}/{region}?level={e.value}&comparison_scope={comparison_scope.value}",
                     search_level(back_search, e.value),
                 )
             )
@@ -1492,13 +1658,21 @@ async def official_detail_page(
             )
             ui.link(
                 "석굴암 비교 학습",
-                with_return(f"/explore/seokguram?level={learning_level.value}", back_search),
+                with_return(
+                    f"/explore/seokguram?level={learning_level.value}&comparison_scope={comparison_scope.value}",
+                    back_search,
+                ),
             )
-        ui.link("공식 자료 다시 검색", "/official")
+        ui.link("공식 자료 다시 검색", f"/official?comparison_scope={comparison_scope.value}")
 
 
 @ui.page("/unesco")
-def unesco_page(q: str = "", level: str = "beginner", auto: bool = False) -> None:
+def unesco_page(
+    q: str = "",
+    level: str = "beginner",
+    auto: bool = False,
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
+) -> None:
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-5 py-10"):
@@ -1577,9 +1751,16 @@ def unesco_page(q: str = "", level: str = "beginner", auto: bool = False) -> Non
                         ui.link(
                             "이 세계유산 알아보기",
                             with_return(
-                                f"/discover/unesco/{record.id}?level={_learning_level(level).value}",
+                                f"/discover/unesco/{record.id}?level={_learning_level(level).value}&comparison_scope={comparison_scope.value}",
                                 "/unesco?"
-                                + urlencode({"q": query.value or "", "level": level, "auto": "1"}),
+                                + urlencode(
+                                    {
+                                        "q": query.value or "",
+                                        "level": level,
+                                        "auto": "1",
+                                        "comparison_scope": comparison_scope.value,
+                                    }
+                                ),
                             ),
                         )
                 if response.source_format == "json":
@@ -1641,6 +1822,7 @@ async def research_page(
     goal_text: str = "",
     amount: str = "standard",
     return_to: str = "",
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ) -> None:
     _base_styles()
     _page_header(mode)
@@ -1653,13 +1835,14 @@ async def research_page(
             return_to,
             _route(
                 f"/explore/{left_id}?level={learning_level.value}&"
-                + _goal_query(goal, goal_text, amount),
+                + _goal_query(goal, goal_text, amount, comparison_scope),
                 mode,
             ),
             "추천 화면으로",
             mode,
         )
         ui.label("두 문화유산 함께 알아보기").classes("cb-title text-3xl")
+        ui.label(SCOPE_LABELS[comparison_scope.value]).classes("font-semibold")
         ui.label("두 유산의 이야기를 읽고 시대·모양·재료·종교적 배경을 함께 살펴봐요.")
         panel = ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
         with panel:
@@ -1679,11 +1862,16 @@ async def research_page(
                     "goal": _goal(goal).value,
                     "goal_text": goal_text[:200],
                     "amount": _amount(amount).value,
+                    "comparison_scope": comparison_scope.value,
                 },
             )
-        except (HeritageNotFoundError, sqlite3.Error):
+        except (HeritageNotFoundError, sqlite3.Error, ValueError):
             panel.clear()
-            _error_page("탐구 자료를 확인하거나 저장하지 못했습니다.", mode)
+            _error_page(
+                "선택한 비교 범위에서 탐구 자료를 확인하지 못했습니다. "
+                "국내 비교는 부가 기능에서 선택해 주세요.",
+                mode,
+            )
             return
         panel.clear()
         with panel:
@@ -1750,6 +1938,7 @@ async def autonomous_page(
     goal_text: str = "",
     amount: str = "standard",
     return_to: str = "",
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ):
     _base_styles()
     _header()
@@ -1765,15 +1954,37 @@ async def autonomous_page(
             goal=_goal(goal),
             goal_text=goal_text[:200],
             amount=_amount(amount),
+            comparison_scope=comparison_scope,
         )
     except ValueError:
         _error_page("공식 대상 식별자를 확인해 주세요.", "web")
         return
     with ui.column().classes("cb-shell gap-5 py-10"):
         _return_button(
-            return_to, home_context(level=level, goal=goal, goal_text=goal_text, amount=amount)
+            return_to,
+            home_context(
+                level=level,
+                goal=goal,
+                goal_text=goal_text,
+                amount=amount,
+                comparison_scope=comparison_scope,
+            ),
         )
         title = ui.label("함께 살펴볼 문화유산을 찾아요").classes("cb-title text-3xl")
+        ui.label(SCOPE_LABELS[comparison_scope.value]).classes("font-semibold")
+        _comparison_entry(
+            level=level,
+            comparison_scope=comparison_scope,
+            domestic_url=with_return(
+                f"/discover/{provider}/{identity}?level={level}&"
+                + _goal_query(goal, goal_text, amount, ComparisonScope.DOMESTIC),
+                scope_return(
+                    return_to
+                    or home_context(level=level, goal=goal, goal_text=goal_text, amount=amount),
+                    ComparisonScope.DOMESTIC,
+                ),
+            ),
+        )
         panel = ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
         with panel:
             ui.label("공식 자료를 읽고 비교 후보를 탐색하고 있어요…")
@@ -1807,17 +2018,10 @@ async def autonomous_page(
                 else "AI 검색 대신 공식 자료의 특징을 바탕으로 찾았어요."
             )
             ui.label(learner_status(result, request.level is LearningLevel.BEGINNER))
-            if (
-                result["candidates"]
-                and target.get("country")
-                and all(
-                    display_country(c["heritage"]["country"]) == display_country(target["country"])
-                    for c in result["candidates"]
-                )
-            ):
+            if not result["candidates"]:
                 ui.label(
-                    "이번 검색에서 조건에 맞는 해외 근거를 충분히 찾지 못했어요. "
-                    "같은 나라의 후보를 보여드렸어요."
+                    "선택한 범위에서 조건에 맞는 근거를 확보하지 못해 비교를 보류했어요. "
+                    "범위를 자동 변경하지 않아요."
                 ).classes("cb-muted")
             ui.label("한국어 이름은 학습용 안내 표기이며, 괄호 안은 공식 영문 이름입니다.").classes(
                 "cb-muted text-sm"
@@ -1849,7 +2053,8 @@ async def autonomous_page(
                         "이 유산과 비교하기",
                         with_return(
                             f"/research/{result['target']['id']}/{candidate['heritage']['id']}"
-                            f"?level={level}&" + _goal_query(goal, goal_text, amount),
+                            f"?level={level}&"
+                            + _goal_query(goal, goal_text, amount, comparison_scope),
                             return_to,
                         ),
                     )

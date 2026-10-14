@@ -5,6 +5,7 @@ from langgraph.graph import END, START, StateGraph
 from culturebridge.agents.quiz_agent import create_learning_quiz
 from culturebridge.domain.models import (
     CollectedSource,
+    ComparisonScope,
     ExtractedField,
     HeritageSummary,
     LearningAmount,
@@ -13,6 +14,7 @@ from culturebridge.domain.models import (
     RelatedHeritage,
 )
 from culturebridge.services.catalog_service import get_heritage, recommend_related
+from culturebridge.services.comparison_scope_service import candidate_in_scope, validate_pair_scope
 from culturebridge.services.comparison_service import create_saved_comparison
 from culturebridge.services.curriculum_service import plan_learning
 from culturebridge.services.extraction_service import extract_fields
@@ -21,6 +23,7 @@ from culturebridge.services.source_collection_service import collect_official_so
 
 
 class ExplorationState(TypedDict, total=False):
+    comparison_scope: str
     heritage_id: str
     comparison_id: str
     level: str
@@ -61,6 +64,7 @@ def plan_curriculum(state):
 
 
 def explore_history(state):
+    scope = ComparisonScope(state.get("comparison_scope", "overseas"))
     if state["heritage_id"].startswith(("khs:", "unesco:")):
         if not state.get("comparison_id"):
             from culturebridge.database import transaction
@@ -72,7 +76,9 @@ def explore_history(state):
                     "SELECT target_json FROM dynamic_heritages WHERE id=?", (state["heritage_id"],)
                 ).fetchone()
             _, candidates, _, _ = discover_candidates(
-                OfficialTarget.model_validate_json(row["target_json"]), state.get("goal_text", "")
+                OfficialTarget.model_validate_json(row["target_json"]),
+                state.get("goal_text", ""),
+                comparison_scope=scope,
             )
             if not candidates:
                 raise ValueError("공식 자료에서 적합한 비교 후보를 확보하지 못했습니다.")
@@ -87,7 +93,13 @@ def explore_history(state):
             ]
     else:
         candidates = recommend_related(state["heritage_id"], LearningGoal(state["goal"]))
+        candidates = [c for c in candidates if candidate_in_scope(c.heritage.country, scope)]
+    if not candidates:
+        raise ValueError(
+            "선택한 비교 범위에서 적합한 후보를 찾지 못했습니다. 범위를 자동 변경하지 않습니다."
+        )
     comparison_id = state.get("comparison_id") or candidates[0].heritage.id
+    validate_pair_scope(get_heritage(comparison_id).country, scope)
     sources = collect_official_sources(state["heritage_id"], comparison_id)
     return {
         "candidates": [c.model_dump(mode="json") for c in candidates],
@@ -158,6 +170,7 @@ def build_comparison(state):
         goal_text=state.get("goal_text", ""),
         curriculum=state["curriculum"],
         amount=LearningAmount(state["amount"]),
+        comparison_scope=scope if (scope := state.get("comparison_scope")) else None,
     )
     return {
         "comparison": result.model_dump(mode="json"),

@@ -4,6 +4,7 @@ from culturebridge.agents.workflow import exploration_graph
 from culturebridge.domain.models import (
     CollectedSource,
     ComparisonResult,
+    ComparisonScope,
     ExtractedField,
     HeritageDetail,
     LearningAmount,
@@ -14,6 +15,7 @@ from culturebridge.domain.models import (
     VerificationStatus,
 )
 from culturebridge.services.agent_discovery_service import discover_candidates
+from culturebridge.services.comparison_scope_service import SCOPE_LABELS
 from culturebridge.services.curriculum_service import required_categories
 from culturebridge.services.dynamic_heritage_service import OfficialTarget, dynamic_source
 from culturebridge.services.extraction_service import _local_extraction, validate_extraction
@@ -21,6 +23,7 @@ from culturebridge.services.official_page_service import cached_supplement
 
 
 class AutonomousRequest(BaseModel):
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS
     target: OfficialTarget
     level: LearningLevel = LearningLevel.BEGINNER
     goal: LearningGoal = LearningGoal.COMPARE
@@ -29,6 +32,7 @@ class AutonomousRequest(BaseModel):
 
 
 class AutonomousResult(BaseModel):
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS
     target: HeritageDetail
     candidates: list[RelatedHeritage]
     execution_trace: list[str]
@@ -46,9 +50,12 @@ class AutonomousResult(BaseModel):
 
 def run_autonomous(request: AutonomousRequest):
     detail, candidates, trace, used_ai = discover_candidates(
-        request.target, request.goal.value + " " + request.goal_text
+        request.target,
+        request.goal.value + " " + request.goal_text,
+        comparison_scope=request.comparison_scope,
     )
     result = {
+        "comparison_scope": request.comparison_scope.value,
         "target": detail.model_dump(mode="json"),
         "candidates": [c.model_dump(mode="json") for c in candidates],
         "execution_trace": trace,
@@ -56,7 +63,8 @@ def run_autonomous(request: AutonomousRequest):
         "comparison": None,
         "quiz": None,
         "verification_status": "insufficient_evidence",
-        "verification_note": "공식 자료에서 적합한 비교 후보를 확보하지 못해 판단을 보류했습니다.",
+        "verification_note": SCOPE_LABELS[request.comparison_scope.value]
+        + " 범위에서 적합한 근거를 확보하지 못해 보류했습니다. 다른 범위로 자동 전환하지 않습니다.",
     }
     if not candidates:
         return result
@@ -87,6 +95,7 @@ def run_autonomous(request: AutonomousRequest):
             "goal": request.goal.value,
             "goal_text": request.goal_text,
             "amount": request.amount.value,
+            "comparison_scope": request.comparison_scope.value,
         }
     )
     result.update(

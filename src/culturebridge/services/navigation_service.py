@@ -2,8 +2,20 @@
 
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
-ROOTS = {"/", "/official", "/unesco", "/comparisons", "/kiosk"}
-PARAMETERS = {"q", "scope", "page", "level", "goal", "goal_text", "amount", "auto"}
+from culturebridge.domain.models import ComparisonScope
+
+ROOTS = {"/", "/domestic", "/official", "/unesco", "/comparisons", "/kiosk"}
+PARAMETERS = {
+    "q",
+    "scope",
+    "page",
+    "level",
+    "goal",
+    "goal_text",
+    "amount",
+    "auto",
+    "comparison_scope",
+}
 
 
 def search_return(value, fallback="/"):
@@ -20,6 +32,7 @@ def search_return(value, fallback="/"):
         if key in params:
             params[key] = params[key][:limit]
     choices = {
+        "comparison_scope": {"overseas", "domestic"},
         "scope": {"all", "korea", "world"},
         "level": {"beginner", "intermediate", "advanced"},
         "goal": {"observe", "compare", "religion", "verify"},
@@ -53,10 +66,27 @@ def search_level(return_to, level):
     return search_return(path.path + "?" + urlencode(params))
 
 
+def scope_return(return_to, comparison_scope):
+    path = urlsplit(search_return(return_to))
+    params = dict(parse_qsl(path.query, keep_blank_values=True))
+    params["comparison_scope"] = comparison_scope
+    root = path.path
+    if root in {"/", "/domestic"}:
+        root = "/domestic" if comparison_scope == ComparisonScope.DOMESTIC else "/"
+    return search_return(root + "?" + urlencode(params))
+
+
 def home_context(
-    q="", scope="all", page=1, level="beginner", goal="compare", goal_text="", amount="standard"
+    q="",
+    scope="all",
+    page=1,
+    level="beginner",
+    goal="compare",
+    goal_text="",
+    amount="standard",
+    comparison_scope=ComparisonScope.OVERSEAS,
 ):
-    return "/?" + urlencode(
+    return ("/domestic?" if comparison_scope == ComparisonScope.DOMESTIC else "/?") + urlencode(
         {
             "q": (q or "")[:100],
             "scope": scope,
@@ -66,5 +96,6 @@ def home_context(
             "goal_text": (goal_text or "")[:200],
             "amount": amount,
             "auto": "1",
+            "comparison_scope": comparison_scope,
         }
     )

@@ -6,6 +6,7 @@ from culturebridge.database import transaction
 from culturebridge.domain.models import (
     CollectedSource,
     ComparisonResult,
+    ComparisonScope,
     ExtractedField,
     LearningAmount,
     LearningGoal,
@@ -35,8 +36,10 @@ def create_saved_comparison(
     goal_text: str = "",
     curriculum: list[str] | None = None,
     amount: LearningAmount = LearningAmount.STANDARD,
+    comparison_scope=None,
 ) -> ComparisonResult:
     result = compare_heritages(left_id, right_id, level)
+    result.comparison_scope = ComparisonScope(comparison_scope) if comparison_scope else None
     result.collected_sources = collected_sources or []
     result.extracted_fields = extracted_fields or []
     result.goal, result.goal_text = goal, goal_text

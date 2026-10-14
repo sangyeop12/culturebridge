@@ -18,6 +18,11 @@ class LearningGoal(StrEnum):
     VERIFY = "verify"
 
 
+class ComparisonScope(StrEnum):
+    OVERSEAS = "overseas"
+    DOMESTIC = "domestic"
+
+
 class LearningAmount(StrEnum):
     BRIEF = "brief"
     STANDARD = "standard"
@@ -66,6 +71,7 @@ class RelatedHeritage(BaseModel):
 
 
 class ComparisonRequest(BaseModel):
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS
     left_id: str
     right_id: str
     level: LearningLevel = LearningLevel.BEGINNER
@@ -124,6 +130,7 @@ class CommonEvidence(BaseModel):
 
 
 class ComparisonResult(BaseModel):
+    comparison_scope: ComparisonScope | None = None
     saved_id: str | None = None
     learning_goal: str = ""
     collected_sources: list[CollectedSource] = Field(default_factory=list)
@@ -161,6 +168,7 @@ class SavedComparisonSummary(BaseModel):
 
 
 class ExplorationRequest(BaseModel):
+    comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS
     heritage_id: str
     comparison_id: str | None = None
     level: LearningLevel = LearningLevel.BEGINNER
