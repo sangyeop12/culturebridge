@@ -722,7 +722,7 @@ def comparison_page(
 
     with ui.column().classes(f"cb-shell gap-7 py-10 {'cb-kiosk' if _is_kiosk(mode) else ''}"):
         with ui.column().classes("gap-1"):
-            ui.label("닮은 점과 다른 점 찾아보기").classes("cb-title text-3xl")
+            ui.label("유사점과 차이점 알아보기").classes("cb-title text-3xl")
             ui.label(
                 display_name(result.left.id, result.left.name)
                 + " ↔ "
@@ -1539,7 +1539,7 @@ async def research_page(
                 ).classes(_action_classes(mode))
             record_id = state["comparison"]["saved_id"]
             ui.button(
-                "닮은 점과 다른 점 보기",
+                "유사점과 차이점 알아보기",
                 on_click=lambda: ui.navigate.to(
                     _route(f"/compare/{left_id}/{right_id}?saved_id={record_id}", mode)
                 ),
