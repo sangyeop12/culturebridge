@@ -348,3 +348,11 @@ JSON 형식: `[{"id":"252","official_name":"Taj Mahal","korean_name":"타지마�
 수준별 API: `GET /api/official/heritages/{kind}/{number}/{region}/lesson?level=beginner|intermediate|advanced`.
 기존 공식 상세 API의 `content`는 원문 그대로 유지합니다.
 [검증 기록](docs/12_수준별_공식설명.md)을 참고하세요.
+
+## 17. 학습자 중심 화면 문구
+
+화면 제목·버튼은 ‘두 문화유산 함께 알아보기’, ‘닮은 점과 다른 점 찾아보기’,
+‘한국 문화유산 둘러보기’, ‘세계유산 둘러보기’, ‘배운 내용 퀴즈로 확인하기’ 등으로 표시합니다.
+Agent/API/추출 등 구현 용어 대신 사용자가 할 수 있는 활동을 안내합니다.
+실행 과정과 상세 준비 안내는 펼쳐보기에 두고, 근거 부족·추가 확인 필요·출처 표시는 유지합니다.
+URL·API·기존 저장본은 변경하지 않습니다.

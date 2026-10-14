@@ -36,7 +36,7 @@ def test_research_loading_response_does_not_start_remote_work_before_client_conn
     with TestClient(app) as client:
         response = client.get("/research/seokguram/horyuji")
     assert response.status_code == 200
-    assert "공식 자료를 확인하고 있습니다" in response.text
+    assert "두 유산의 이야기를 준비하고 있어요" in response.text
     assert "response_timeout" not in response.text
 
 
