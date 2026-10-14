@@ -5,7 +5,12 @@ ALIASES = {
     "horyuji": "unesco:660",
     "dayanta": "official:dayanta",
 }
-PARENTS = {"official:horyuji-pagoda": "unesco:660", "official:dayanta": "unesco:1442"}
+PARENTS = {
+    "official:horyuji-pagoda": "unesco:660",
+    "official:dayanta": "unesco:1442",
+    "official:taj-mahal-mausoleum": "unesco:252",
+    "official:grand-trianon": "unesco:83",
+}
 
 
 def canonical_id(identity):

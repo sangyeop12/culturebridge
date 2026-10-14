@@ -135,6 +135,7 @@ class CommonEvidence(BaseModel):
 
 
 class ComparisonResult(BaseModel):
+    learning_version: int = 0
     comparison_scope: ComparisonScope | None = None
     saved_id: str | None = None
     learning_goal: str = ""

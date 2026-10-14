@@ -7,6 +7,17 @@ from google.genai import errors, types
 from pydantic import BaseModel, Field
 
 from culturebridge.config import get_settings
+from culturebridge.services.display_service import display_name, korean_name
+from culturebridge.services.evidence_reading_service import reading_units
+
+
+def allowed_answers(field):
+    labels = {label for _, label in reading_units(field.category, field.evidence_quote)}
+    if "돌" in labels:
+        labels.add("석재")
+    if "나무" in labels:
+        labels.add("목재")
+    return {value for value in (field.value, field.evidence_quote) if value} | labels
 
 
 class QuizDraftItem(BaseModel):
@@ -21,7 +32,28 @@ class QuizDraft(BaseModel):
     items: list[QuizDraftItem] = Field(min_length=5, max_length=5)
 
 
-def _schema():
+class QuizWireItem(BaseModel):
+    question: str = Field(min_length=5, max_length=250)
+    distractors: list[str] = Field(min_length=3, max_length=3)
+    correct_answer: str
+    evidence_index: int = Field(ge=0)
+
+
+class QuizWire(BaseModel):
+    items: list[QuizWireItem] = Field(min_length=5, max_length=5)
+
+
+def _schema(fields, level):
+    answers = sorted(
+        {
+            answer
+            for field in fields
+            for answer in allowed_answers(field)
+            if level.value != "beginner" or len(answer) <= 120
+        }
+    )
+    if not answers:
+        raise ValueError("No readable grounded answer")
     return {
         "type": "OBJECT",
         "properties": {
@@ -31,14 +63,14 @@ def _schema():
                     "type": "OBJECT",
                     "properties": {
                         "question": {"type": "STRING"},
-                        "choices": {"type": "ARRAY", "items": {"type": "STRING"}},
-                        "correct_index": {"type": "INTEGER"},
+                        "distractors": {"type": "ARRAY", "items": {"type": "STRING"}},
+                        "correct_answer": {"type": "STRING", "enum": answers},
                         "evidence_index": {"type": "INTEGER"},
                     },
                     "required": [
                         "question",
-                        "choices",
-                        "correct_index",
+                        "distractors",
+                        "correct_answer",
                         "evidence_index",
                     ],
                 },
@@ -67,16 +99,17 @@ def _generate(comparison, level, fields, focus):
                     "amount": comparison.amount.value,
                     "focus": focus,
                     "names": {
-                        comparison.left.id: comparison.left.name,
-                        comparison.right.id: comparison.right.name,
+                        h.id: display_name(h.id, h.name)
+                        for h in (comparison.left, comparison.right)
                     },
                     "evidence": [f.model_dump(mode="json") for f in fields],
+                    "allowed_answers": [sorted(allowed_answers(f)) for f in fields],
                 },
                 ensure_ascii=False,
             ),
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=_schema(),
+                response_schema=_schema(fields, level),
                 temperature=0,
                 thinking_config=types.ThinkingConfig(thinking_budget=0),
                 max_output_tokens=3000,
@@ -86,7 +119,10 @@ def _generate(comparison, level, fields, focus):
                     "질문에 해당 유산 이름과 항목(시대/구조/재료/종교적 배경)을 명시한다. "
                     "'자료에서 찾은 후보에 따르면'처럼 "
                     "후보 읽기 문제로 작성하고 역사적 사실로 확정하지 않는다. "
-                    "정답 선택지는 해당 근거의 value 또는 evidence_quote와 완전히 같아야 한다. "
+                    "정답 선택지는 해당 근거의 allowed_answers 중 하나와 완전히 같아야 한다. "
+                    "correct_answer는 제공한 문자열을 그대로 선택하고, "
+                    "distractors에는 서로 다른 오답 3개만 넣는다. "
+                    "양쪽에 사용 가능한 근거가 있으면 각 유산을 최소 2문항씩 다룬다. "
                     "다른 선택지는 같은 질문의 명백한 오답으로 구성하고 중복시키지 않는다. "
                     "최소 3문항은 focus 항목을 다룬다. 초급은 질문100자·선택지120자 이하, "
                     "쉽고 짧은 한국어로 작성한다. 중급은 비교, 고급은 출처와 후보의 한계를 묻되 "
@@ -95,13 +131,41 @@ def _generate(comparison, level, fields, focus):
                 ),
             ),
         )
-    return QuizDraft.model_validate_json(response.text or "")
+    wire = QuizWire.model_validate_json(response.text or "")
+    return QuizDraft(
+        items=[
+            QuizDraftItem(
+                question=item.question,
+                choices=[item.correct_answer] + item.distractors,
+                correct_index=0,
+                evidence_index=item.evidence_index,
+            )
+            for item in wire.items
+        ]
+    )
 
 
 def validate_draft(draft, comparison, level, fields, focus):
     rows, focused = [], 0
     seen = set()
-    names = {comparison.left.id: comparison.left.name, comparison.right.id: comparison.right.name}
+    names = {
+        h.id: {
+            name for name in (h.name, display_name(h.id, h.name), korean_name(h.id, h.name)) if name
+        }
+        for h in (comparison.left, comparison.right)
+    }
+    category_words = {
+        "시대": ("시대", "연대", "언제", "시기"),
+        "구조": ("구조", "모양", "배치", "층수", "위치", "공간", "높이"),
+        "재료": ("재료", "무엇으로"),
+        "종교적 배경": ("종교적 배경", "종교", "신앙", "경전"),
+    }
+    coverage = {}
+    eligible = {
+        f.heritage_id
+        for f in fields
+        if level.value != "beginner" or any(len(answer) <= 120 for answer in allowed_answers(f))
+    }
     for item in draft.items:
         if item.evidence_index >= len(fields):
             raise ValueError("Unknown evidence")
@@ -109,12 +173,14 @@ def validate_draft(draft, comparison, level, fields, focus):
         choices = [choice.strip() for choice in item.choices]
         if len(set(choices)) != 4 or any(not c or len(c) > 1000 for c in choices):
             raise ValueError("Invalid choices")
-        grounded_answers = {field.value, field.evidence_quote}
+        grounded_answers = allowed_answers(field)
         if choices[item.correct_index] not in grounded_answers:
             raise ValueError("Answer is not grounded in the cited field")
         if sum(choice in grounded_answers for choice in choices) != 1:
             raise ValueError("Multiple grounded answers")
-        if names[field.heritage_id] not in item.question or field.category not in item.question:
+        if not any(name in item.question for name in names[field.heritage_id]) or not any(
+            word in item.question for word in category_words[field.category]
+        ):
             raise ValueError("Question target is ambiguous")
         if item.question in seen:
             raise ValueError("Duplicate question")
@@ -123,6 +189,7 @@ def validate_draft(draft, comparison, level, fields, focus):
         ):
             raise ValueError("Beginner question too long")
         seen.add(item.question)
+        coverage[field.heritage_id] = coverage.get(field.heritage_id, 0) + 1
         focused += field.category in focus
         # Do not publish unchecked generated explanations as authoritative facts.
         explanation = (
@@ -134,6 +201,8 @@ def validate_draft(draft, comparison, level, fields, focus):
         rows.append((item.question, [answer] + choices, explanation))
     if focused < 3:
         raise ValueError("Learning focus is not reflected")
+    if len(eligible) == 2 and any(coverage.get(identity, 0) < 2 for identity in eligible):
+        raise ValueError("Both heritage subjects must be covered")
     return rows
 
 

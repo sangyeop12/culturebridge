@@ -390,7 +390,9 @@ def test_actual_content_questions_and_wrong_answer_review(isolated):
         "seokguram", "horyuji", LearningLevel.BEGINNER, comparison_id=comparison.saved_id
     )
     rows = load_quiz_items(quiz.quiz_id)
-    assert sum("복습 항목" in r["explanation"] for r in rows) == 3
+    assert sum("복습 항목" in r["explanation"] for r in rows) == 4
+    assert any("석굴암" in r["question"] for r in rows)
+    assert any("호류지" in r["question"] for r in rows)
     result = grade_quiz(quiz.quiz_id, [(r["correct_index"] + 1) % 4 for r in rows])
     assert len(result.review_steps) == 5 and result.score == 0
 

@@ -1,3 +1,4 @@
+from itertools import zip_longest
 from uuid import uuid4
 
 from culturebridge.database import save_quiz_items
@@ -16,6 +17,7 @@ from culturebridge.services.curriculum_service import (
 )
 from culturebridge.services.display_service import display_name
 from culturebridge.services.evidence_comparison_service import supported_fields
+from culturebridge.services.evidence_reading_service import reading_units
 from culturebridge.services.quiz_draft_service import try_draft_quiz
 
 
@@ -244,16 +246,24 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     # Read actual heritage content, not just generic source-literacy templates.
     factual_rows = []
     seen_quotes = set()
-    for field in fields:
+    left_fields = [f for f in fields if f.heritage_id == left_id]
+    right_fields = [f for f in fields if f.heritage_id == right_id]
+    balanced_fields = [f for pair in zip_longest(left_fields, right_fields) for f in pair if f]
+    max_content = 3 if short_field else 4
+    for field in balanced_fields:
         normalized_material = (
             material_names.get(field.value.strip().casefold()) if field.category == "재료" else None
         )
+        units = reading_units(field.category, field.evidence_quote)
+        if field.category == "재료" and len(units) == 1:
+            normalized_material = {"돌": "석재", "나무": "목재"}.get(units[0][1], units[0][1])
         if short_field is field:
             continue
         if field.category not in focus or (
             level is LearningLevel.BEGINNER
             and len(field.evidence_quote) > 120
             and not normalized_material
+            and not units
         ):
             continue
         if normalized_material:
@@ -271,9 +281,49 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
                     + " · 재료 표현을 원문에서 찾아보세요.",
                 )
             )
-            if len(factual_rows) == 3:
+            if len(factual_rows) == max_content:
                 break
             continue
+        if units and level is LearningLevel.BEGINNER and field.category in {"구조", "종교적 배경"}:
+            axis, answer = units[0]
+            alternatives = {
+                "모양": ["둥근 모양", "직사각형", "여덟 모서리가 있는 모양", "삼각형"],
+                "배치": ["대칭 배치", "나선형 배치", "일렬 배치", "방사형 배치"],
+                "공간": ["앞쪽 방", "중심 방", "지하 저장실", "성문 위의 방"],
+                "부분": ["건물을 받치는 아랫부분", "가장자리의 난간", "지붕의 기와", "출입문"],
+                "측정 기준": ["높이", "부지 넓이", "벽의 두께", "출입문의 너비"],
+                "위치": [
+                    "사찰 안에 있는 위치",
+                    "성벽 위에 있는 위치",
+                    "궁궐 안에 있는 위치",
+                    "무덤 아래에 있는 위치",
+                ],
+                "층수": [
+                    "한 층으로 된 구조",
+                    "다섯 층으로 된 구조",
+                    "세 층으로 된 구조",
+                    "두 층으로 된 구조",
+                ],
+                "종교": ["불교", "이슬람", "힌두교", "기독교"],
+                "경전": ["법화경", "코란", "성경", "베다"],
+            }[axis]
+            labels = {label for _, label in units}
+            choices = [answer] + [label for label in alternatives if label not in labels][:3]
+            if len(choices) == 4:
+                factual_rows.append(
+                    (
+                        f"{names[field.heritage_id]}의 '{field.category}' 설명에서 "
+                        f"찾은 {axis} 특징은?",
+                        choices,
+                        f"복습 항목: {field.category} · {answer} 표현을 한국어로 풀어 쓴 보기예요. "
+                        f"원문: {field.evidence_quote}",
+                    )
+                )
+                if len(factual_rows) == max_content:
+                    break
+                continue
+        if level is LearningLevel.BEGINNER and len(field.evidence_quote) > 120:
+            continue  # No short, unambiguous reading unit: don't fall back to a long quote.
         if field.evidence_quote in seen_quotes:
             continue
         seen_quotes.add(field.evidence_quote)
@@ -326,7 +376,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
                 "다른 유산의 인용과 비교하세요.",
             )
         )
-        if len(factual_rows) == 3:
+        if len(factual_rows) == max_content:
             break
     offset = 1 if short_field else 0
     question_rows[offset : offset + len(factual_rows)] = factual_rows

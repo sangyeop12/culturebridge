@@ -5,6 +5,7 @@ import re
 from pydantic import BaseModel, Field, HttpUrl
 
 from culturebridge.domain.models import CollectedSource, LearningLevel
+from culturebridge.services.evidence_reading_service import reading_units
 from culturebridge.services.extraction_service import _local_extraction, validate_extraction
 from culturebridge.services.subject_service import date_event
 
@@ -69,6 +70,31 @@ def easy_korean(text):
 
 
 def beginner_text(category, quote):
+    units = reading_units(category, quote)
+    if units and category != "시대":
+        labels = [label for _, label in units]
+        if category == "재료":
+            text = "공식 설명에는 " + "·".join(labels) + " 재료가 나와요."
+            if len(labels) > 1:
+                text += " 어느 부분에 쓰였는지는 원문을 함께 확인해요."
+        elif category == "구조":
+
+            def subject_particle(label):
+                last = ord(label[-1])
+                return "이" if 0xAC00 <= last <= 0xD7A3 and (last - 0xAC00) % 28 else "가"
+
+            text = "모양과 공간을 살펴봐요.\n" + "\n".join(
+                label + subject_particle(label) + " 원문에 나와요." for label in labels[:3]
+            )
+        else:
+            text = (
+                "이 유산의 설명에는 "
+                + "·".join(labels)
+                + " 이야기가 나와요.\n종교와 유산의 쓰임을 함께 살펴봐요."
+            )
+        if re.search(r"추측|추정|전해|probably|estimated|believed", quote, re.I):
+            text += " 확정된 설명이 아니라 추정·전승이 포함돼요."
+        return text
     if re.search(r"[가-힣]", quote):
         if category == "시대":
             dates = list(

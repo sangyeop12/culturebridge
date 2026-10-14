@@ -20,6 +20,7 @@ INDIVIDUALS = {
         "organization": "호류지 사찰 공식 사이트",
         "url": "https://www.horyuji.or.jp/en/garan/gojyunoto/",
         "type": "Pagoda",
+        "starts": ("The Five-storied Pagoda",),
     },
     "dayanta": {
         "name": "Giant Wild Goose Pagoda",
@@ -29,6 +30,39 @@ INDIVIDUALS = {
         "organization": "시안시 정부",
         "url": "https://en.xa.gov.cn/CultureTravel/Attractions/1691691504798126082.html",
         "type": "Pagoda",
+        "starts": ("The Giant Wild Goose Pagoda",),
+    },
+    "taj-mahal-mausoleum": {
+        "name": "Taj Mahal Mausoleum",
+        "korean": "타지마할 묘당",
+        "country": "India",
+        "parent": "unesco:252",
+        "organization": "인도 우타르프라데시 관광부",
+        "url": "https://www.tajmahal.gov.in/overview.aspx",
+        "type": "Tomb",
+        "starts": (
+            "The Taj Mahal is",
+            "The tomb laid",
+            "The tomb is",
+            "Thecentral hall",
+            "Majestic and sensuous",
+        ),
+    },
+    "grand-trianon": {
+        "name": "Grand Trianon Palace",
+        "korean": "그랑 트리아농 궁전",
+        "country": "France",
+        "parent": "unesco:83",
+        "organization": "베르사유 궁전·박물관·국립영지",
+        "url": "https://en.chateauversailles.fr/discover/estate/estate-trianon/grand-trianon",
+        "type": "Palace",
+        "starts": (
+            "The Grand Trianon was",
+            "“A little palace",
+            '"A little palace',
+            "Heavily influenced by Italian architecture",
+            "In the Grand Trianon, the royal apartments",
+        ),
     },
 }
 
@@ -85,8 +119,7 @@ def fetch_individual(identity, refresh=False):
                         raise ValueError("Source too large")
         parser = Paragraphs()
         parser.feed(body.decode("utf-8"))
-        starts = ("The Five-storied Pagoda", "The Giant Wild Goose Pagoda")
-        selected = [p for p in parser.rows if p.startswith(starts)]
+        selected = [p for p in parser.rows if p.startswith(record["starts"])]
         if not selected:
             raise ValueError("No individual subject paragraph")
         source = CollectedSource(

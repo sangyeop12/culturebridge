@@ -413,7 +413,7 @@ def discover_candidates(
         not candidates
         and target_can_compare
         and not _attempt
-        and primary == "Pagoda"
+        and primary in {"Pagoda", "Tomb", "Palace"}
         and not group
         and comparison_scope is ComparisonScope.OVERSEAS
         and get_settings().individual_sources_enabled
@@ -421,6 +421,8 @@ def discover_candidates(
         from culturebridge.services.individual_source_service import INDIVIDUALS
 
         for identity, record in INDIVIDUALS.items():
+            if record["type"] != primary:
+                continue
             candidate_target = OfficialTarget(provider="official", official_id=identity)
             if candidate_target.id == target.id:
                 continue
@@ -444,11 +446,11 @@ def discover_candidates(
                     ),
                     score=0.7,
                     criteria=[
-                        "같은 핵심 유형: Pagoda",
+                        "같은 핵심 유형: " + primary,
                         "개별 공식 소개의 직접 근거 확인",
                         "서로 다른 재료·구조도 비교할 수 있어요",
                     ],
-                    reason="같은 탑 유형의 개별 공식 자료입니다. "
+                    reason="같은 핵심 유형의 개별 공식 자료입니다. "
                     "재료·구조의 공통점과 차이를 원문으로 비교하며 영향 관계는 단정하지 않습니다.",
                 )
             )

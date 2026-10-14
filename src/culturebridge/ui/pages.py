@@ -32,6 +32,7 @@ from culturebridge.services.comparison_scope_service import (
     validate_pair_scope,
 )
 from culturebridge.services.comparison_service import (
+    LEARNING_VERSION,
     ComparisonNotFoundError,
     create_saved_comparison,
     get_saved_comparison,
@@ -75,6 +76,7 @@ from culturebridge.services.quiz_service import (
     generate_quiz,
     load_quiz,
 )
+from culturebridge.services.relearning_service import relearn_saved_comparison
 from culturebridge.services.source_claim_service import ClaimTargetMismatchError
 from culturebridge.services.subject_service import is_group
 from culturebridge.services.unesco_service import (
@@ -86,6 +88,19 @@ from culturebridge.services.unesco_service import (
 from culturebridge.ui.theme import ACCENT, BRAND, PALE, THEME_HEAD
 
 logger = logging.getLogger(__name__)
+
+
+def _review_cards(items):
+    for item in items:
+        ui.label(f"{item['number']}번 · {item['question']}").classes("font-semibold")
+        ui.label("내 답: " + item["selected"]).classes("cb-muted")
+        ui.label("정답: " + item["correct_answer"])
+        ui.label("다시 해보기 · " + item["activity"])
+        if item.get("quote"):
+            with ui.expansion("이 문항의 원문 근거"):
+                ui.label(item["quote"])
+                if item.get("source_url"):
+                    ui.link("공식 출처 보기", item["source_url"], new_tab=True)
 
 
 async def _io_bound(callback, *args, **kwargs):
@@ -1077,6 +1092,46 @@ def comparison_page(
                 for notice in result.learning_notices:
                     ui.label(notice).classes("cb-muted")
             if saved_id:
+                ui.label(f"저장본 학습 구성 버전: {result.learning_version}").classes(
+                    "cb-muted text-sm"
+                )
+                if result.learning_version < LEARNING_VERSION:
+                    ui.label(
+                        "이전 방식으로 만든 저장본이에요. "
+                        "최신 방식으로 다시 탐구한 뒤 학습하는 것을 권해요."
+                    ).classes("cb-muted")
+
+                async def relearn():
+                    relearn_button.disable()
+                    try:
+                        updated = await _io_bound(relearn_saved_comparison, saved_id)
+                        ui.navigate.to(
+                            with_return(
+                                _route(
+                                    f"/compare/{left_id}/{right_id}?saved_id={updated.saved_id}",
+                                    mode,
+                                ),
+                                return_to,
+                            )
+                        )
+                    except (
+                        OfficialServiceError,
+                        ValueError,
+                        ComparisonNotFoundError,
+                        OperationBusyError,
+                        sqlite3.Error,
+                    ):
+                        ui.notify(
+                            "다시 탐구하지 못했어요. 기존 기록은 그대로 보존됩니다. "
+                            "잠시 후 다시 시도하세요.",
+                            color="warning",
+                        )
+                    finally:
+                        relearn_button.enable()
+
+                relearn_button = ui.button("최신 근거로 다시 탐구하기", on_click=relearn).classes(
+                    "cb-action"
+                )
                 ui.label(
                     "저장 당시의 비교와 출처입니다. 자유 질문도 이 저장본의 원문을 사용합니다."
                     if result.collected_sources
@@ -1469,6 +1524,11 @@ async def quiz_page(
                 "text-lg font-semibold"
             )
             ui.label("5개 문항에 모두 답한 뒤 채점하세요.").classes("cb-muted text-lg")
+            if back_record_id and back_record.learning_version < LEARNING_VERSION:
+                ui.label(
+                    "이전 방식의 저장본에 연결된 퀴즈예요. "
+                    "비교 화면에서 최신 근거로 다시 탐구하는 것을 권해요."
+                ).classes("cb-muted")
             if quiz.basis == "extracted":
                 ui.label(
                     "공식 설명을 읽고 푸는 퀴즈예요. 설명의 뜻은 원문과 함께 더 확인해 주세요."
@@ -1512,15 +1572,18 @@ async def quiz_page(
                     ui.label(f"채점 결과 {result.score} / {result.total}").classes(
                         "cb-title text-2xl"
                     )
-                    for explanation in result.explanations:
-                        ui.label(explanation).classes("text-base")
-                    if result.review_steps:
+                    if result.review_items:
                         ui.label("틀린 문제 다시 살펴보기").classes("cb-title text-xl")
-                        for step in result.review_steps:
-                            ui.label(step).classes("text-base")
-                    if result.evidence:
-                        ui.label("정답의 근거 다시 읽기").classes("cb-title text-xl")
-                        _extracted_field_cards(result.evidence, learning_level)
+                        _review_cards(
+                            [item.model_dump(mode="json") for item in result.review_items]
+                        )
+                    else:
+                        ui.label("모든 문항을 맞혔어요. 배운 내용을 다른 유산과 연결해 보세요.")
+                    with ui.expansion("전체 문항 해설과 공식 근거"):
+                        for explanation in result.explanations:
+                            ui.label(explanation).classes("text-base")
+                        if result.evidence:
+                            _extracted_field_cards(result.evidence, learning_level)
             submit_button.disable()
 
         submit_button = (
@@ -1608,18 +1671,7 @@ def learning_history_page() -> None:
                 )
                 items = review["result"].get("review_items", [])
                 if items:
-                    for item in items:
-                        ui.label(f"{item['number']}번 · {item['question']}").classes(
-                            "font-semibold"
-                        )
-                        ui.label("내 답: " + item["selected"]).classes("cb-muted")
-                        ui.label("정답: " + item["correct_answer"])
-                        ui.label("다시 해보기 · " + item["activity"])
-                        if item.get("quote"):
-                            with ui.expansion("이 문항의 원문 근거"):
-                                ui.label(item["quote"])
-                                if item.get("source_url"):
-                                    ui.link("공식 출처 보기", item["source_url"], new_tab=True)
+                    _review_cards(items)
                 else:
                     for step in review["result"].get("review_steps", []):
                         ui.label(step)
@@ -1628,6 +1680,11 @@ def learning_history_page() -> None:
                 if review["comparison_id"]:
                     try:
                         comparison = get_saved_comparison(review["comparison_id"]).comparison
+                        if comparison.learning_version < LEARNING_VERSION:
+                            ui.label(
+                                "이전 학습 기록입니다. "
+                                "설명 다시 읽기에서 최신 근거로 재탐구할 수 있어요."
+                            ).classes("cb-muted")
                         ui.link(
                             "설명 다시 읽기",
                             f"/compare/{comparison.left.id}/{comparison.right.id}?saved_id={comparison.saved_id}",

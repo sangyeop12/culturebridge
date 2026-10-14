@@ -14,7 +14,9 @@ from culturebridge.services.unesco_service import search_unesco
 
 class OfficialTarget(BaseModel):
     provider: Literal["khs", "unesco", "official"]
-    official_id: Literal["horyuji-pagoda", "dayanta"] | None = None
+    official_id: (
+        Literal["horyuji-pagoda", "dayanta", "taj-mahal-mausoleum", "grand-trianon"] | None
+    ) = None
     record_id: str | None = Field(default=None, pattern=r"^\d{1,10}$")
     kind: str | None = Field(default=None, pattern=r"^\d{2}$")
     number: str | None = Field(default=None, pattern=r"^\d{1,20}$")

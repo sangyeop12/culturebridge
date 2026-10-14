@@ -18,6 +18,7 @@ from culturebridge.domain.models import (
     QuizReviewItem,
 )
 from culturebridge.services.catalog_service import LEARNING_GOALS, get_heritage
+from culturebridge.services.display_service import display_name, korean_name
 from culturebridge.services.operation_service import owner_key, reused_operation
 
 
@@ -271,10 +272,34 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
                 f"{position}번 다시 보기: {row['question']} → 정답: {choices[correct_index]} · "
                 f"{row['explanation']} · 보충 학습: {followup}"
             )
+            evidence = json.loads(row["evidence_json"])
+            identities = {field["heritage_id"] for field in evidence}
+            named = set()
+            for identity in identities:
+                original = get_heritage(identity).name
+                aliases = (
+                    original,
+                    display_name(identity, original),
+                    korean_name(identity, original),
+                )
+                if any(name and name in row["question"] for name in aliases):
+                    named.add(identity)
+            if named:
+                evidence = [field for field in evidence if field["heritage_id"] in named]
             matched = next(
                 (
                     field
-                    for field in json.loads(row["evidence_json"])
+                    for field in evidence
+                    if field.get("evidence_quote")
+                    and field["evidence_quote"] in row["explanation"]
+                    and field["category"] in row["explanation"]
+                ),
+                {},
+            )
+            matched = matched or next(
+                (
+                    field
+                    for field in evidence
                     if field.get("value") == choices[correct_index]
                     or field.get("evidence_quote") == choices[correct_index]
                 ),
@@ -291,13 +316,22 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
                 matched = next(
                     (
                         field
-                        for field in json.loads(row["evidence_json"])
+                        for field in evidence
                         if field.get("category") == "재료"
                         and materials.get(field.get("value", "").casefold())
                         == choices[correct_index]
                     ),
                     {},
                 )
+            if matched:
+                followup = {
+                    "시대": "원문에서 연도와 사건을 함께 표시하고, 건립·재건·추정을 구분해 보세요.",
+                    "구조": "원문과 그림에서 모양·부분·배치 중 이 문항의 기준을 찾아보세요.",
+                    "재료": "원문의 재료 표현을 찾고, "
+                    "다른 유산의 재료와 같은지 다른지 설명해 보세요.",
+                    "종교적 배경": "종교 이름과 유산의 쓰임을 구분해 읽고, "
+                    "원문에 있는 설명으로 답해 보세요.",
+                }[matched["category"]]
             review_items.append(
                 QuizReviewItem(
                     number=position,

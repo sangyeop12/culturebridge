@@ -29,6 +29,9 @@ class ComparisonNotFoundError(KeyError):
     pass
 
 
+LEARNING_VERSION = 2
+
+
 def create_saved_comparison(
     left_id: str,
     right_id: str,
@@ -47,6 +50,7 @@ def create_saved_comparison(
     if canonical_id(left_id) == canonical_id(right_id):
         raise ValueError("별칭이 다른 같은 유산은 비교할 수 없습니다.")
     result = compare_heritages(left_id, right_id, level)
+    result.learning_version = LEARNING_VERSION
     result.comparison_scope = ComparisonScope(comparison_scope) if comparison_scope else None
     result.collected_sources = collected_sources or []
     result.extracted_fields = extracted_fields or []

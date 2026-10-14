@@ -69,6 +69,7 @@ from culturebridge.services.quiz_service import (
     QuizNotFoundError,
     generate_quiz,
 )
+from culturebridge.services.relearning_service import relearn_saved_comparison
 from culturebridge.services.source_claim_service import ClaimTargetMismatchError
 from culturebridge.services.unesco_service import (
     UnescoResult,
@@ -78,6 +79,20 @@ from culturebridge.services.unesco_service import (
 )
 
 router = APIRouter(prefix="/api", tags=["CultureBridge"])
+
+
+@router.post("/comparisons/{record_id}/relearn", response_model=ComparisonResult)
+def relearn_comparison(record_id: str):
+    try:
+        return relearn_saved_comparison(record_id)
+    except ComparisonNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="비교 기록을 찾을 수 없습니다.") from exc
+    except (ValueError, HeritageNotFoundError) as exc:
+        raise HTTPException(status_code=422, detail="대상 자료를 확인할 수 없습니다.") from exc
+    except OfficialServiceError as exc:
+        raise HTTPException(
+            status_code=502, detail="최신 공식 자료를 가져오지 못했습니다."
+        ) from exc
 
 
 @router.get("/health")
