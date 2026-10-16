@@ -349,6 +349,7 @@ def discover_candidates(
             trace.append("selector_agent: AI 선택 실패·근거 유형/국가 적합성 순위로 전환")
             ranked = [row for row in ranked if row[4]]
     candidates = []
+    candidate_categories = {}
     for score, candidate_target, _name, country, shared in ranked[:8]:
         seen.add(candidate_target.id)
         try:
@@ -379,6 +380,7 @@ def discover_candidates(
         if goal_text and not evidence_suits_goal(selected_categories, supported, goal_text):
             trace.append("candidate_tool: 학습 목표의 양쪽 직접 근거 부족·후보 제외")
             continue
+        candidate_categories[candidate.id] = supported
         criteria = (
             ["공식 명칭·소개에서 겹치는 주제: " + ", ".join(sorted(shared))]
             if shared
@@ -450,6 +452,7 @@ def discover_candidates(
             if not evidence_suits_goal(selected_categories, fields, goal_text):
                 trace.append("individual_source_tool: 양쪽 목표 근거 부족·제외")
                 continue
+            candidate_categories[candidate.id] = fields
             candidates.append(
                 RelatedHeritage(
                     heritage=HeritageSummary(
@@ -466,8 +469,23 @@ def discover_candidates(
                 )
             )
             trace.append("individual_source_tool: " + record["korean"] + " · 유산군과 구분")
-            if len(candidates) >= 3:
-                break
+        # All attempts remain capped at six; choose the best-supported three.
+    for candidate in candidates:
+        shared_categories = selected_categories & candidate_categories.get(
+            candidate.heritage.id, set()
+        )
+        if shared_categories:
+            candidate.criteria.append(
+                "함께 확인할 수 있는 항목: " + " · ".join(sorted(shared_categories))
+            )
+            if needed:
+                candidate.criteria.append("선택 목표의 양쪽 근거: " + " · ".join(sorted(needed)))
+            candidate.score = min(1, candidate.score + len(shared_categories) * 0.02)
+            candidate.reason += (
+                " 함께 확인할 수 있는 항목: " + " · ".join(sorted(shared_categories)) + "."
+            )
+    candidates.sort(key=lambda candidate: candidate.score, reverse=True)
+    candidates = candidates[:3]
     if not candidates and not _attempt and target_can_compare:
         trace.append("research_retry_tool: 후보 탈락 후 검색어 변경·다음 결과 탐색 1회")
         _, candidates, retry_trace, retry_ai = discover_candidates(

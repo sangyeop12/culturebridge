@@ -1,4 +1,5 @@
 import logging
+import re
 import sqlite3
 from contextvars import copy_context
 from functools import partial
@@ -146,6 +147,7 @@ def _header() -> None:
                     ("한국 문화유산", "/official"),
                     ("세계유산", "/unesco"),
                     ("비교 기록", "/comparisons"),
+                    ("공식 자료 안내", "/sources"),
                 ):
                     link = ui.link(label, route)
                     learning_path = path == "/domestic" or path.startswith(
@@ -358,6 +360,33 @@ def _extracted_field_cards(fields: list[ExtractedField], level=LearningLevel.BEG
 
 def _lesson_content(source, level):
     lesson = explain_source(source, level)
+    if level is not LearningLevel.ADVANCED and not re.search(r"[가-힣]", source.content):
+
+        async def request_korean():
+            from culturebridge.services.korean_lesson_service import korean_lesson
+
+            translate_button.disable()
+            try:
+                draft = await _io_bound(korean_lesson, source, level)
+                with translated:
+                    translated.clear()
+                    _render_lesson(draft, level)
+            except OperationBusyError:
+                ui.notify(
+                    "다른 학습 작업을 처리 중입니다. 잠시 후 다시 시도해 주세요.", type="warning"
+                )
+            finally:
+                translate_button.enable()
+
+        translate_button = ui.button("한국어 풀이로 읽기", on_click=request_korean).props("outline")
+        ui.label(
+            "AI 풀이 초안은 공식 번역과 구분하며, 사용할 수 없으면 기본 도움말을 유지해요."
+        ).classes("cb-muted")
+    with ui.column().classes("w-full gap-3") as translated:
+        _render_lesson(lesson, level)
+
+
+def _render_lesson(lesson, level):
     ui.label(lesson.intro).classes("font-semibold")
     ui.label(lesson.notice).classes("cb-muted")
     if level is LearningLevel.ADVANCED:
@@ -378,7 +407,7 @@ def _lesson_content(source, level):
                 ui.label("생각해 보기 · " + section.check_question).classes("cb-muted text-sm")
             if level is LearningLevel.INTERMEDIATE and section.event:
                 ui.label("연대가 가리키는 사건: " + section.event).classes("cb-muted")
-            if level is LearningLevel.INTERMEDIATE and section.evidence_quote:
+            if section.evidence_quote:
                 with ui.expansion("이 항목의 공식 원문 근거").classes("w-full"):
                     ui.label(section.evidence_quote).style("white-space: pre-wrap")
         if lesson.glossary:
@@ -1737,6 +1766,110 @@ def learning_history_page() -> None:
                     except ComparisonNotFoundError:
                         ui.label("이 비교 기록은 현재 세션에서 열 수 없습니다.")
         ui.link("비교 기록 모아보기", "/comparisons")
+        ui.link("학습 기록 보관·삭제 안내", "/data-policy")
+
+
+@ui.page("/sources")
+def source_catalogue_page():
+    from culturebridge.services.source_registry_service import source_overview
+
+    _header()
+    with ui.column().classes("cb-shell gap-4 py-10"):
+        ui.label("학습에 사용하는 공식 자료").classes("cb-title text-3xl")
+        ui.label(
+            "기관 원문·연결 상태·한국어 이름과 이용 조건의 검토 상태를 확인해요. "
+            "수집 성공이 역사적 의미 검증이나 재배포 허가를 뜻하지는 않아요."
+        ).classes("cb-muted")
+        rows = source_overview()
+        ui.label(f"등록 {len(rows)}개 · 연결 상태는 이 서버의 마지막 수집 시도 기준입니다.")
+        statuses = {
+            "fresh": "최근 수집 성공",
+            "stale": "갱신 실패·이전 자료 보관",
+            "unavailable": "연결 보류",
+            "not_checked": "이 서버에서 아직 확인하지 않음",
+        }
+        usage = {
+            "pending": "이용 조건 검토 전",
+            "reviewed": "이용 조건 검토 기록 있음",
+            "restricted": "관리자가 이용 제한으로 표시",
+        }
+        for row in rows:
+            with ui.card().classes("cb-card w-full p-4 gap-2"):
+                ui.label(row["korean_name"] + " (" + row["name"] + ")").classes("cb-title text-lg")
+                ui.label(display_country(row["country"]) + " · " + row["organization"])
+                ui.label(statuses.get(row["connection_status"], row["connection_status"]))
+                ui.label(
+                    "한국어 이름: "
+                    + ("팀 검토 이름" if row["name_status"] == "reviewed" else "학습용 안내명")
+                    + " · "
+                    + usage[row["usage_status"]]
+                ).classes("cb-muted")
+                if row["last_success_at"]:
+                    ui.label("최근 수집 성공: " + row["last_success_at"]).classes(
+                        "cb-muted text-sm"
+                    )
+                if row["attempted_at"]:
+                    ui.label("최근 시도: " + row["attempted_at"]).classes("cb-muted text-sm")
+                if row["error_code"]:
+                    ui.label("연결 상태 코드: " + row["error_code"]).classes("cb-muted text-sm")
+                if row["note"]:
+                    ui.label(row["note"])
+                ui.link("공식 원문·이용 조건 확인", row["source_url"], new_tab=True)
+                if row["usage_status"] != "restricted":
+                    ui.link("이 유산 알아보기", "/discover/official/" + row["id"].split(":", 1)[1])
+
+
+@ui.page("/data-policy")
+def data_policy_page():
+    from culturebridge.services.data_retention_service import delete_session_records
+
+    _header()
+    settings = get_settings()
+    with ui.column().classes("cb-shell gap-4 py-10"):
+        ui.label("학습 기록 보관과 삭제").classes("cb-title text-3xl")
+        ui.label(
+            "비교 결과·퀴즈 답안·점수·오답 복습을 익명 브라우저 세션과 연결해 저장합니다. "
+            "계정 로그인 방식이 아니므로 쿠키를 지우거나 다른 브라우저를 쓰면 "
+            "이전 기록에 접근하지 못할 수 있어요."
+        )
+        ui.label(
+            "자유 질문과 공식 원문 일부는 AI 기능을 사용할 때 Gemini로 전달될 수 있어요. "
+            "이름·연락처·민감한 개인정보는 질문에 입력하지 마세요."
+        )
+        ui.label(
+            f"자동 보관 정책: {settings.record_retention_days}일 후 삭제 대상"
+            if settings.retention_enabled
+            else "자동 기록 삭제는 현재 비활성 상태입니다."
+        )
+        ui.label(
+            f"자동 백업: {settings.maintenance_interval_hours}시간 간격 · "
+            f"최근 {settings.backup_keep}개 보관"
+            if settings.maintenance_enabled
+            else "자동 백업은 현재 비활성 상태입니다."
+        )
+        ui.label(
+            "아래 삭제는 이 브라우저 세션의 저장 비교·퀴즈·학습 결과에만 적용됩니다. "
+            "공용 공식 자료와 다른 세션 기록은 유지해요. 실행 취소는 할 수 없습니다. "
+            "기존 백업 사본은 관리자 보관 주기에 따라 별도로 만료됩니다."
+        ).classes("cb-muted")
+        with ui.dialog() as dialog, ui.card():
+            ui.label("이 세션의 학습 기록을 삭제할까요?")
+
+            async def confirm_delete():
+                try:
+                    result = await _io_bound(delete_session_records)
+                    ui.notify(
+                        f"비교 {result['comparisons']}개·퀴즈 {result['quizzes']}개·"
+                        f"학습 결과 {result['history']}개를 삭제했어요."
+                    )
+                    dialog.close()
+                except (ValueError, OperationBusyError):
+                    ui.notify("현재 학습 작업이 끝난 뒤 다시 시도해 주세요.", type="warning")
+
+            ui.button("삭제", on_click=confirm_delete).props("color=negative")
+            ui.button("취소", on_click=dialog.close).props("flat")
+        ui.button("이 세션의 학습 기록 삭제", on_click=dialog.open).props("outline color=negative")
+        ui.link("학습 기록으로", "/learning-history")
 
 
 @ui.page("/official")

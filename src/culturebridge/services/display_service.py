@@ -96,7 +96,11 @@ def korean_name(heritage_id: str, official_name: str) -> str | None:
 
         record = INDIVIDUALS.get(heritage_id.split(":", 1)[1])
         if record:
-            return record["korean"]
+            from culturebridge.services.source_registry_service import reviews
+
+            return (
+                reviews().get(heritage_id.split(":", 1)[1], {}).get("korean_name", record["korean"])
+            )
     if re.search(r"[가-힣]", official_name):
         return official_name
     if heritage_id.startswith("unesco:"):
@@ -137,6 +141,11 @@ def readable_reason(criteria: list[str], beginner: bool = True) -> str:
         reason = "공식 자료에서 찾은 비교 후보예요. 어떤 점을 비교할 수 있는지 더 확인해야 해요."
     if "다른 국가" in text:
         reason += " 다른 나라에 있는 유산이에요."
+    for criterion in criteria:
+        if criterion.startswith("함께 확인할 수 있는 항목:"):
+            reason += " " + criterion + "."
+        elif criterion.startswith("선택 목표의 양쪽 근거:"):
+            reason += " 선택한 목표를 두 유산의 자료에서 함께 살펴볼 수 있어요."
     if beginner:
         reason += " 같은 모양이나 재료인지는 아직 판단하지 않았어요."
     else:

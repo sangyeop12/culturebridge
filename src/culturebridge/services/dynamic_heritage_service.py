@@ -156,6 +156,11 @@ def fetch_target(target: OfficialTarget, refresh=False):
 
 
 def dynamic_source(heritage_id, refresh=False):
+    if heritage_id.startswith("official:"):
+        from culturebridge.services.source_registry_service import reviews
+
+        if reviews().get(heritage_id.split(":", 1)[1], {}).get("usage_status") == "restricted":
+            raise OfficialServiceError("관리자가 이용 제한으로 표시한 자료입니다.")
     with transaction() as connection:
         row = connection.execute(
             "SELECT * FROM dynamic_heritages WHERE id=?", (heritage_id,)

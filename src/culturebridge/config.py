@@ -22,10 +22,18 @@ class Settings(BaseSettings):
     gemini_model: str = Field(default="gemini-2.5-flash", validation_alias="GEMINI_MODEL")
     gemini_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
     quiz_timeout_ms: int = Field(default=30000, ge=1000, le=60000)
+    quiz_repair_attempts: int = Field(default=1, ge=0, le=1)
+    maintenance_enabled: bool = False
+    maintenance_interval_hours: int = Field(default=24, ge=1, le=168)
+    backup_dir: Path = Path("backups")
+    backup_keep: int = Field(default=14, ge=1, le=365)
+    record_retention_days: int = Field(default=90, ge=1, le=3650)
+    retention_enabled: bool = False
     gemini_enabled: bool = True
     heritage_timeout_seconds: int = Field(default=10, ge=1, le=30)
     heritage_cache_hours: int = Field(default=24, ge=1, le=168)
     public_mode: bool = False
+    secure_cookies: bool = False
     max_learning_jobs: int = Field(default=3, ge=1, le=16)
     learning_reuse_seconds: int = Field(default=300, ge=0, le=3600)
     requests_per_minute: int = Field(default=30, ge=1, le=120)

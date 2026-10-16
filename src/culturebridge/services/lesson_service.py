@@ -119,14 +119,18 @@ def beginner_text(category, quote):
                 )
         return easy_korean(quote)
     # Conservative Korean reading guide for English sources, not a full translation.
-    uncertain = bool(re.search(r"probably|estimated|possibly|believed", quote, re.I))
+    uncertain = bool(re.search(r"probably|estimated|possibly|believed|around|about", quote, re.I))
     if category == "시대":
         century = re.search(r"(\d{1,2})(?:st|nd|rd|th)[ -]century", quote, re.I)
         year = re.search(
-            r"(?:built|constructed|erected|founded)\s+(?:in\s+)?(\d{3,4})", quote, re.I
+            r"(?:built|constructed|erected|founded|completed|rebuilt)\s+(?:(?:in|around)\s+)?(\d{3,4})",
+            quote,
+            re.I,
         )
         if century or year:
             when = century.group(1) + "세기" if century else year.group(1) + "년"
+            if re.search(r"\b(?:BC|BCE)\b", quote, re.I):
+                when = "기원전 " + when
             event = date_event(quote)
             suffix = "추정하는 표현이 있어요" if uncertain else "관련된 설명이 있어요"
             return f"원문에는 {when}에 {suffix}. 연대가 가리키는 사건: {event}."
@@ -180,6 +184,22 @@ def official_source(document):
     )
 
 
+def intermediate_text(category, quote):
+    """Explain a supported axis without replacing or enlarging the original quotation."""
+    guide = beginner_text(category, quote)
+    prompts = {
+        "시대": "연대가 건립·재건·복원 중 어떤 사건을 가리키는지 구분하세요.",
+        "구조": "설명된 부분이 건물 전체인지, 지붕·기둥·출입문 같은 구성 요소인지 구분하세요.",
+        "재료": "재료 이름과 그 재료를 사용한 부분을 연결해 읽으세요. "
+        "목록만으로 주재료를 단정하지 않습니다.",
+        "종교적 배경": "종교 이름과 의례·예배·기념의 역할을 구분하세요. "
+        "같은 종교가 같은 쓰임을 뜻하지는 않습니다.",
+    }
+    if re.search(r"[가-힣]", quote):
+        return quote + "\n읽는 기준: " + prompts[category]
+    return "원문 표현 해설: " + guide + "\n읽는 기준: " + prompts[category]
+
+
 def explain_source(source, level=LearningLevel.BEGINNER):
     level = LearningLevel(level)
     lesson = HeritageLesson(
@@ -226,9 +246,7 @@ def explain_source(source, level=LearningLevel.BEGINNER):
                 heading=heading if level is LearningLevel.BEGINNER else category,
                 text=beginner_text(category, field.evidence_quote)
                 if level is LearningLevel.BEGINNER
-                else field.evidence_quote
-                if re.search(r"[가-힣]", field.evidence_quote)
-                else "원문 표현 해설: " + beginner_text(category, field.evidence_quote),
+                else intermediate_text(category, field.evidence_quote),
                 evidence_quote=field.evidence_quote,
                 event=field.date_event,
                 check_question={

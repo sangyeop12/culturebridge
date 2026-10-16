@@ -6,13 +6,24 @@ FEATURES = {
     "재료": [
         (r"화강암|granite", "화강암", "재료"),
         (r"대리석|marble", "대리석", "재료"),
-        (r"목재|목탑|wood(?:en)?", "나무", "재료"),
+        (r"사암|sandstone", "사암", "재료"),
+        (r"석회암|limestone", "석회암", "재료"),
+        (r"금박|gold leaf", "얇게 편 금", "재료"),
+        (r"stained glass|스테인드글라스", "색유리", "재료"),
+        (r"목재|목탑|\b나무\b|wood(?:en)?", "나무", "재료"),
         (r"벽돌|brick", "벽돌", "재료"),
-        (r"석재|석탑|\bstone\b", "돌", "재료"),
+        (r"석재|석탑|\b돌\b|\bstone\b", "돌", "재료"),
     ],
     "구조": [
         (r"팔각|octagonal", "여덟 모서리가 있는 모양", "모양"),
         (r"원형|circular", "둥근 모양", "모양"),
+        (r"hemispher|반구형", "공을 반으로 자른 모양", "모양"),
+        (r"\bdome\b|돔", "둥글게 덮은 지붕", "부분"),
+        (r"\barches\b|\barch\b|아치", "위쪽이 둥근 아치", "부분"),
+        (r"\broof\b|지붕", "지붕", "부분"),
+        (r"\bpillars?\b|\bcolumns?\b|기둥", "기둥", "부분"),
+        (r"\bgateways?\b|출입문", "드나드는 문", "부분"),
+        (r"\bramparts?\b|성벽", "성을 둘러싼 벽", "부분"),
         (r"rectangular|직사각", "직사각형", "모양"),
         (r"symmetr|대칭", "대칭 배치", "배치"),
         (r"전실|antechamber", "앞쪽 방", "공간"),
@@ -53,7 +64,9 @@ def reading_units(category, quote):
         for pattern, label, axis in FEATURES.get(category, [])
         if re.search(pattern, quote, re.I)
     ]
-    if category == "재료" and any(label in {"화강암", "대리석"} for _, label in units):
+    if category == "재료" and any(
+        label in {"화강암", "대리석", "사암", "석회암"} for _, label in units
+    ):
         units = [unit for unit in units if unit[1] != "돌"]
     return list(dict.fromkeys(units))
 

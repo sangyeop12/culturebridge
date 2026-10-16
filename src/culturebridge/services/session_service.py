@@ -63,7 +63,11 @@ class AnonymousSessionMiddleware:
 
             async def session_send(message):
                 if message["type"] == "http.response.start" and not valid:
-                    suffix = "; Secure" if scope.get("scheme") == "https" else ""
+                    suffix = (
+                        "; Secure"
+                        if settings.secure_cookies or scope.get("scheme") == "https"
+                        else ""
+                    )
                     message.setdefault("headers", []).append(
                         (
                             b"set-cookie",

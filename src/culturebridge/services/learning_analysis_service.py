@@ -18,24 +18,27 @@ def comparison_explanation(category, left, right, level="beginner"):
                 "부정·모방 표현이 있어 재료를 단정하지 않아요. "
                 "실제 재료와 표현한 양식을 구분하세요."
             )
-        materials = [
-            (r"화강암|granite", "화강암"),
-            (r"목재|wood", "목재"),
-            (r"벽돌|brick", "벽돌"),
-            (r"대리석|marble", "대리석"),
-            (r"석재|석탑|\bstone\b", "석재"),
-        ]
-        values = [
-            next((label for pattern, label in materials if re.search(pattern, f.value, re.I)), None)
-            for f in (left, right)
-        ]
+        materials = [reading_units(category, field.evidence_quote) for field in (left, right)]
+        labels = [list(dict.fromkeys(label for _, label in units)) for units in materials]
+        if any(len(row) > 1 for row in labels) and all(labels):
+            shared = sorted(set(labels[0]) & set(labels[1]))
+            return (
+                f"왼쪽 원문에는 {'·'.join(labels[0])}, "
+                f"오른쪽 원문에는 {'·'.join(labels[1])}가 나와요. "
+                + (f"함께 언급된 재료는 {'·'.join(shared)}예요. " if shared else "")
+                + "여러 재료의 쓰임과 사용한 부분을 대조하세요. "
+                "언급되지 않은 재료가 없다는 뜻은 아니에요." + caution
+            )
+        values = [row[0] if row else None for row in labels]
         if all(values):
             if values[0] == values[1]:
                 return (
                     f"양쪽 자료에서 {values[0]}를 찾아볼 수 있어요. "
                     "재료가 같아도 만드는 방식은 다를 수 있어요."
                 )
-            if "석재" in values and any(v in {"화강암", "대리석"} for v in values):
+            if any(v in {"돌", "석재"} for v in values) and any(
+                v in {"화강암", "대리석", "사암", "석회암"} for v in values
+            ):
                 return (
                     "두 설명 모두 돌 재료와 관련돼요. "
                     "한쪽은 돌의 종류를 구체적으로 적고 다른 쪽은 석재라고만 적었어요. "
@@ -46,6 +49,11 @@ def comparison_explanation(category, left, right, level="beginner"):
                 "재료에 따라 구조를 어떻게 만들었는지 살펴보세요." + caution
             )
     if category == "시대":
+        if any(re.search(r"\b(?:BC|BCE)\b|기원전", f.evidence_quote, re.I) for f in (left, right)):
+            return (
+                "기원전과 기원후 표기를 먼저 구분하세요. 연대를 양수로 바꿔 단순히 빼지 않아요."
+                + caution
+            )
         if left.date_event != right.date_event:
             return "두 연대가 가리키는 사건이 달라요. 건립과 재건을 구분한 뒤 비교하세요." + caution
         years = [source_years(field.evidence_quote) for field in (left, right)]

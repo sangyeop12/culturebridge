@@ -1,5 +1,6 @@
 """Allowlisted individual heritage sources, separate from UNESCO group records."""
 
+import json
 import ssl
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
@@ -88,13 +89,21 @@ def search_individuals(query=""):
     term = normalize_search(query)
     country = COUNTRY_ALIASES.get(query.strip(), query.strip())
     hits = []
+    from culturebridge.services.source_registry_service import reviews
+
+    reviewed = reviews()
     for key, record in INDIVIDUALS.items():
+        review = reviewed.get(key, {})
+        if review.get("usage_status") == "restricted":
+            continue
         words = [
             key,
             record["name"],
             record["korean"],
             record["country"],
             *record.get("aliases", ()),
+            review.get("korean_name", ""),
+            *json.loads(review.get("aliases_json", "[]")),
         ]
         if (
             term
@@ -106,7 +115,7 @@ def search_individuals(query=""):
             IndividualHit(
                 id="official:" + key,
                 name=record["name"],
-                korean=record["korean"],
+                korean=review.get("korean_name", record["korean"]),
                 country=record["country"],
                 primary_type=record["type"],
                 parent_id=record["parent"],
@@ -155,6 +164,12 @@ class Paragraphs(HTMLParser):
 
 
 def fetch_individual(identity, refresh=False):
+    from culturebridge.services.source_registry_service import reviews
+
+    if reviews().get(identity, {}).get("usage_status") == "restricted":
+        raise OfficialServiceError(
+            "관리자가 이용 제한으로 표시한 자료입니다. 공식 출처를 직접 확인하세요."
+        )
     record = INDIVIDUALS[identity]
     source_id = "official:" + identity
     with transaction() as connection:
@@ -214,8 +229,19 @@ def fetch_individual(identity, refresh=False):
                 "source_json=excluded.source_json,retrieved_at=excluded.retrieved_at",
                 (source.id, source.model_dump_json(), source.retrieved_at.isoformat()),
             )
+        from culturebridge.services.source_registry_service import record_attempt
+
+        record_attempt(identity, "fresh")
         return source
     except Exception as exc:
+        from culturebridge.services.source_registry_service import record_attempt
+
+        error_code = (
+            "HTTP_" + str(exc.response.status_code)
+            if isinstance(exc, httpx.HTTPStatusError)
+            else type(exc.__cause__ or exc).__name__
+        )
+        record_attempt(identity, "stale" if old else "unavailable", error_code)
         if old:
             return old.model_copy(update={"status": "stale"})
         raise OfficialServiceError("개별 해외 유산의 공식 소개를 수집하지 못했습니다.") from exc

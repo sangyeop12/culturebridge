@@ -1,6 +1,7 @@
+import asyncio
 import logging
 import sqlite3
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -10,6 +11,7 @@ from nicegui import ui
 from culturebridge.api.router import router
 from culturebridge.config import get_settings
 from culturebridge.database import initialize_database
+from culturebridge.maintenance import maintenance_loop
 from culturebridge.services.operation_service import OperationBusyError
 from culturebridge.services.session_service import AnonymousSessionMiddleware
 from culturebridge.ui.pages import register_pages
@@ -25,7 +27,16 @@ async def lifespan(_: FastAPI):
     ):
         raise RuntimeError("공개 모드는 별도의 32자 이상 운영용 STORAGE_SECRET이 필요합니다.")
     initialize_database()
-    yield
+    maintenance_task = (
+        asyncio.create_task(maintenance_loop()) if settings.maintenance_enabled else None
+    )
+    try:
+        yield
+    finally:
+        if maintenance_task:
+            maintenance_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await maintenance_task
 
 
 app = FastAPI(

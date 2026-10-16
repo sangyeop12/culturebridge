@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Path, Query
+from pydantic import BaseModel
 
 from culturebridge.agents.autonomous import AutonomousRequest, AutonomousResult, run_autonomous
 from culturebridge.agents.quiz_agent import evaluate_learning_quiz
@@ -79,6 +80,45 @@ from culturebridge.services.unesco_service import (
 )
 
 router = APIRouter(prefix="/api", tags=["CultureBridge"])
+
+
+class DeleteLearningData(BaseModel):
+    confirmation: str
+
+
+@router.get("/sources")
+def official_source_catalogue():
+    from culturebridge.services.source_registry_service import source_overview
+
+    return source_overview()
+
+
+@router.post("/sources/{identity}/korean-lesson", response_model=HeritageLesson)
+def translated_individual_lesson(identity: str, level: LearningLevel = LearningLevel.BEGINNER):
+    from culturebridge.services.dynamic_heritage_service import OfficialTarget, fetch_target
+    from culturebridge.services.korean_lesson_service import korean_lesson
+
+    try:
+        _, source = fetch_target(OfficialTarget(provider="official", official_id=identity))
+        return korean_lesson(source, level)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail="등록된 유산과 학습 수준을 확인하세요."
+        ) from exc
+    except OfficialServiceError as exc:
+        raise HTTPException(status_code=502, detail="공식 자료를 수집하지 못했습니다.") from exc
+
+
+@router.post("/learning-data/delete")
+def delete_learning_data(request: DeleteLearningData):
+    from culturebridge.services.data_retention_service import delete_session_records
+
+    if request.confirmation != "이 세션의 학습 기록 삭제":
+        raise HTTPException(status_code=422, detail="삭제 확인 문구를 확인하세요.")
+    try:
+        return delete_session_records()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="브라우저 세션을 확인할 수 없습니다.") from exc
 
 
 @router.post("/comparisons/{record_id}/relearn", response_model=ComparisonResult)

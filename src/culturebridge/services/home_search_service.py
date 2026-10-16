@@ -134,6 +134,16 @@ def get_home_suggestions(query: str = "", limit: int = 8, scope: SearchScope = "
         except (sqlite3.Error, ValueError, KeyError):
             pass
     if scope != "korea":
+        import json
+
+        from culturebridge.services.source_registry_service import reviews
+
+        for review in reviews().values():
+            if review["usage_status"] != "restricted":
+                options.extend(
+                    HomeSuggestion(value=alias, label=alias + " · 개별 공식 자료", provider="world")
+                    for alias in json.loads(review["aliases_json"])
+                )
         options.extend(
             HomeSuggestion(value=alias, label=alias + " · " + record["korean"], provider="world")
             for record in INDIVIDUALS.values()

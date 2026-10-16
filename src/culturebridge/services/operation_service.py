@@ -5,6 +5,7 @@ import json
 import threading
 import time
 from collections import defaultdict, deque
+from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from functools import wraps
@@ -17,6 +18,7 @@ _cache = {}
 _lock = threading.RLock()
 _active = 0
 _requests = defaultdict(deque)
+_deleting = set()
 
 
 class OperationBusyError(RuntimeError):
@@ -25,6 +27,29 @@ class OperationBusyError(RuntimeError):
 
 def owner_key():
     return session_owner.get() or "local"
+
+
+def clear_operation_cache(owner=None):
+    """Do not resurrect deleted saved IDs from in-process result reuse."""
+    with _lock:
+        path = str(get_settings().db_path.resolve())
+        for key in list(_cache):
+            if key[0] == path and (owner is None or key[1] == owner):
+                del _cache[key]
+
+
+@contextmanager
+def deleting_session(owner):
+    marker = (str(get_settings().db_path.resolve()), owner)
+    with _lock:
+        if marker in _deleting or any(key[:2] == marker for key in _jobs):
+            raise OperationBusyError("진행 중인 학습 작업이 끝난 뒤 삭제해 주세요.")
+        _deleting.add(marker)
+    try:
+        yield
+    finally:
+        with _lock:
+            _deleting.discard(marker)
 
 
 def reused_operation(name):
@@ -44,6 +69,8 @@ def reused_operation(name):
             )
             # Serialize only identical jobs; completed results are copied to avoid mutation.
             with _lock:
+                if key[:2] in _deleting:
+                    raise OperationBusyError("학습 기록을 삭제 중입니다. 잠시 후 다시 시도하세요.")
                 now = time.monotonic()
                 for old in list(_cache):
                     if _cache[old][0] <= now:
@@ -112,6 +139,8 @@ class _job_lock:
 
     def __enter__(self):
         with _lock:
+            if self.key[:2] in _deleting:
+                raise OperationBusyError("학습 기록을 삭제 중입니다. 잠시 후 다시 시도하세요.")
             item = _jobs.setdefault(self.key, [threading.RLock(), 0])
             item[1] += 1
             self.lock = item[0]

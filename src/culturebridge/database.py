@@ -18,6 +18,18 @@ CREATE TABLE IF NOT EXISTS resource_owners (
 CREATE TABLE IF NOT EXISTS comparison_keys (
     fingerprint TEXT PRIMARY KEY, comparison_id TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS resource_created (
+    kind TEXT NOT NULL, id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(kind,id)
+);
+CREATE TRIGGER IF NOT EXISTS resource_creation_time AFTER INSERT ON resource_owners
+BEGIN
+    INSERT OR IGNORE INTO resource_created(kind,id) VALUES(NEW.kind,NEW.id);
+END;
+CREATE TRIGGER IF NOT EXISTS resource_deletion_time AFTER DELETE ON resource_owners
+BEGIN
+    DELETE FROM resource_created WHERE kind=OLD.kind AND id=OLD.id;
+END;
 CREATE TABLE IF NOT EXISTS learning_reviews (
     history_id INTEGER PRIMARY KEY REFERENCES learning_history(id),
     quiz_id TEXT NOT NULL, result_json TEXT NOT NULL, owner TEXT NOT NULL
@@ -148,6 +160,10 @@ def initialize_database(path: Path | None = None) -> Path:
     target = path or database_path()
     with transaction(target) as connection:
         connection.executescript(SCHEMA)
+        # Legacy resources start their retention clock on migration, never at an invented past date.
+        connection.execute(
+            "INSERT OR IGNORE INTO resource_created(kind,id) SELECT kind,id FROM resource_owners"
+        )
         _migrate_quiz_items(connection)
         unesco_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(unesco_feeds)")

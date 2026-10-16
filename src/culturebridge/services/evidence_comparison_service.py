@@ -10,6 +10,7 @@ from culturebridge.domain.models import (
 )
 from culturebridge.services.common_context_service import review_common_context
 from culturebridge.services.curriculum_service import plan_learning
+from culturebridge.services.evidence_reading_service import reading_units
 from culturebridge.services.extraction_service import DraftField, usable_source, validate_extraction
 from culturebridge.services.learning_analysis_service import comparison_explanation
 
@@ -84,50 +85,35 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
             point.explanation += " 각 원문이 개별 유산·건립·재건 중 무엇을 가리키는지 대조하세요."
     comparison.differences = points
     comparison.common_evidence = []
-    shared_terms = {
-        "종교적 배경": [
-            (r"불교|Buddhis", "불교와 관련된 종교 맥락"),
-            (r"이슬람|Islam|Muslim", "이슬람 관련 맥락"),
-            (r"힌두|Hindu", "힌두교 관련 맥락"),
-            (r"기독교|Christian", "기독교 관련 맥락"),
-        ],
-        "재료": [
-            (r"석재|석탑|\bstone\b", "석재 재료"),
-            (r"화강암|granite", "화강암 재료"),
-            (r"목재|wood", "목재 재료"),
-            (r"벽돌|brick", "벽돌 재료"),
-        ],
-        "구조": [(r"사찰|temple", "사찰 공간"), (r"탑|pagoda", "탑 형태")],
-    }
-    for category, terms in shared_terms.items():
+    for category in ("재료", "구조", "종교적 배경"):
         left, right = (
             lookup.get((comparison.left.id, category)),
             lookup.get((comparison.right.id, category)),
         )
         if not left or not right:
             continue
-        for pattern, label in terms:
-
-            def affirmed(field, pattern=pattern):
-                quote = field.evidence_quote
-                # Literal overlap with a negated / imitated / uncertain feature isn't support.
-                if re.search(
-                    r"아니|않|없|모방|본떠|표현한|not\b|without|imitat|reproduc|추정|추측|probably|estimated",
-                    quote,
-                    re.I,
-                ):
-                    return False
-                return bool(re.search(pattern, quote, re.I))
-
-            if all(affirmed(f) for f in (left, right)):
-                comparison.common_evidence.append(
-                    CommonEvidence(
-                        statement=f"양쪽 원문의 공통 후보: {label}. 범위 검토가 필요합니다.",
-                        category=category,
-                        left_evidence=left,
-                        right_evidence=right,
-                    )
+        if any(
+            re.search(
+                r"아니|않|없|모방|본떠|표현한|not\b|without|imitat|reproduc|추정|추측|probably|estimated|believed",
+                field.evidence_quote,
+                re.I,
+            )
+            for field in (left, right)
+        ):
+            continue
+        shared_units = set(reading_units(category, left.evidence_quote)) & set(
+            reading_units(category, right.evidence_quote)
+        )
+        for axis, label in sorted(shared_units):
+            comparison.common_evidence.append(
+                CommonEvidence(
+                    statement=f"양쪽 원문의 공통 후보: {axis} · {label}. 범위 검토가 필요합니다.",
+                    category=category,
+                    left_evidence=left,
+                    right_evidence=right,
                 )
+            )
+    comparison.common_evidence = comparison.common_evidence[:12]
     comparison.common_evidence = review_common_context(comparison.common_evidence)
     comparison.common_points = [item.statement for item in comparison.common_evidence] or [
         "양쪽 원문에서 같은 특징의 근거를 확보하지 못했습니다. 공통점을 추측하지 않습니다."
