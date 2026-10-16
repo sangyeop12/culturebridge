@@ -4,7 +4,16 @@ from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from culturebridge.domain.models import ComparisonScope
 
-ROOTS = {"/", "/domestic", "/official", "/unesco", "/comparisons", "/kiosk"}
+ROOTS = {
+    "/",
+    "/domestic",
+    "/official",
+    "/unesco",
+    "/comparisons",
+    "/kiosk",
+    "/courses",
+    "/learning-history",
+}
 PARAMETERS = {
     "q",
     "scope",
@@ -25,7 +34,17 @@ def search_return(value, fallback="/"):
     if any(ord(c) < 32 for c in decoded) or "\\" in decoded or decoded.startswith("//"):
         return fallback
     parts = urlsplit(value)
-    if parts.scheme or parts.netloc or parts.fragment or parts.path not in ROOTS:
+    from culturebridge.data.learning_courses import COURSES
+
+    is_course = (
+        parts.path.startswith("/courses/") and parts.path.removeprefix("/courses/") in COURSES
+    )
+    if (
+        parts.scheme
+        or parts.netloc
+        or parts.fragment
+        or (parts.path not in ROOTS and not is_course)
+    ):
         return fallback
     params = {k: v for k, v in parse_qsl(parts.query, keep_blank_values=True) if k in PARAMETERS}
     for key, limit in (("q", 100), ("goal_text", 200)):

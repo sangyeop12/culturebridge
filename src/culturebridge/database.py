@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS comparisons (
     verification_status TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS course_runs (
+    comparison_id TEXT PRIMARY KEY REFERENCES comparisons(id) ON DELETE CASCADE,
+    course_id TEXT NOT NULL, owner TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS official_documents (
     id TEXT PRIMARY KEY,

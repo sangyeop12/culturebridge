@@ -91,7 +91,7 @@ def comparison_explanation(category, left, right, level="beginner"):
         if common or differences:
             return (
                 (
-                    "양쪽 원문에서 함께 확인되는 특징은 " + "·".join(common) + "이에요. "
+                    "양쪽 원문에서 함께 확인되는 특징은 " + "·".join(common) + "입니다. "
                     if common
                     else ""
                 )

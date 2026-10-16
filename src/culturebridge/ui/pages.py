@@ -116,6 +116,21 @@ async def _io_bound(callback, *args, **kwargs):
     return await run.io_bound(context.run, partial(callback, *args, **kwargs))
 
 
+def _report_links(record_id, history_id=None):
+    suffix = f"&history_id={history_id}" if history_id else ""
+    with ui.row().classes("gap-4"):
+        ui.link(
+            "인쇄·PDF 저장",
+            f"/api/comparisons/{record_id}/export?format=html" + suffix,
+            new_tab=True,
+        )
+        ui.link("학습지 파일(.md)", f"/api/comparisons/{record_id}/export?format=md" + suffix)
+        ui.link("학습 데이터(.json)", f"/api/comparisons/{record_id}/export?format=json" + suffix)
+    ui.label(
+        "현재 세션의 결과만 내보내요. 원문 전체·문항 본문·선택지·정답은 파일에 포함하지 않아요."
+    ).classes("cb-muted text-sm")
+
+
 KIOSK_MODE = "kiosk"
 KIOSK_TIMEOUT_SECONDS = 300
 LEVEL_LABELS = {
@@ -144,6 +159,7 @@ def _header() -> None:
             with ui.row().classes("cb-nav").props('role=navigation aria-label="주요 메뉴"'):
                 for label, route in (
                     ("비교 학습", "/"),
+                    ("추천 학습 코스", "/courses"),
                     ("한국 문화유산", "/official"),
                     ("세계유산", "/unesco"),
                     ("비교 기록", "/comparisons"),
@@ -230,6 +246,10 @@ def _return_button(return_to="", fallback="/", label="검색 결과로", mode="w
     root = urlsplit(destination).path
     if root == "/comparisons":
         label = "비교 기록으로"
+    elif root == "/courses" or root.startswith("/courses/"):
+        label = "학습 코스로"
+    elif root == "/learning-history":
+        label = "학습 기록으로"
     elif root in {"/", "/domestic"} and not parse_qs(urlsplit(destination).query).get("q"):
         label = "문화유산 선택으로"
     elif root == "/kiosk":
@@ -1214,6 +1234,8 @@ def comparison_page(
                     f"/compare/{left_id}/{right_id}?saved_id={result.saved_id}",
                 ).classes("text-blue-800")
                 ui.link("저장된 비교 목록", "/comparisons").classes("text-blue-800")
+            if result.saved_id and not _is_kiosk(mode):
+                _report_links(result.saved_id)
 
         with ui.card().classes("cb-card w-full p-6 gap-3"):
             ui.label("공통점 검토 안내" if result.basis == "extracted" else "공통점").classes(
@@ -1654,6 +1676,8 @@ async def quiz_page(
                             ui.label(explanation).classes("text-base")
                         if result.evidence:
                             _extracted_field_cards(result.evidence, learning_level)
+                    if quiz.comparison_id and not _is_kiosk(mode):
+                        _report_links(quiz.comparison_id, result.history_id)
             submit_button.disable()
 
         submit_button = (
@@ -1763,6 +1787,7 @@ def learning_history_page() -> None:
                             "퀴즈 다시 풀기",
                             f"/quiz/{comparison.left.id}/{comparison.right.id}?quiz_id={review['quiz_id']}",
                         )
+                        _report_links(comparison.saved_id, review["id"])
                     except ComparisonNotFoundError:
                         ui.label("이 비교 기록은 현재 세션에서 열 수 없습니다.")
         ui.link("비교 기록 모아보기", "/comparisons")
@@ -1771,8 +1796,10 @@ def learning_history_page() -> None:
 
 @ui.page("/sources")
 def source_catalogue_page():
+    from culturebridge.services.material_review_service import material_review
     from culturebridge.services.source_registry_service import source_overview
 
+    _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-4 py-10"):
         ui.label("학습에 사용하는 공식 자료").classes("cb-title text-3xl")
@@ -1781,6 +1808,8 @@ def source_catalogue_page():
             "수집 성공이 역사적 의미 검증이나 재배포 허가를 뜻하지는 않아요."
         ).classes("cb-muted")
         rows = source_overview()
+        checklist = {row["id"]: row for row in material_review()}
+        ui.link("25개 자료 검토표 다운로드", "/api/material-review?format=md")
         ui.label(f"등록 {len(rows)}개 · 연결 상태는 이 서버의 마지막 수집 시도 기준입니다.")
         statuses = {
             "fresh": "최근 수집 성공",
@@ -1814,15 +1843,150 @@ def source_catalogue_page():
                     ui.label("연결 상태 코드: " + row["error_code"]).classes("cb-muted text-sm")
                 if row["note"]:
                     ui.label(row["note"])
+                if row["id"] in checklist:
+                    checked = checklist[row["id"]]
+                    with ui.expansion("이 자료의 검토 항목").classes("w-full"):
+                        ui.label(checked["name_check"] + " · " + checked["explanation_check"])
+                        ui.label(checked["scope_check"] + " · " + checked["scope_note"])
+                        ui.label(checked["policy_note"])
+                        ui.link("기관 이용 조건 참고", checked["policy_url"], new_tab=True)
                 ui.link("공식 원문·이용 조건 확인", row["source_url"], new_tab=True)
                 if row["usage_status"] != "restricted":
                     ui.link("이 유산 알아보기", "/discover/official/" + row["id"].split(":", 1)[1])
+
+
+@ui.page("/courses")
+def courses_page():
+    from culturebridge.services.course_service import list_courses
+
+    _base_styles()
+    _header()
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("함께 배우는 문화유산").classes("cb-title text-3xl")
+        ui.label("목표를 정하고, 두 유산을 읽고, 퀴즈와 복습으로 마무리하는 대표 코스예요.")
+        ui.label(
+            "5개 코스는 학습 예시입니다. 전체 25개 자료는 "
+            "홈 검색과 개별 탐구에서 계속 이용할 수 있어요."
+        ).classes("cb-muted")
+        for course in list_courses():
+            with ui.card().classes("cb-card w-full p-5 gap-3"):
+                ui.label(course["title"]).classes("cb-title text-xl")
+                ui.label(f"{LEVEL_LABELS[course['level']]} 권장 · 약 {course['minutes']}분")
+                ui.label(course["left_name"] + " ↔ " + course["right_name"])
+                ui.label(course["objective"])
+                ui.link("학습 코스 살펴보기", "/courses/" + course["id"])
+        ui.link("직접 문화유산 찾아보기", "/")
+
+
+@ui.page("/courses/{course_id}")
+def course_detail_page(course_id: str, level: str = ""):
+    from culturebridge.services.course_service import (
+        CourseNotFoundError,
+        course_progress,
+        get_course,
+        start_course,
+    )
+
+    _base_styles()
+    _header()
+    try:
+        course = get_course(course_id)
+        learning_level = LearningLevel(level or course["level"])
+    except (CourseNotFoundError, ValueError):
+        _error_page("학습 코스 또는 수준을 찾을 수 없습니다.", "web")
+        return
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.link("← 학습 코스 목록", "/courses")
+        ui.label(course["title"]).classes("cb-title text-3xl")
+        ui.label(course["left_name"] + " ↔ " + course["right_name"]).classes("text-xl")
+        ui.label(f"권장 학습 시간: 약 {course['minutes']}분 · {GOAL_LABELS[course['goal']]}")
+        with ui.card().classes("cb-card w-full p-5 gap-3"):
+            ui.label("오늘의 학습 목표").classes("cb-title text-xl")
+            ui.label(course["objective"])
+            selected = ui.select(
+                LEVEL_LABELS, value=learning_level.value, label="설명 수준"
+            ).classes("w-full")
+            ui.label("1. 공식 자료 읽기 → 2. 핵심 비교 → 3. 퀴즈 5문항 → 4. 오답 복습·학습지 저장")
+            for index, activity in enumerate(course["activities"], 1):
+                ui.label(f"{index}. {activity}")
+            ui.label("마무리 질문: " + course["reflection"])
+            ui.label(
+                "시작하면 양쪽 원문과 목표 근거를 확인해요. 자료가 부족하면 비교를 보류해요. "
+                "원문 이용 조건과 한국어 풀이 검토는 별도로 필요합니다."
+            ).classes("cb-muted")
+            status = ui.column().classes("w-full").props("role=status aria-live=polite")
+
+            async def begin():
+                start_button.disable()
+                status.clear()
+                with status:
+                    ui.label("공식 자료를 확인하고 비교·퀴즈를 준비하고 있어요…")
+                    ui.spinner()
+                try:
+                    result = await _io_bound(start_course, course_id, selected.value)
+                    comp = result["comparison"]
+                    return_to = "/courses/" + course_id + "?" + urlencode({"level": selected.value})
+                    ui.navigate.to(
+                        with_return(
+                            f"/compare/{comp['left']['id']}/{comp['right']['id']}?saved_id={comp['saved_id']}",
+                            return_to,
+                        )
+                    )
+                except (OfficialServiceError, ValueError, sqlite3.Error, OperationBusyError):
+                    status.clear()
+                    with status:
+                        ui.label(
+                            "현재 양쪽 자료나 학습 근거를 준비하지 못했어요. "
+                            "잠시 후 다시 시작하거나 홈에서 다른 유산을 선택해 주세요."
+                        )
+                        ui.link("다른 유산 찾아보기", "/")
+                finally:
+                    start_button.enable()
+
+            start_button = ui.button("이 코스로 학습 시작", on_click=begin).classes("cb-action")
+        progress = course_progress(course_id)
+        if progress:
+            ui.label("이 세션의 코스 학습 기록").classes("cb-title text-2xl")
+        for item in progress:
+            with ui.card().classes("cb-card w-full p-4 gap-2"):
+                labels = {
+                    "comparison_ready": "비교 준비됨",
+                    "quiz_ready": "퀴즈 준비됨",
+                    "review_ready": "퀴즈 제출 완료 · 복습하기",
+                }
+                ui.label(LEVEL_LABELS[item["level"]] + " · " + labels[item["status"]])
+                root = f"{item['left_id']}/{item['right_id']}"
+                ui.link(
+                    "비교 이어 보기",
+                    with_return(
+                        "/compare/" + root + "?saved_id=" + item["comparison_id"],
+                        "/courses/" + course_id + "?level=" + item["level"],
+                    ),
+                )
+                if item["quiz_id"]:
+                    ui.link(
+                        "퀴즈·복습으로",
+                        with_return(
+                            "/quiz/"
+                            + root
+                            + "?quiz_id="
+                            + item["quiz_id"]
+                            + "&level="
+                            + item["level"],
+                            "/courses/" + course_id + "?level=" + item["level"],
+                        ),
+                    )
+                if item["result"]:
+                    ui.label(f"점수: {item['result']['score']} / {item['result']['total']}")
+                    ui.link("오답과 보충 활동", "/learning-history")
+                _report_links(item["comparison_id"], item["history_id"])
 
 
 @ui.page("/data-policy")
 def data_policy_page():
     from culturebridge.services.data_retention_service import delete_session_records
 
+    _base_styles()
     _header()
     settings = get_settings()
     with ui.column().classes("cb-shell gap-4 py-10"):

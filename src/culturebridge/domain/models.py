@@ -358,6 +358,7 @@ class QuizReviewItem(BaseModel):
 
 
 class QuizAttemptResult(BaseModel):
+    history_id: int | None = None
     review_items: list[QuizReviewItem] = Field(default_factory=list)
     quiz_id: str
     score: int

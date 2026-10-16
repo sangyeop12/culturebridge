@@ -352,6 +352,7 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
         total=len(rows),
     )
     result = QuizAttemptResult(
+        history_id=history_id,
         quiz_id=quiz_id,
         score=score,
         total=len(rows),

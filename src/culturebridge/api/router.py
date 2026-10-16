@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from culturebridge.agents.autonomous import AutonomousRequest, AutonomousResult, run_autonomous
@@ -84,6 +85,103 @@ router = APIRouter(prefix="/api", tags=["CultureBridge"])
 
 class DeleteLearningData(BaseModel):
     confirmation: str
+
+
+class CourseStartRequest(BaseModel):
+    level: LearningLevel | None = None
+
+
+@router.get("/courses")
+def course_catalogue():
+    from culturebridge.services.course_service import list_courses
+
+    return list_courses()
+
+
+@router.get("/courses/{course_id}/progress")
+def course_learning_progress(course_id: str):
+    from culturebridge.services.course_service import CourseNotFoundError, course_progress
+
+    try:
+        return course_progress(course_id)
+    except CourseNotFoundError as exc:
+        raise HTTPException(404, "학습 코스를 찾을 수 없습니다.") from exc
+
+
+@router.post("/courses/{course_id}/start")
+def course_learning_start(course_id: str, request: CourseStartRequest):
+    from culturebridge.services.course_service import CourseNotFoundError, start_course
+
+    try:
+        return start_course(course_id, request.level)
+    except CourseNotFoundError as exc:
+        raise HTTPException(404, "학습 코스를 찾을 수 없습니다.") from exc
+    except OfficialServiceError as exc:
+        raise HTTPException(
+            502, "공식 자료 연결을 확인하지 못해 코스 시작을 보류했습니다."
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            422, "학습 목표의 양쪽 근거가 부족해 코스 시작을 보류했습니다."
+        ) from exc
+
+
+@router.get("/material-review")
+def review_materials(format: str = Query(default="json", pattern="^(json|md)$")):
+    from culturebridge.services.material_review_service import material_review, review_markdown
+
+    if format == "json":
+        return material_review()
+    return Response(
+        review_markdown(),
+        media_type="text/markdown",
+        headers={
+            "Content-Disposition": 'attachment; filename="culturebridge-material-review.md"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/comparisons/{record_id}/export")
+def export_learning_result(
+    record_id: str,
+    format: str = Query(default="html", pattern="^(html|md|json)$"),
+    history_id: int | None = Query(default=None, ge=1),
+):
+    import json
+
+    from culturebridge.services.learning_report_service import (
+        LearningReportNotFoundError,
+        learning_report,
+        report_html,
+        report_markdown,
+    )
+
+    try:
+        report = learning_report(record_id, history_id)
+    except (ComparisonNotFoundError, LearningReportNotFoundError) as exc:
+        raise HTTPException(404, "현재 세션의 학습 결과를 찾을 수 없습니다.") from exc
+    headers = {
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+    }
+    if format == "html":
+        headers["Content-Security-Policy"] = (
+            "default-src 'none'; style-src 'unsafe-inline'; "
+            "script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
+        )
+        return Response(report_html(report), media_type="text/html", headers=headers)
+    headers["Content-Disposition"] = f'attachment; filename="culturebridge-learning.{format}"'
+    body = (
+        report_markdown(report)
+        if format == "md"
+        else json.dumps(report, ensure_ascii=False, indent=2)
+    )
+    return Response(
+        body, media_type="text/markdown" if format == "md" else "application/json", headers=headers
+    )
 
 
 @router.get("/sources")
