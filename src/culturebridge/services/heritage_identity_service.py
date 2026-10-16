@@ -1,5 +1,7 @@
 """Aliases identify the same subject; membership never aliases a group to its child."""
 
+from culturebridge.data.individual_sources import EXTENDED_INDIVIDUALS
+
 ALIASES = {
     "seokguram": "khs:11:0000240000000:37",
     "horyuji": "unesco:660",
@@ -10,6 +12,7 @@ PARENTS = {
     "official:dayanta": "unesco:1442",
     "official:taj-mahal-mausoleum": "unesco:252",
     "official:grand-trianon": "unesco:83",
+    **{"official:" + key: record["parent"] for key, record in EXTENDED_INDIVIDUALS.items()},
 }
 
 

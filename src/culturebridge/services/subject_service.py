@@ -13,17 +13,30 @@ def primary_type(name, text=""):
     patterns = [
         ("Pagoda", r"석탑|목탑|다보탑|탑\b|pagoda|stupa"),
         ("Grotto", r"석굴|grotto|cave"),
-        ("Tomb", r"고분|무덤|왕릉|[가-힣]+(?:총|릉)\b|tomb|mausoleum"),
-        ("Palace", r"궁전|궁궐|[가-힣]+궁\b|palace"),
+        ("Tomb", r"고분|무덤|왕릉|\b묘\b|묘당|[가-힣]+(?:총|릉)\b|tomb|mausoleum"),
+        ("Palace", r"궁전|궁궐|\b어전\b|[가-힣]+궁\b|palace"),
         ("Fort", r"성곽|castle|fort"),
-        ("Hall", r"[가-힣]+(?:전|각|루)\b|\bhall\b|pavilion"),
+        ("Hall", r"[가-힣]+(?:전|각|루)\b|본당|봉황당|대연회장|\bhall\b|pavilion"),
         ("Gate", r"[가-힣]+문\b|\bgate\b"),
         ("Temple", r"사찰|사원|[가-힣]+사\b|temple|monastery"),
-        ("Church", r"교회|church|cathedral"),
+        ("Church", r"교회|성당|예배당|수도원|church|cathedral|chapel|abbey"),
         ("Mosque", r"모스크|mosque"),
+        ("Megalith", r"고인돌|거석|스톤헨지|stonehenge|dolmen|megalith|stone circle"),
     ]
     # A compound Korean title identifies its last component, not its parent site.
     title = name.split()[-1] if re.search(r"[가-힣]", name) else name
+    if re.fullmatch(r"[가-힣]+성", title):
+        return "Fort"  # A title ending in 성, not prose such as "완성" or "가능성".
+    # A named component at the end of an English title takes precedence over its site:
+    # "Edinburgh Castle Great Hall" describes a hall, not the whole castle.
+    if not re.search(r"[가-힣]", name):
+        component = re.search(
+            r"\b(pagoda|stupa|hall|pavilion|chapel|cathedral|mausoleum|palace)\s*$",
+            name,
+            re.I,
+        )
+        if component:
+            title = component.group(1)
     for candidate in (title, " ".join(sentences(text)[:1])):
         for label, pattern in patterns:
             if re.search(pattern, candidate, re.IGNORECASE):
@@ -82,7 +95,8 @@ def focused_text(source):
         "Tomb": r"고분|무덤|왕릉|능|묘|봉분|tomb|mausoleum|mound",
         "Fort": r"성|성곽|fort|castle",
         "Grotto": r"석굴|동굴|cave|grotto",
-        "Church": r"교회|성당|church|cathedral",
+        "Church": r"교회|성당|예배당|수도원|church|cathedral|chapel|abbey",
+        "Megalith": r"고인돌|거석|스톤헨지|stonehenge|dolmen|megalith|stone circle|monument",
         "Mosque": r"모스크|mosque",
         "Hall": r"전각|건물|hall|pavilion",
         "Gate": r"문|gate",
@@ -90,6 +104,11 @@ def focused_text(source):
     # A standalone provider introduction may omit the name ("Built in ...").
     active = True
     selected = []
+    subject_names = ()
+    if source.id == source.heritage_id and source.id.startswith("official:"):
+        from culturebridge.services.individual_source_service import INDIVIDUALS
+
+        subject_names = INDIVIDUALS.get(source.id.split(":", 1)[1], {}).get("subject_names", ())
     for sentence in sentences(source.content):
         if (
             re.search(r"[A-Za-z]", sentence)
@@ -134,8 +153,10 @@ def focused_text(source):
         if subject:
             named = subject.group(1).strip()
             named = re.sub(r"^The\s+", "", named, flags=re.I)
-            is_target = source.title.casefold() in named.casefold() or (
-                bool(re.search(r"[가-힣]", short_name)) and short_name in named
+            is_target = (
+                source.title.casefold() in named.casefold()
+                or (bool(re.search(r"[가-힣]", short_name)) and short_name in named)
+                or any(alias.casefold() == named.casefold() for alias in subject_names)
             )
             is_generic = bool(
                 re.fullmatch(r"(?:이\s*|이곳의\s*)?(?:" + generic + r")", named, re.I)

@@ -86,6 +86,7 @@ THEME_LABELS = {
     "Hindu": "힌두교 관련 문화",
     "Hall": "전각·건물",
     "Gate": "문",
+    "Megalith": "거석 유적",
 }
 
 

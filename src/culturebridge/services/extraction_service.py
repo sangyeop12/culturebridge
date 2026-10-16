@@ -118,10 +118,11 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
             r"전실|주실|통로|석굴|탑|건축|궁전|가람|성곽|grotto|pagoda|architecture|layout"
             r"|temple|building|palace|fort|tomb|mausoleum|stupa|hall|pavilion|gate|전각"
             r"|궁궐|건물배치|봉분|원분|둘레돌|호석|사찰|사원|절로"
+            r"|본당|불전|누각|기둥|지붕|해자|성벽|천수|층|circle|vault|chapel|cathedral|church"
         ),
         "재료": (
             r"화강암|목재|벽돌|석재|석탑|대리석|석회암|granite|wood|brick|stone"
-            r"|marble|limestone|깬돌"
+            r"|marble|limestone|sandstone|깬돌|목조|금박"
         ),
         "종교적 배경": (
             r"불교|불상|부처|법화경|사찰|경전|기독교|힌두|이슬람|Buddhis|Buddha|sutra|scripture"
@@ -155,16 +156,17 @@ def _local_extraction(sources: list[CollectedSource]) -> list[DraftField]:
     patterns = {
         "시대": (
             r"(?:\d{3,4}년|\(\d{3,4}\)|\d{1,2}(?:th|st|nd|rd)[ -]century|\d{1,2}세기"
-            r"|(?:built|constructed|erected|founded).*?\d{3,4})"
+            r"|(?:built|constructed|construction|completed|erected|founded).*?\d{3,4})"
         ),
         "구조": (
             r"(?:전실|주실|통로|가람|건축|궁전|성곽|석탑|기단|탑신|난간|grotto|pagoda|architecture|layout"
             r"|temple|palace|fort|tomb|mausoleum|stupa|hall|pavilion|gate|전각"
-            r"|궁궐|건물배치|봉분|원분|둘레돌|호석|사찰|사원|절로)"
+            r"|궁궐|건물배치|봉분|원분|둘레돌|호석|사찰|사원|절로"
+            r"|본당|불전|누각|기둥|지붕|해자|성벽|천수|층|circle|vault|chapel|cathedral|church)"
         ),
         "재료": (
             r"(?:화강암|목재|벽돌|석재|석탑|대리석|granite|wooden|brick|marble"
-            r"|limestone|sandstone|\bstone\b|깬돌)"
+            r"|limestone|sandstone|\bstone\b|\bwood\b|깬돌|목조|금박)"
         ),
         "종교적 배경": (
             r"(?:불교|불상|부처|법화경|사찰|기독교|힌두|이슬람|Buddhist|Buddhism"

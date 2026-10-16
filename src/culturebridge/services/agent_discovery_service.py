@@ -32,6 +32,7 @@ THEMES = {
     "Grotto": r"석굴|grotto|cave",
     "Hall": r"전각|건물|hall|pavilion",
     "Gate": r"문루|gate",
+    "Megalith": r"고인돌|거석|stonehenge|dolmen|megalith|stone circle",
 }
 
 
@@ -274,6 +275,7 @@ def discover_candidates(
         "Grotto": "석굴",
         "Hall": "전",
         "Gate": "문",
+        "Megalith": "고인돌",
     }
     if comparison_scope is ComparisonScope.DOMESTIC and (primary or themes):
         query = plan.queries[0] if used_ai and not _attempt else korean_terms[primary or themes[0]]
@@ -413,19 +415,28 @@ def discover_candidates(
         not candidates
         and target_can_compare
         and not _attempt
-        and primary in {"Pagoda", "Tomb", "Palace"}
+        and primary in {"Pagoda", "Tomb", "Palace", "Temple", "Hall", "Fort", "Church", "Megalith"}
         and not group
         and comparison_scope is ComparisonScope.OVERSEAS
         and get_settings().individual_sources_enabled
     ):
         from culturebridge.services.individual_source_service import INDIVIDUALS
 
+        attempts = 0
         for identity, record in INDIVIDUALS.items():
             if record["type"] != primary:
+                continue
+            if not candidate_in_scope(record["country"], comparison_scope):
+                continue
+            if not _different_country(detail.country, record["country"]):
                 continue
             candidate_target = OfficialTarget(provider="official", official_id=identity)
             if candidate_target.id == target.id:
                 continue
+            attempts += 1
+            if attempts > 6:
+                trace.append("individual_source_tool: 이번 탐구의 개별 공식 출처 확인 한도 도달")
+                break
             try:
                 candidate, candidate_source = fetch_target(candidate_target)
             except (OfficialServiceError, KeyError):
@@ -455,6 +466,8 @@ def discover_candidates(
                 )
             )
             trace.append("individual_source_tool: " + record["korean"] + " · 유산군과 구분")
+            if len(candidates) >= 3:
+                break
     if not candidates and not _attempt and target_can_compare:
         trace.append("research_retry_tool: 후보 탈락 후 검색어 변경·다음 결과 탐색 1회")
         _, candidates, retry_trace, retry_ai = discover_candidates(

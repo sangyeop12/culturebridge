@@ -5,8 +5,10 @@ from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 
 import httpx
+from pydantic import BaseModel
 
 from culturebridge.config import get_settings
+from culturebridge.data.individual_sources import EXTENDED_INDIVIDUALS
 from culturebridge.database import transaction
 from culturebridge.domain.models import CollectedSource
 from culturebridge.services.official_service import OfficialServiceError
@@ -64,7 +66,71 @@ INDIVIDUALS = {
             "In the Grand Trianon, the royal apartments",
         ),
     },
+    **EXTENDED_INDIVIDUALS,
 }
+
+
+class IndividualHit(BaseModel):
+    id: str
+    name: str
+    korean: str
+    country: str
+    primary_type: str
+    parent_id: str
+    source_url: str
+    unit: str
+
+
+def search_individuals(query=""):
+    """Registered metadata only. A hit does not claim a successful live fetch."""
+    from culturebridge.services.unesco_service import COUNTRY_ALIASES, normalize_search
+
+    term = normalize_search(query)
+    country = COUNTRY_ALIASES.get(query.strip(), query.strip())
+    hits = []
+    for key, record in INDIVIDUALS.items():
+        words = [
+            key,
+            record["name"],
+            record["korean"],
+            record["country"],
+            *record.get("aliases", ()),
+        ]
+        if (
+            term
+            and not any(term in normalize_search(word) for word in words)
+            and country != record["country"]
+        ):
+            continue
+        hits.append(
+            IndividualHit(
+                id="official:" + key,
+                name=record["name"],
+                korean=record["korean"],
+                country=record["country"],
+                primary_type=record["type"],
+                parent_id=record["parent"],
+                source_url=record["url"],
+                unit=record.get("unit", "building"),
+            )
+        )
+    return hits
+
+
+def selected_paragraphs(record, paragraphs):
+    """Exact provider excerpts, with optional sentence-level subject selectors."""
+    from culturebridge.services.subject_service import sentences
+
+    paragraphs = list(dict.fromkeys(p for p in paragraphs if p.startswith(record["starts"])))
+    selected = paragraphs
+    if record.get("sentence_starts"):
+        selected = [
+            s for p in selected for s in sentences(p) if s.startswith(record["sentence_starts"])
+        ]
+    selected = selected + [
+        quote for quote in record.get("excerpts", ()) if any(quote in p for p in paragraphs)
+    ]
+    return selected
 
 
 class Paragraphs(HTMLParser):
@@ -115,17 +181,17 @@ def fetch_individual(identity, refresh=False):
                 body = bytearray()
                 for chunk in response.iter_bytes():
                     body.extend(chunk)
-                    if len(body) > 2_000_000:
+                    if len(body) > min(record.get("max_bytes", 2_000_000), 6_000_000):
                         raise ValueError("Source too large")
         parser = Paragraphs()
         parser.feed(body.decode("utf-8"))
-        selected = [p for p in parser.rows if p.startswith(record["starts"])]
+        selected = selected_paragraphs(record, parser.rows)
         if not selected:
             raise ValueError("No individual subject paragraph")
         source = CollectedSource(
             id=source_id,
             heritage_id=source_id,
-            title=record["name"],
+            title=record["korean"] if record.get("language") == "ko" else record["name"],
             organization=record["organization"],
             source_url=record["url"],
             feed_url=record["url"],
@@ -134,8 +200,13 @@ def fetch_individual(identity, refresh=False):
             status="fresh",
             content_kind="individual_text",
             license_url=record["url"],
-            scope_note="개별 유산 공식 소개입니다. UNESCO 유산군 설명과 구분합니다. "
-            "원문 이용 조건을 확인하세요.",
+            scope_note=(
+                "특정 유산 경내 전체의 공식 소개입니다. 개별 건물 하나의 설명과 다릅니다. "
+                if record.get("unit") == "site"
+                else "개별 건물의 공식 소개입니다. "
+            )
+            + "등록한 대상 문단·문장을 발췌했으며 UNESCO 등재 유산군과 구분합니다. "
+            "각 기관의 원문 이용 조건과 역사적 의미를 별도로 확인하세요.",
         )
         with transaction() as connection:
             connection.execute(

@@ -14,9 +14,7 @@ from culturebridge.services.unesco_service import search_unesco
 
 class OfficialTarget(BaseModel):
     provider: Literal["khs", "unesco", "official"]
-    official_id: (
-        Literal["horyuji-pagoda", "dayanta", "taj-mahal-mausoleum", "grand-trianon"] | None
-    ) = None
+    official_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]{1,79}$")
     record_id: str | None = Field(default=None, pattern=r"^\d{1,10}$")
     kind: str | None = Field(default=None, pattern=r"^\d{2}$")
     number: str | None = Field(default=None, pattern=r"^\d{1,20}$")
@@ -26,6 +24,11 @@ class OfficialTarget(BaseModel):
     def complete_identifier(self):
         if self.provider == "official" and not self.official_id:
             raise ValueError("등록된 개별 공식 자료 ID가 필요합니다.")
+        if self.provider == "official":
+            from culturebridge.services.individual_source_service import INDIVIDUALS
+
+            if self.official_id not in INDIVIDUALS:
+                raise ValueError("등록된 개별 공식 자료 ID가 필요합니다.")
         if self.provider == "unesco" and not self.record_id:
             raise ValueError("UNESCO 등재 ID가 필요합니다.")
         if self.provider == "khs" and not all((self.kind, self.number, self.region)):

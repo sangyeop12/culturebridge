@@ -9,3 +9,6 @@ __pycache__/
 data/*.db
 backups/
 .tmp_*/
+outputs/individual-source-live.db*
+outputs/official_source_probe.json
+outputs/official_source_probe.py

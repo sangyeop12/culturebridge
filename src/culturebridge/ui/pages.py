@@ -670,6 +670,45 @@ def home_page(
                                     }
                                 ),
                             )
+                        if response.individual:
+                            ui.label(f"해외 개별 문화유산 · {len(response.individual)}건").classes(
+                                "font-semibold"
+                            )
+                            ui.label(
+                                "공식 자료 연결 대상입니다. "
+                                "선택한 뒤 원문 연결과 학습 근거를 확인해요."
+                            ).classes("cb-muted")
+                            for item in response.individual:
+                                with ui.card().classes("cb-card cb-result-card w-full p-4 gap-2"):
+                                    ui.label(item.korean + " (" + item.name + ")").classes(
+                                        "cb-title text-xl"
+                                    )
+                                    ui.label(
+                                        display_country(item.country)
+                                        + " · "
+                                        + (
+                                            "특정 유산의 경내 전체"
+                                            if item.unit == "site"
+                                            else "개별 건물"
+                                        )
+                                    )
+                                    ui.link("공식 소개", item.source_url, new_tab=True)
+                                    ui.button(
+                                        "이 유산 알아보기",
+                                        on_click=lambda selected=item: ui.navigate.to(
+                                            with_return(
+                                                f"/discover/official/{selected.id.split(':', 1)[1]}"
+                                                f"?level={level.value}&"
+                                                + _goal_query(
+                                                    goal.value,
+                                                    goal_text.value,
+                                                    amount.value,
+                                                    comparison_scope,
+                                                ),
+                                                return_context(page),
+                                            )
+                                        ),
+                                    )
                         if response.world is not None:
                             ui.label(f"UNESCO · 총 {response.world.total}건 (최대 10건)").classes(
                                 "font-semibold"
@@ -724,8 +763,10 @@ def home_page(
                                 response.world.license_url,
                                 new_tab=True,
                             )
-                        count = (response.korean.total if response.korean else 0) + (
-                            response.world.total if response.world else 0
+                        count = (
+                            (response.korean.total if response.korean else 0)
+                            + (response.world.total if response.world else 0)
+                            + len(response.individual)
                         )
                         with ui.row().classes("gap-3"):
                             if page > 1:

@@ -10,6 +10,11 @@ from culturebridge.database import transaction
 from culturebridge.domain.models import HeritageSummary
 from culturebridge.domain.official_models import OfficialSearchResult
 from culturebridge.services.catalog_service import list_heritages
+from culturebridge.services.individual_source_service import (
+    INDIVIDUALS,
+    IndividualHit,
+    search_individuals,
+)
 from culturebridge.services.official_service import OfficialServiceError, search_official_heritages
 from culturebridge.services.unesco_service import (
     COUNTRY_ALIASES,
@@ -31,6 +36,7 @@ class HomeSearchResult(BaseModel):
     korean: OfficialSearchResult | None = None
     world: UnescoResult | None = None
     notices: list[str] = Field(default_factory=list)
+    individual: list[IndividualHit] = Field(default_factory=list)
 
 
 class HomeSuggestion(BaseModel):
@@ -53,6 +59,8 @@ def search_home(query: str, scope: SearchScope = "all", page: int = 1) -> HomeSe
     if scope == "world":
         local = [item for item in local if item.country != "대한민국"]
     result = HomeSearchResult(query=query, scope=scope, page=page, comparable=local)
+    if scope != "korea" and page == 1:
+        result.individual = search_individuals(query)
     country = COUNTRY_ALIASES.get(query)
     korean_country = country == "Republic of Korea"
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -127,6 +135,17 @@ def get_home_suggestions(query: str = "", limit: int = 8, scope: SearchScope = "
             pass
     if scope != "korea":
         options.extend(
+            HomeSuggestion(value=alias, label=alias + " · " + record["korean"], provider="world")
+            for record in INDIVIDUALS.values()
+            for alias in record.get("aliases", ())
+        )
+        options.extend(
+            HomeSuggestion(
+                value=item.korean, label=item.korean + " · 개별 공식 자료", provider="world"
+            )
+            for item in search_individuals()
+        )
+        options.extend(
             HomeSuggestion(value=alias, label=alias + " · UNESCO 검색어", provider="world")
             for aliases in HERITAGE_ALIASES.values()
             for alias in aliases
@@ -148,6 +167,7 @@ def get_home_suggestions(query: str = "", limit: int = 8, scope: SearchScope = "
         key=lambda option: (
             normalize_search(option.value) != term,
             not normalize_search(option.value).startswith(term),
+            len(normalize_search(option.value)),
         )
     )
     unique = {}
