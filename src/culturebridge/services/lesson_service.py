@@ -5,7 +5,12 @@ import re
 from pydantic import BaseModel, Field, HttpUrl
 
 from culturebridge.domain.models import CollectedSource, LearningLevel
-from culturebridge.services.evidence_reading_service import observation_scope, reading_units
+from culturebridge.services.date_reading_service import read_period, uncertain_date
+from culturebridge.services.evidence_reading_service import (
+    material_scope,
+    observation_scope,
+    reading_units,
+)
 from culturebridge.services.extraction_service import _local_extraction, validate_extraction
 from culturebridge.services.subject_service import date_event
 
@@ -70,11 +75,32 @@ def easy_korean(text):
 
 
 def beginner_text(category, quote):
+    if category == "시대":
+        period = read_period(quote)
+        if period:
+            caution = " 추정·전승이 포함된 설명이에요." if uncertain_date(quote) else ""
+            return (
+                f"공식 설명에 나온 시기는 {period.text}이에요. "
+                f"어떤 일이 있었는지 구분해요: {date_event(quote)}." + caution
+            )
+        if re.search(r"\bnot\b|without|아니|않|없", quote, re.I):
+            return (
+                f"원문에 쓰인 사건 표현은 {date_event(quote)}이에요. "
+                "부정 표현도 포함되어 있어요. 무엇을 부정하는지 확인하고 "
+                "건립 연대로 단정하지 않아요."
+            )
+        return (
+            "연대가 어떤 사건을 가리키는지 원문에서 확인해요. "
+            "여러 시기나 '몇 년 전'이라는 표현을 하나의 정확한 연도로 바꾸지 않아요."
+        )
     units = reading_units(category, quote)
     if units and category != "시대":
         labels = [label for _, label in units]
         if category == "재료":
             text = "공식 설명에는 " + "·".join(labels) + " 재료가 나와요."
+            scope = material_scope(quote)
+            if scope != "사용 부분 확인 필요":
+                text += f" {scope}에 관한 설명이에요."
             if len(labels) > 1:
                 text += " 어느 부분에 쓰였는지는 원문을 함께 확인해요."
         elif category == "구조":
@@ -93,8 +119,14 @@ def beginner_text(category, quote):
             details += [
                 label + subject_particle(label) + " 설명되어 있어요."
                 for axis, label in units
-                if axis != "모양"
+                if axis not in {"모양", "건물 종류"}
             ][:3]
+            if not details:
+                details = [
+                    f"'{label}'이라는 표현을 찾아볼 수 있어요."
+                    for axis, label in units
+                    if axis == "건물 종류"
+                ]
             text = "모양과 공간을 살펴봐요.\n" + "\n".join(details)
         else:
             text = (
@@ -113,17 +145,6 @@ def beginner_text(category, quote):
             "무엇이 있고 없는지, 어느 부분의 설명인지 원문에서 확인해요."
         )
     if re.search(r"[가-힣]", quote):
-        if category == "시대":
-            dates = list(
-                dict.fromkeys(re.findall(r"\d{3,4}(?=년)|(?<=\()\d{3,4}(?=\))|\d{1,2}세기", quote))
-            )
-            if dates:
-                when = " · ".join(d if d.endswith("세기") else d + "년" for d in dates)
-                uncertain = bool(re.search(r"추측|추정|전해|알려|다고 한다", quote))
-                caution = " 확정된 연대가 아니라 추정·전승 표현이 포함돼요." if uncertain else ""
-                if re.search(r"아니|않|없", quote):
-                    caution += " 부정 표현이 있어 연대를 단정하지 않아요."
-                return f"원문에 나온 시기는 {when}이에요. 사건: {date_event(quote)}." + caution
         if len(quote) > 120:
             found = [
                 term + "(" + meaning + ")" for term, meaning in GLOSSARY.items() if term in quote
@@ -136,21 +157,6 @@ def beginner_text(category, quote):
                 )
         return easy_korean(quote)
     # Conservative Korean reading guide for English sources, not a full translation.
-    uncertain = bool(re.search(r"probably|estimated|possibly|believed|around|about", quote, re.I))
-    if category == "시대":
-        century = re.search(r"(\d{1,2})(?:st|nd|rd|th)[ -]century", quote, re.I)
-        year = re.search(
-            r"(?:built|constructed|erected|founded|completed|rebuilt)\s+(?:(?:in|around)\s+)?(\d{3,4})",
-            quote,
-            re.I,
-        )
-        if century or year:
-            when = century.group(1) + "세기" if century else year.group(1) + "년"
-            if re.search(r"\b(?:BC|BCE)\b", quote, re.I):
-                when = "기원전 " + when
-            event = date_event(quote)
-            suffix = "추정하는 표현이 있어요" if uncertain else "관련된 설명이 있어요"
-            return f"원문에는 {when}에 {suffix}. 연대가 가리키는 사건: {event}."
     terms = {
         "재료": [
             (r"granite", "화강암"),

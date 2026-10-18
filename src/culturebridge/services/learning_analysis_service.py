@@ -2,6 +2,7 @@
 
 import re
 
+from culturebridge.services.date_reading_service import uncertain_date
 from culturebridge.services.evidence_reading_service import (
     material_scope,
     observation_scope,
@@ -67,13 +68,15 @@ def comparison_explanation(category, left, right, level="beginner"):
             )
         if left.date_event != right.date_event:
             return "두 연대가 가리키는 사건이 달라요. 건립과 재건을 구분한 뒤 비교하세요." + caution
+        if any(uncertain_date(field.evidence_quote) for field in (left, right)):
+            return (
+                "추정·전승 또는 대략적인 연대가 포함돼요. "
+                "정확한 건립연도 차이로 계산하지 않고 각 원문의 시기와 사건을 함께 읽어요."
+                + caution
+            )
         years = [source_years(field.evidence_quote) for field in (left, right)]
         if all(len(value) == 1 for value in years) and left.date_event == "건립·창건":
             difference = abs(int(years[0][0]) - int(years[1][0]))
-            uncertain = any(
-                re.search(r"추측|추정|probably|estimated|believed", f.evidence_quote, re.I)
-                for f in (left, right)
-            )
             return (
                 f"왼쪽 원문은 {years[0][0]}년, 오른쪽 원문은 {years[1][0]}년의 건립을 다뤄요. "
                 + (
@@ -81,7 +84,6 @@ def comparison_explanation(category, left, right, level="beginner"):
                     if difference
                     else "표기된 건립 연도가 같아요."
                 )
-                + (" 추정·전승이 포함되므로 확정 연대의 차이는 아니에요." if uncertain else "")
                 + caution
             )
         return (

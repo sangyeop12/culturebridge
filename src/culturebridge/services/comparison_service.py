@@ -29,7 +29,7 @@ class ComparisonNotFoundError(KeyError):
     pass
 
 
-LEARNING_VERSION = 5
+LEARNING_VERSION = 6
 
 
 def create_saved_comparison(

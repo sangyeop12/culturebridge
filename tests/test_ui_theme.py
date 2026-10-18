@@ -35,7 +35,7 @@ def test_learning_screens_share_theme_and_navigation(isolated, path):
     with TestClient(app) as client:
         response = client.get(path)
     assert response.status_code == 200
-    assert "--cb-paper: #F7F6F2" in response.text
+    assert "--cb-paper: #F7F3E9" in response.text
     assert "cb-header-inner" in response.text
     assert "주요 메뉴" in response.text
     assert "CultureBridge 처음으로" in response.text

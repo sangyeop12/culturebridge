@@ -19,6 +19,8 @@ FEATURES = {
         (r"\btemple\b|사찰|사원", "사찰", "건물 종류"),
         (r"\bhall\b|전각|대불전", "큰 전각", "건물 종류"),
         (r"\bpalace\b|궁전|궁궐", "궁전", "건물 종류"),
+        (r"\b(?:abbey|monastery)\b|수도원", "수도원", "건물 종류"),
+        (r"\b(?:chapel|cathedral|church)\b|성당|예배당", "성당·예배당", "건물 종류"),
         (r"삼층|3층|three[- ]stor(?:i|e)ed", "세 층으로 된 구조", "층수"),
         (r"팔각|8각|octagonal", "여덟 모서리가 있는 모양", "모양"),
         (r"십(?:\(十\))?자|cruciform|cross-shaped", "십자 모양", "모양"),
@@ -42,6 +44,12 @@ FEATURES = {
         (r"\bramparts?\b|성벽", "성을 둘러싼 벽", "부분"),
         (r"rectangular|직사각", "직사각형", "모양"),
         (r"symmetr|대칭", "대칭 배치", "배치"),
+        (r"stone circle", "돌을 둥글게 세운 배치", "배치"),
+        (r"cube shape", "상자 모양", "모양"),
+        (r"moats?|해자", "성을 둘러싼 도랑", "부분"),
+        (r"fortified walls", "두꺼운 성벽", "부분"),
+        (r"turrets", "작은 탑", "부분"),
+        (r"winding staircases", "굽이진 계단", "부분"),
         (r"전실|antechamber", "앞쪽 방", "공간"),
         (r"주실|central (?:tomb )?chamber", "중심 방", "공간"),
         (r"기단", "건물을 받치는 아랫부분", "부분"),
@@ -64,7 +72,12 @@ FEATURES = {
         (r"불교|불상|부처|Buddhis|Buddha", "불교", "종교"),
         (r"이슬람|Islam|Muslim", "이슬람", "종교"),
         (r"힌두|Hindu", "힌두교", "종교"),
-        (r"기독교|Christian", "기독교", "종교"),
+        (
+            r"기독교|Christian|Passion of Christ|Crown of Thorns|True Cross|\bBible\b",
+            "기독교",
+            "종교",
+        ),
+        (r"Old and New Testament|\bBible\b|성경", "성경", "경전"),
         (r"법화경|Lotus Sutra", "법화경", "경전"),
         (r"Quran|Koran|코란", "코란", "경전"),
     ],
@@ -76,7 +89,11 @@ NEGATION = r"\bnot\b|without|아니|않|없|모방|imitat|본떠"
 
 def positive_clauses(quote):
     """Keep independently stated positive clauses; never strip a negative word alone."""
-    clauses = re.split(r"[.;。]\s*|(?:있을\s*뿐|있지만|있으나)\s*|\b(?:but|whereas)\b", quote)
+    clauses = re.split(
+        r"[.;。]\s*|(?:있을\s*뿐|있지만|있으나)\s*|(?:로서|이며|이고),\s*"
+        r"|\b(?:but|whereas)\b",
+        quote,
+    )
     return [c.strip() for c in clauses if c.strip() and not re.search(NEGATION, c, re.I)]
 
 
@@ -132,6 +149,7 @@ def usable_categories(fields):
 def material_scope(quote):
     """Describe the quoted part; never upgrade decoration into a building's main material."""
     for pattern, label in (
+        (r"금박|gold leaf", "표면 마감"),
         (r"carvings?|조각|장식", "조각·장식"),
         (r"\broof\b|지붕", "지붕"),
         (r"\bceiling\b|천장|vault", "천장"),

@@ -1,8 +1,8 @@
 """Short, quote-grounded content questions. No inference from absent features."""
 
-import re
 from itertools import zip_longest
 
+from culturebridge.services.date_reading_service import read_period
 from culturebridge.services.display_service import short_display_name
 from culturebridge.services.evidence_reading_service import (
     material_scope,
@@ -35,23 +35,8 @@ ALTERNATIVES = {
 
 
 def _period(quote):
-    if re.search(r"\bnot\b|without|아니|않|없", quote, re.I):
-        return None
-    prefix = "기원전 " if re.search(r"\bBC\b|\bBCE\b|기원전", quote, re.I) else ""
-    century = re.search(r"(\d{1,2})(?:st|nd|rd|th)[ -]century|(\d{1,2})세기", quote, re.I)
-    if century:
-        number = int(century.group(1) or century.group(2))
-        values = [number] + [n for n in (number - 1, number + 1, number + 2, number + 3) if n > 0]
-        return [prefix + str(n) + "세기" for n in values[:4]]
-    interval = re.search(r"built between (\d{3,4}) and (\d{3,4})", quote, re.I)
-    if interval:
-        a, b = int(interval.group(1)), int(interval.group(2))
-        return [f"{prefix}{a + shift}~{b + shift}년" for shift in (0, 100, 200, 300)]
-    year = re.search(r"(\d{3,4})(?:년|\))|\b(?:in|around) (\d{3,4})\b", quote, re.I)
-    if year:
-        number = int(year.group(1) or year.group(2))
-        return [prefix + str(number + shift) + "년" for shift in (0, 100, 200, 300)]
-    return None
+    period = read_period(quote)
+    return list(period.choices) if period else None
 
 
 def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", sources=()):
@@ -92,15 +77,18 @@ def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", so
                 candidates.append((field, axis, answer, choices))
     chosen = []
     seen = set()
+    seen_facts = set()
     covered = set()
     # Cover both sides and the selected categories before adding a second detail.
     for unique_fields in (True, False):
         for field, axis, answer, choices in candidates:
             key = (field.heritage_id, field.category, axis)
             field_key = (field.heritage_id, field.category)
-            if key in seen or (unique_fields and field_key in covered):
+            fact = (field.heritage_id, answer, field.evidence_quote)
+            if key in seen or fact in seen_facts or (unique_fields and field_key in covered):
                 continue
             seen.add(key)
+            seen_facts.add(fact)
             covered.add(field_key)
             scope = material_scope(field.evidence_quote)
             name = short_display_name(names[field.heritage_id])
@@ -118,8 +106,8 @@ def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", so
                     f"{name}{part}: 다른 부분으로 일반화하지 않고 "
                     f"원문으로 뒷받침할 수 있는 {axis}은?"
                 )
-                if len(chosen) >= 2:
-                    question = f"{name}{part}: 이 설명을 해석한 내용으로 적절한 것은?"
+                if len(chosen) == 3:
+                    question = f"{name}{part}의 {axis}: 이 설명을 해석한 내용으로 적절한 것은?"
                     choices = [
                         f"'{answer}'은 이 문장이 설명한 부분의 특징으로 읽는다",
                         f"'{answer}'이므로 유산 전체의 모든 부분이 같은 특징이다",

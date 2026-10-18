@@ -76,7 +76,12 @@ def subtype(name, text=""):
 def date_event(quote):
     if re.search(r"재건|중건|중창|복원|다시 세|rebuild|rebuilt|reconstruct|restor", quote, re.I):
         return "재건·복원"
-    if re.search(r"창건|건립|조성|축조|설립|세운|세웠|built|construct|erect|found", quote, re.I):
+    if re.search(
+        r"창건|건립|조성|축조|설립|세운|세웠|완공|지어진|지었|지어졌"
+        r"|built|construct|erect|found|completed|completion",
+        quote,
+        re.I,
+    ):
         return "건립·창건"
     return "시대·사건 확인 필요"
 

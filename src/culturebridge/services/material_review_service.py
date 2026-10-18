@@ -7,6 +7,7 @@ from culturebridge.data.material_review import POLICIES, SCOPE_NOTES
 from culturebridge.data.source_audit import NAME_FINDINGS, PROVIDER_FINDINGS, REVIEW_DATE
 from culturebridge.database import transaction
 from culturebridge.domain.models import CollectedSource
+from culturebridge.services.classroom_usage_service import classroom_usage
 from culturebridge.services.display_service import display_country
 from culturebridge.services.extraction_service import _local_extraction, validate_extraction
 from culturebridge.services.source_registry_service import source_overview
@@ -56,6 +57,7 @@ def material_review():
             ),
             None,
         )
+        usage = classroom_usage(row["source_url"], identity)
         rows.append(
             {
                 **row,
@@ -73,9 +75,15 @@ def material_review():
                 "name_finding": NAME_FINDINGS[identity],
                 "name_reference_url": row["source_url"],
                 "policy_status": finding[0] if finding else "not_established",
-                "ai_permission": "미확인·외부 AI 전송 허가로 간주하지 않음",
-                "translation_permission": "서비스용 번역 허가 미확인",
-                "redistribution_permission": "공개 재배포 허가 미확인",
+                "ai_permission": "해당 출처·목적의 관리자 확인 기록 있음"
+                if usage["purposes"]["ai"]["approved"]
+                else "미확인 또는 불허·외부 AI 전송 허가로 간주하지 않음",
+                "translation_permission": "해당 출처·목적의 관리자 확인 기록 있음"
+                if usage["purposes"]["translation"]["approved"]
+                else "서비스용 번역 허가 미확인 또는 불허",
+                "redistribution_permission": "해당 출처·목적의 관리자 확인 기록 있음"
+                if usage["purposes"]["redistribution"]["approved"]
+                else "공개 재배포 허가 미확인 또는 불허",
                 "policy_url": finding[1] if finding else policy[0] if policy else row["source_url"],
                 "policy_note": finding[2]
                 if finding
@@ -84,6 +92,7 @@ def material_review():
                 else "일반 재이용 조건을 확정하지 못했다. 기관 문의·개별 조건 확인 필요.",
                 "policy_checked_date": REVIEW_DATE if finding or policy else None,
                 "permission": "허가 완료를 뜻하지 않음",
+                "classroom_usage": usage,
             }
         )
     return rows
@@ -135,6 +144,11 @@ def review_markdown():
             "- 권리 검토: " + row["policy_note"],
             "- 번역: " + row["translation_permission"] + " / AI: " + row["ai_permission"],
             "- 공개 재배포: " + row["redistribution_permission"],
+            "- 검토 맥락: " + row["classroom_usage"]["context"],
+            *[
+                "- " + purpose["label"] + ": " + purpose["reason"]
+                for purpose in row["classroom_usage"]["purposes"].values()
+            ],
             "",
         ]
     return "\n".join(lines)

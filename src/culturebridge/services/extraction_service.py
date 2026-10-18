@@ -171,7 +171,7 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
         ),
         "종교적 배경": (
             r"불교|불상|부처|법화경|사찰|경전|기독교|힌두|이슬람|Buddhis|Buddha|sutra|scripture"
-            r"|Christian|Hindu|Islam|Muslim"
+            r"|Christian|Hindu|Islam|Muslim|Passion of Christ|Crown of Thorns|True Cross|\bBible\b"
         ),
     }
     if not re.search(markers[draft.category], draft.evidence_quote, re.IGNORECASE):
@@ -217,7 +217,7 @@ def _local_extraction(sources: list[CollectedSource]) -> list[DraftField]:
         ),
         "종교적 배경": (
             r"(?:불교|불상|부처|법화경|사찰|기독교|힌두|이슬람|Buddhist|Buddhism"
-            r"|Christian|Hindu|Islam|Muslim)"
+            r"|Christian|Hindu|Islam|Muslim|Passion of Christ|Crown of Thorns|True Cross|\bBible\b)"
         ),
     }
     drafts = []

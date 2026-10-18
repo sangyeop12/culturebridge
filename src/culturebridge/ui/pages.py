@@ -549,10 +549,12 @@ def home_page(
     auto: bool = False,
     comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ) -> None:
+    from culturebridge.ui.heritage_art import heritage_art
+
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-7 py-10"):
-        with ui.column().classes("cb-hero"):
+        with ui.column().classes("cb-hero cb-illustrated"):
             ui.label("문화유산을 잇고, 배움을 넓히다").classes("cb-eyebrow")
             ui.label("하나의 문화유산에서 세계로").classes("cb-hero-title").props(
                 "role=heading aria-level=1"
@@ -568,6 +570,10 @@ def home_page(
                 "<span><b>1</b> 유산 찾기</span><span><b>2</b> 함께 비교하기</span>"
                 "<span><b>3</b> 퀴즈로 확인하기</span></div>"
             )
+            ui.label("유산 유형을 표현한 창작 삽화 · 실제 모습이나 복원도가 아니에요.").classes(
+                "cb-art-caption"
+            )
+            ui.html(heritage_art(panoramic=True)).classes("cb-hero-art")
 
         with ui.element("section").classes("cb-mode-strip").props('aria-label="비교 범위"'):
             with ui.column().classes("gap-1"):
@@ -1946,6 +1952,7 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
 @ui.page("/sources")
 def source_catalogue_page():
     from culturebridge.services.material_review_service import material_review
+    from culturebridge.services.open_record_service import OPEN_RECORDS
     from culturebridge.services.source_registry_service import source_overview
 
     _base_styles()
@@ -1970,7 +1977,7 @@ def source_catalogue_page():
             "not_checked": "이 서버에서 아직 확인하지 않음",
         }
         usage = {
-            "pending": "이용 조건 검토 전",
+            "pending": "이용 허용 범위 확인 중",
             "reviewed": "이용 조건 검토 기록 있음",
             "restricted": "관리자가 이용 제한으로 표시",
         }
@@ -1999,6 +2006,12 @@ def source_catalogue_page():
                             checked["ai_permission"] + " · " + checked["translation_permission"]
                         )
                         ui.link("기관 이용 조건 참고", checked["policy_url"], new_tab=True)
+                        ui.label(checked["classroom_usage"]["context"]).classes("cb-muted")
+                        for purpose in checked["classroom_usage"]["purposes"].values():
+                            ui.label(purpose["label"] + ": " + purpose["reason"])
+                identity = row["id"].split(":", 1)[1]
+                if identity in OPEN_RECORDS:
+                    ui.link("다른 공식 기록도 함께 읽기", "/sources/open/" + identity)
                 ui.link("공식 원문 보기", row["source_url"], new_tab=True)
                 if (
                     row["usage_status"] != "restricted"
@@ -2007,9 +2020,46 @@ def source_catalogue_page():
                     ui.link("이 유산 알아보기", "/discover/official/" + row["id"].split(":", 1)[1])
 
 
+@ui.page("/sources/open/{identity}")
+async def open_record_page(identity: str):
+    from culturebridge.services.open_record_service import OPEN_RECORDS, fetch_open_record
+
+    _base_styles()
+    _header()
+    with ui.column().classes("cb-shell gap-4 py-10"):
+        ui.link("← 공식 자료 목록으로", "/sources")
+        ui.label("다른 공식 기록도 함께 읽어요").classes("cb-title text-3xl").props(
+            "role=heading aria-level=1"
+        )
+        if identity not in OPEN_RECORDS:
+            ui.label("아직 연결하지 않은 추가 기록이에요.")
+            return
+        try:
+            record = await run.io_bound(fetch_open_record, identity)
+        except OfficialServiceError as exc:
+            ui.label(str(exc))
+            ui.link("이 유산 학습으로 돌아가기", "/discover/official/" + identity)
+            return
+        ui.label(record["scope"])
+        ui.label("프랑스 문화부 공개 기록 · 원문 언어: 프랑스어").classes("cb-muted")
+        if record["guidance"]:
+            ui.label(record["guidance"])
+        with ui.card().classes("cb-card w-full p-5 gap-3"):
+            for label, value in record["fields"].items():
+                ui.label(label).classes("cb-title text-lg")
+                ui.label(value).classes("whitespace-pre-wrap")
+        ui.label("출처: " + record["attribution"])
+        ui.link("공식 기록 확인", record["source_url"], new_tab=True)
+        ui.link("공개 데이터 이용 조건", record["license_url"], new_tab=True)
+        for note in record["notices"]:
+            ui.label(note).classes("cb-muted")
+        ui.link("이 유산 계속 학습하기", "/discover/official/" + identity)
+
+
 @ui.page("/courses")
 def courses_page():
     from culturebridge.services.course_service import list_courses
+    from culturebridge.ui.heritage_art import course_art
 
     _base_styles()
     _header()
@@ -2022,13 +2072,24 @@ def courses_page():
             "5개 코스는 학습 예시입니다. 전체 25개 자료는 "
             "홈 검색과 개별 탐구에서 계속 이용할 수 있어요."
         ).classes("cb-muted")
-        for course in list_courses():
-            with ui.card().classes("cb-card w-full p-5 gap-3"):
-                ui.label(course["title"]).classes("cb-title text-xl")
-                ui.label(f"{LEVEL_LABELS[course['level']]} 권장 · 약 {course['minutes']}분")
-                ui.label(course["left_name"] + " ↔ " + course["right_name"])
-                ui.label(course["objective"])
-                ui.link("학습 코스 살펴보기", "/courses/" + course["id"])
+        ui.label("삽화는 학습 주제를 표현한 것으로, 실제 유산의 모습과 다를 수 있어요.").classes(
+            "cb-art-caption"
+        )
+        with ui.element("div").classes("cb-course-grid"):
+            for index, course in enumerate(list_courses(), 1):
+                with ui.card().classes("cb-card cb-course-card w-full"):
+                    ui.html(course_art(course["id"])).classes("cb-course-art")
+                    with ui.column().classes("cb-course-body w-full"):
+                        ui.label(f"배움의 여정 {index:02d}").classes("cb-course-number")
+                        ui.label(course["title"]).classes("cb-title text-xl").props(
+                            "role=heading aria-level=2"
+                        )
+                        ui.label(
+                            f"{LEVEL_LABELS[course['level']]} 권장 · 약 {course['minutes']}분"
+                        ).classes("cb-muted text-sm")
+                        ui.label(course["left_name"] + " ↔ " + course["right_name"])
+                        ui.label(course["objective"]).classes("cb-muted")
+                        ui.link("학습 코스 살펴보기 →", "/courses/" + course["id"])
         ui.link("직접 문화유산 찾아보기", "/")
 
 
@@ -2040,6 +2101,7 @@ def course_detail_page(course_id: str, level: str = ""):
         get_course,
         start_course,
     )
+    from culturebridge.ui.heritage_art import course_art
 
     _base_styles()
     _header()
@@ -2054,6 +2116,10 @@ def course_detail_page(course_id: str, level: str = ""):
         ui.label(course["title"]).classes("cb-title text-3xl").props("role=heading aria-level=1")
         ui.label(course["left_name"] + " ↔ " + course["right_name"]).classes("text-xl")
         ui.label(f"권장 학습 시간: 약 {course['minutes']}분 · {GOAL_LABELS[course['goal']]}")
+        ui.html(course_art(course_id)).classes("cb-course-banner")
+        ui.label("학습 주제를 표현한 창작 삽화 · 실제 유산의 모습이나 복원도가 아니에요.").classes(
+            "cb-art-caption"
+        )
         with ui.card().classes("cb-card w-full p-5 gap-3"):
             ui.label("오늘의 학습 목표").classes("cb-title text-xl")
             ui.label(course["objective"])
@@ -2397,12 +2463,28 @@ def unesco_page(
     auto: bool = False,
     comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ) -> None:
+    from culturebridge.ui.heritage_art import heritage_art
+
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-5 py-10"):
         ui.label("세계유산 둘러보기").classes("cb-title text-3xl").props(
             "role=heading aria-level=1"
         )
+        with (
+            ui.element("section")
+            .classes("cb-world-banner")
+            .props('aria-label="세계유산 학습 안내"')
+        ):
+            with ui.column().classes("gap-1"):
+                ui.label("서로 다른 모습, 함께 읽는 역사").classes("cb-title text-xl")
+                ui.label("탑과 궁전, 성당까지. 이름을 찾아 유산의 이야기를 만나보세요.").classes(
+                    "cb-muted"
+                )
+                ui.label("유형을 표현한 창작 삽화 · 실제 유산 사진이 아니에요.").classes(
+                    "cb-art-caption"
+                )
+            ui.html(heritage_art(panoramic=True))
         ui.label(
             "한글 별칭·국가명과 공식 영문 이름으로 검색합니다. 등재연도는 건립연도가 아닙니다."
         )

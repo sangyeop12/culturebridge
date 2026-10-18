@@ -106,7 +106,7 @@ def test_material_comparison_keeps_the_used_part_visible():
     [
         ("Built in the 13th century.", "13세기"),
         ("The hall was built between 1093 and 1133.", "1093~1133년"),
-        ("Built in about 2500 BC.", None),  # Not parsed by this narrow expression.
+        ("Built in about 2500 BC.", "기원전 약 2500년"),
         ("Built in 2500 BC.", "기원전 2500년"),
     ],
 )
