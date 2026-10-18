@@ -81,7 +81,50 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
     ):
         if date_event(draft.evidence_quote) == "시대·사건 확인 필요":
             return None
+    if draft.category == "시대":
+        # A named person's parenthesised lifespan is not a construction date.
+        # Other explicit building dates in the same sentence remain eligible.
+        without_lifespans = re.sub(
+            r"[（(]\s*\d{3,4}\s*[-–—~]\s*\d{3,4}\s*[)）]",
+            "",
+            draft.evidence_quote,
+        )
+        person_context = re.search(
+            r"\b(?:monk|king|queen|emperor|architect|born|died)\b|스님|승려|생몰",
+            draft.evidence_quote,
+            re.I,
+        )
+        if (
+            person_context
+            and without_lifespans != draft.evidence_quote
+            and not re.search(
+                r"\d{3,4}|\d{1,2}(?:th|st|nd|rd)[ -]century|\d{1,2}세기",
+                without_lifespans,
+                re.I,
+            )
+        ):
+            return None
+        if (
+            re.search(
+                r"listed.{0,35}(?:World Heritage|UNESCO)|세계유산.{0,12}등재",
+                draft.evidence_quote,
+                re.I,
+            )
+            and date_event(draft.evidence_quote) == "시대·사건 확인 필요"
+        ):
+            return None
     if draft.category == "재료":
+        if re.search(r"to distinguish it from", draft.evidence_quote, re.I):
+            # A previous/other building's material in a naming explanation does
+            # not establish the material of the currently described building.
+            return None
+        # A tomb's entrance structures do not establish the mausoleum's materials.
+        if primary_type(source.title) == "Tomb" and re.match(
+            r"^(?:Three other .*gateways|The (?:gateways?|gates?|adjoining structures))",
+            draft.evidence_quote,
+            re.I,
+        ):
+            return None
         negation = r"\bnot\b|without|아니|않|없"
         if re.search(negation, draft.evidence_quote, re.I) and not re.search(
             negation, draft.value, re.I
@@ -119,6 +162,8 @@ def validate_extraction(draft: DraftField, sources: list[CollectedSource]) -> Ex
             r"|temple|building|palace|fort|tomb|mausoleum|stupa|hall|pavilion|gate|전각"
             r"|궁궐|건물배치|봉분|원분|둘레돌|호석|사찰|사원|절로"
             r"|본당|불전|누각|기둥|지붕|해자|성벽|천수|층|circle|vault|chapel|cathedral|church"
+            r"|roof|ceiling|stained glass|windows?|height|storey|connected buildings"
+            r"|목조\s*건물"
         ),
         "재료": (
             r"화강암|목재|벽돌|석재|석탑|대리석|석회암|granite|wood|brick|stone"
@@ -163,6 +208,8 @@ def _local_extraction(sources: list[CollectedSource]) -> list[DraftField]:
             r"|temple|palace|fort|tomb|mausoleum|stupa|hall|pavilion|gate|전각"
             r"|궁궐|건물배치|봉분|원분|둘레돌|호석|사찰|사원|절로"
             r"|본당|불전|누각|기둥|지붕|해자|성벽|천수|층|circle|vault|chapel|cathedral|church)"
+            r"|roof|ceiling|stained glass|windows?|height|storey|connected buildings"
+            r"|목조\s*건물"
         ),
         "재료": (
             r"(?:화강암|목재|벽돌|석재|석탑|대리석|granite|wooden|brick|marble"
@@ -179,7 +226,24 @@ def _local_extraction(sources: list[CollectedSource]) -> list[DraftField]:
             continue
         source_sentences = sentences(focused_text(source))
         for category, pattern in patterns.items():
-            for sentence in source_sentences:
+            from culturebridge.services.evidence_reading_service import reading_units
+
+            # Prefer concrete feature sentences over a name merely containing "hall" or "tomb".
+            def specificity(sentence, category=category):
+                score = sum(
+                    0.2 if axis == "건물 종류" else 1
+                    for axis, _ in reading_units(category, sentence)
+                )
+                if category == "재료" and re.search(
+                    r"whereas.*adjoining|Three other.*gateways", sentence, re.I
+                ):
+                    score -= (
+                        100  # More material words in mixed component prose are not better evidence.
+                    )
+                return score
+
+            ranked = sorted(source_sentences, key=specificity, reverse=True)
+            for sentence in ranked:
                 if len(sentence) <= 1000 and re.search(pattern, sentence, flags=re.IGNORECASE):
                     draft = DraftField(
                         heritage_id=source.heritage_id,
@@ -197,6 +261,10 @@ def _local_extraction(sources: list[CollectedSource]) -> list[DraftField]:
 
 
 def _gemini_extraction(sources: list[CollectedSource]) -> DraftExtraction:
+    from culturebridge.services.source_permission_service import external_ai_allowed
+
+    if not external_ai_allowed(sources):
+        raise ValueError("외부 AI 이용 조건 확인이 필요한 자료입니다.")
     settings = get_settings()
     with genai.Client(
         api_key=settings.gemini_api_key,
@@ -210,6 +278,7 @@ def _gemini_extraction(sources: list[CollectedSource]) -> DraftExtraction:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=_extraction_schema(),
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
                 temperature=0,
                 max_output_tokens=3000,
                 system_instruction=(

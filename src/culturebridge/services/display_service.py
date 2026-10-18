@@ -130,6 +130,12 @@ def display_country(country: str) -> str:
     return " · ".join(COUNTRIES.get(part.strip(), part.strip()) for part in country.split(";"))
 
 
+def short_display_name(value):
+    if value.startswith("한국어 이름 확인 필요("):
+        return value[len("한국어 이름 확인 필요(") :].rsplit(")", 1)[0]
+    return value.split("(", 1)[0].strip()
+
+
 def readable_reason(criteria: list[str], beginner: bool = True) -> str:
     text = " ".join(criteria)
     themes = [label for key, label in THEME_LABELS.items() if re.search(rf"\b{key}\b", text)]
@@ -142,6 +148,8 @@ def readable_reason(criteria: list[str], beginner: bool = True) -> str:
     if "다른 국가" in text:
         reason += " 다른 나라에 있는 유산이에요."
     for criterion in criteria:
+        if criterion.startswith("함께 살펴볼 내용:"):
+            reason += " " + criterion + "을 읽고 비교해요."
         if criterion.startswith("함께 확인할 수 있는 항목:"):
             reason += " " + criterion + "."
         elif criterion.startswith("선택 목표의 양쪽 근거:"):

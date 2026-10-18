@@ -10,7 +10,7 @@ from culturebridge.domain.models import (
 )
 from culturebridge.services.common_context_service import review_common_context
 from culturebridge.services.curriculum_service import plan_learning
-from culturebridge.services.evidence_reading_service import reading_units
+from culturebridge.services.evidence_reading_service import observation_scope, reading_units
 from culturebridge.services.extraction_service import DraftField, usable_source, validate_extraction
 from culturebridge.services.learning_analysis_service import comparison_explanation
 
@@ -105,6 +105,12 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
             reading_units(category, right.evidence_quote)
         )
         for axis, label in sorted(shared_units):
+            if axis == "건물 종류":
+                continue
+            if axis == "모양":
+                scopes = [observation_scope(label, f.evidence_quote) for f in (left, right)]
+                if "설명 부분 미확인" in scopes or len(set(scopes)) != 1:
+                    continue
             comparison.common_evidence.append(
                 CommonEvidence(
                     statement=f"양쪽 원문의 공통 후보: {axis} · {label}. 범위 검토가 필요합니다.",

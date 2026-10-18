@@ -5,7 +5,7 @@ import re
 from pydantic import BaseModel, Field, HttpUrl
 
 from culturebridge.domain.models import CollectedSource, LearningLevel
-from culturebridge.services.evidence_reading_service import reading_units
+from culturebridge.services.evidence_reading_service import observation_scope, reading_units
 from culturebridge.services.extraction_service import _local_extraction, validate_extraction
 from culturebridge.services.subject_service import date_event
 
@@ -83,9 +83,19 @@ def beginner_text(category, quote):
                 last = ord(label[-1])
                 return "이" if 0xAC00 <= last <= 0xD7A3 and (last - 0xAC00) % 28 else "가"
 
-            text = "모양과 공간을 살펴봐요.\n" + "\n".join(
-                label + subject_particle(label) + " 원문에 나와요." for label in labels[:3]
-            )
+            shapes = [label for axis, label in units if axis == "모양"]
+            details = [
+                observation_scope(label, quote).replace("설명 부분 미확인", "설명에 나온 모양")
+                + ": "
+                + label
+                for label in shapes
+            ]
+            details += [
+                label + subject_particle(label) + " 설명되어 있어요."
+                for axis, label in units
+                if axis != "모양"
+            ][:3]
+            text = "모양과 공간을 살펴봐요.\n" + "\n".join(details)
         else:
             text = (
                 "이 유산의 설명에는 "
@@ -95,6 +105,13 @@ def beginner_text(category, quote):
         if re.search(r"추측|추정|전해|probably|estimated|believed", quote, re.I):
             text += " 확정된 설명이 아니라 추정·전승이 포함돼요."
         return text
+    if category != "시대" and re.search(
+        r"\bnot\b|without|아니|않|없|모방|imitat|본떠", quote, re.I
+    ):
+        return (
+            "이 문장만으로 실제 특징을 단정하기 어려워요. "
+            "무엇이 있고 없는지, 어느 부분의 설명인지 원문에서 확인해요."
+        )
     if re.search(r"[가-힣]", quote):
         if category == "시대":
             dates = list(
@@ -214,7 +231,7 @@ def explain_source(source, level=LearningLevel.BEGINNER):
             LearningLevel.ADVANCED: "고급 · 수집된 공식 원문을 수정 없이 읽고 "
             "대상·사건·해석의 범위를 검토하세요.",
         }[level],
-        notice="학습용 설명은 원문에서 찾은 검토 후보입니다. 없는 내용은 채우지 않습니다.",
+        notice="공식 설명을 학습 수준에 맞춰 나누었어요. 자세한 내용은 원문과 함께 확인해요.",
     )
     if level is LearningLevel.ADVANCED:
         lesson.notice = "아래 본문은 수집된 공식 원문 그대로입니다. 학습용 풀이와 구분합니다."

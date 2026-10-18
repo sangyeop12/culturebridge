@@ -61,6 +61,9 @@ def delete_records(*, owner=None, cutoff=None, apply=False):
             )
         if quiz_ids:
             connection.execute(
+                f"DELETE FROM quiz_metadata WHERE quiz_id IN ({_marks(quiz_ids)})", quiz_ids
+            )
+            connection.execute(
                 f"DELETE FROM quiz_items WHERE quiz_id IN ({_marks(quiz_ids)})", quiz_ids
             )
         if comparison_ids:

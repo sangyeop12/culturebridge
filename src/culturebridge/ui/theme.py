@@ -87,9 +87,9 @@ THEME_HEAD = """
         background: #EDF4EB; border-color: #C4D7BF; }
     .cb-shell [role='alert'] { border-left: 3px solid #A96A29;
         background: #FBF4E9; color: #754A23; padding: 12px 16px; border-radius: 6px; }
-    .cb-hero { position: relative; width: 100%; padding: 40px 44px;
+    .cb-hero { position: relative; width: 100%; padding: 24px 32px;
         background: #EAF0E7; border: 1px solid #D9E2D4; border-radius: 18px;
-        gap: 16px; overflow: hidden; }
+        gap: 10px; overflow: hidden; }
     .cb-hero:after { content: ''; position: absolute; right: -42px; top: -70px;
         width: 250px; height: 250px; border: 1px solid #CCD8C5; border-radius: 50%;
         box-shadow: 0 0 0 26px #E2EADC, 0 0 0 27px #CCD8C5;
@@ -126,6 +126,13 @@ THEME_HEAD = """
         font-weight: 750; padding: 0 28px; }
     .cb-kiosk-card { min-height: 148px; border: 2px solid #C4D4C3; border-radius: 22px; }
     :focus-visible { outline: 3px solid #966024; outline-offset: 4px; }
+    .cb-skip-link { position: fixed; top: -100px; left: 16px; z-index: 99999;
+        padding: 12px; background: white; color: #193E3A; }
+    .cb-skip-link:focus { top: 12px; }
+    .cb-diagrams { display:flex; flex-wrap:wrap; gap:16px; width:100%; }
+    .cb-diagrams figure { margin:0; padding:12px; text-align:center;
+        border:1px solid var(--cb-line); border-radius:10px; background:#fcfdfb; }
+    .cb-diagrams figcaption { font-size:13px; max-width:210px; }
     .cb-kiosk .q-radio, .cb-kiosk .q-btn { min-height: 72px; }
     .cb-kiosk .q-radio { font-size: 1.1rem; }
     .cb-kiosk-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }

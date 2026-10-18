@@ -47,6 +47,10 @@ class CandidateSelection(BaseModel):
 
 
 def _model_selection(detail, goal_text, rows, hits, comparison_scope=ComparisonScope.OVERSEAS):
+    from culturebridge.services.source_permission_service import external_ai_allowed
+
+    if not external_ai_allowed([detail.id] + [row[1].id for row in rows]):
+        raise ValueError("외부 AI 이용 조건 확인이 필요한 자료입니다.")
     settings = get_settings()
     metadata = [
         {"index": i, "name": row[2], "countries": row[3], "description": hits[row[1].id][3][:2000]}
@@ -109,6 +113,10 @@ def _different_country(left, right):
 
 
 def _model_plan(detail, source, goal_text, comparison_scope=ComparisonScope.OVERSEAS):
+    from culturebridge.services.source_permission_service import external_ai_allowed
+
+    if not external_ai_allowed([source]):
+        raise ValueError("외부 AI 이용 조건 확인이 필요한 자료입니다.")
     settings = get_settings()
     with genai.Client(
         api_key=settings.gemini_api_key,
@@ -185,15 +193,19 @@ def discover_candidates(
     text = detail.name + " " + focus
     primary = primary_type(detail.name, focus)
     selected_subtype = subtype(detail.name, focus)
-    selected_categories = {
-        d.category for d in _local_extraction([source]) if validate_extraction(d, [source])
-    }
+    from culturebridge.services.evidence_reading_service import usable_categories
+
+    selected_categories = usable_categories(
+        [d for d in _local_extraction([source]) if validate_extraction(d, [source])]
+    )
     needed = required_categories(goal_text)
     if goal_text and (len(selected_categories) < 2 or not needed <= selected_categories):
         extra = collect_supplement(source)
         if extra:
             selected_categories.update(
-                d.category for d in _local_extraction([extra]) if validate_extraction(d, [extra])
+                usable_categories(
+                    [d for d in _local_extraction([extra]) if validate_extraction(d, [extra])]
+                )
             )
             trace.append("supplement_tool: 공식 상세 설명 추가 수집 " + extra.status)
     group = is_group(detail.name, source.content)
@@ -369,11 +381,13 @@ def discover_candidates(
         ):
             trace.append("candidate_tool: 대상 유형·자료 단위 불일치로 자동 비교 제외")
             continue
-        supported = {
-            d.category
-            for d in _local_extraction([candidate_source])
-            if validate_extraction(d, [candidate_source])
-        }
+        supported = usable_categories(
+            [
+                d
+                for d in _local_extraction([candidate_source])
+                if validate_extraction(d, [candidate_source])
+            ]
+        )
         if len(supported) < 2 or (primary and "구조" not in supported):
             trace.append("candidate_tool: 항목별 직접 근거 부족으로 자동 비교 제외")
             continue
@@ -393,6 +407,20 @@ def discover_candidates(
                 "같은 탑 유형의 서로 다른 재료를 비교합니다. 재료 차이는 원문으로 확인하세요."
             )
         criteria.append("자료 단위 1차 점검 · 원문 항목 근거 확인")
+        from culturebridge.services.evidence_reading_service import reading_units
+
+        examples = []
+        for label, example_source in (("선택한 유산", source), ("이 후보", candidate_source)):
+            features = [
+                word
+                for d in _local_extraction([example_source])
+                for axis, word in reading_units(d.category, d.evidence_quote)
+                if axis != "건물 종류"
+            ]
+            if features:
+                examples.append(label + "에서는 " + "·".join(dict.fromkeys(features))[:100])
+        if len(examples) == 2:
+            criteria.append("함께 살펴볼 내용: " + " / ".join(examples))
         if goal_text:
             criteria.append("양쪽 학습 근거: " + ", ".join(sorted(selected_categories & supported)))
         if _different_country(country, detail.country):
@@ -407,8 +435,6 @@ def discover_candidates(
                 reason=" · ".join(criteria) + ". 유형 비교 후보이며 직접 영향의 증거는 아닙니다.",
             )
         )
-        if len(candidates) == 3:
-            break
     # Lack of target evidence cannot be cured by fetching unrelated candidate pages.
     target_can_compare = (
         len(selected_categories) >= 2 and required_categories(goal_text) <= selected_categories
@@ -444,11 +470,13 @@ def discover_candidates(
             except (OfficialServiceError, KeyError):
                 trace.append("individual_source_tool: 개별 해외 공식 설명 수집 실패·제외")
                 continue
-            fields = {
-                d.category
-                for d in _local_extraction([candidate_source])
-                if validate_extraction(d, [candidate_source])
-            }
+            fields = usable_categories(
+                [
+                    d
+                    for d in _local_extraction([candidate_source])
+                    if validate_extraction(d, [candidate_source])
+                ]
+            )
             if not evidence_suits_goal(selected_categories, fields, goal_text):
                 trace.append("individual_source_tool: 양쪽 목표 근거 부족·제외")
                 continue

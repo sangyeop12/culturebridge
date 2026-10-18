@@ -13,6 +13,7 @@ from culturebridge.data.individual_sources import EXTENDED_INDIVIDUALS
 from culturebridge.database import transaction
 from culturebridge.domain.models import CollectedSource
 from culturebridge.services.official_service import OfficialServiceError
+from culturebridge.services.source_permission_service import policy_url
 
 INDIVIDUALS = {
     "horyuji-pagoda": {
@@ -183,7 +184,13 @@ def fetch_individual(identity, refresh=False):
         and datetime.now(UTC) - old.retrieved_at
         < timedelta(hours=get_settings().heritage_cache_hours)
     ):
-        return old.model_copy(update={"status": "cached"})
+        return CollectedSource.model_validate(
+            {
+                **old.model_dump(),
+                "status": "cached",
+                "license_url": policy_url(record["url"]),
+            }
+        )
     try:
         with httpx.Client(
             verify=ssl.create_default_context(),
@@ -214,7 +221,7 @@ def fetch_individual(identity, refresh=False):
             content="\n".join(selected),
             status="fresh",
             content_kind="individual_text",
-            license_url=record["url"],
+            license_url=policy_url(record["url"]),
             scope_note=(
                 "특정 유산 경내 전체의 공식 소개입니다. 개별 건물 하나의 설명과 다릅니다. "
                 if record.get("unit") == "site"

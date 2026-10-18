@@ -20,6 +20,13 @@ def main():
         "--usage-status", choices=["pending", "reviewed", "restricted"], default="pending"
     )
     review.add_argument("--note", default="")
+    permission = sub.add_parser("permission", help="확인된 처리 목적별 이용 근거 기록")
+    permission.add_argument("id")
+    permission.add_argument(
+        "--purpose", choices=["ai", "translation", "redistribution"], required=True
+    )
+    permission.add_argument("--status", choices=["approved", "denied"], required=True)
+    permission.add_argument("--note", required=True, help="허가 문서·정책 등 실제 확인 근거")
     args = parser.parse_args()
     initialize_database()
     if args.command == "review":
@@ -30,6 +37,12 @@ def main():
             name_status=args.name_status,
             usage_status=args.usage_status,
             note=args.note,
+        )
+    elif args.command == "permission":
+        from culturebridge.services.source_permission_service import record_permission
+
+        record_permission(
+            args.id.removeprefix("official:"), args.purpose, args.status == "approved", args.note
         )
     print(json.dumps(source_overview(), ensure_ascii=False, indent=2))
 

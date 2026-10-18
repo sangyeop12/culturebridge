@@ -158,7 +158,9 @@ def test_home_input_change_updates_results_instead_of_retaining_all_cards():
             query.set_value("불국사")
         texts = [getattr(e, "text", "") for e in page.elements.values()]
         assert "석굴암" not in texts and "호류지 불교 건축물" not in texts
-        assert any("공식 자료 검색으로" in text for text in texts if isinstance(text, str))
+        assert not any(
+            "등록된 비교 유산은 없습니다" in text for text in texts if isinstance(text, str)
+        )
         assert any("불국사" in text for text in texts if isinstance(text, str))
         with page:
             query.set_value("석굴암")

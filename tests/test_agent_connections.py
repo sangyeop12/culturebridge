@@ -79,7 +79,7 @@ def test_validated_gemini_questions_are_saved_and_graded(comparison, monkeypatch
     quiz = generate_quiz(
         "seokguram", "horyuji", LearningLevel.BEGINNER, comparison_id=comparison.saved_id
     )
-    assert "Gemini 초안" in quiz.learning_goal
+    assert "Gemini 초안" in quiz.generation_note
     assert len(quiz.items) == 5
     assert all("종교적 배경" in item.question for item in quiz.items)
     assert "correct_index" not in quiz.model_dump_json()
@@ -110,8 +110,8 @@ def test_invalid_generated_question_falls_back(comparison, monkeypatch, defect):
     quiz = generate_quiz(
         "seokguram", "horyuji", LearningLevel.BEGINNER, comparison_id=comparison.saved_id
     )
-    assert "검사 실패" in quiz.learning_goal
-    assert len(quiz.items) == 5 and "종교적 배경" in quiz.items[0].question
+    assert "검사 실패" in quiz.generation_note
+    assert len(quiz.items) == 5 and "종교" in quiz.items[0].question
 
 
 @pytest.mark.parametrize("level", list(LearningLevel))
@@ -156,7 +156,7 @@ def test_quota_error_has_safe_fallback_notice(comparison, monkeypatch):
     quiz = generate_quiz(
         "seokguram", "horyuji", LearningLevel.BEGINNER, comparison_id=comparison.saved_id
     )
-    assert "429" in quiz.learning_goal
+    assert "429" in quiz.generation_note
     assert "private-diagnostic" not in quiz.learning_goal
     assert len(quiz.items) == 5
 

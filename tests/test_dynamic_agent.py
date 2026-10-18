@@ -76,7 +76,16 @@ def test_new_official_target_runs_end_to_end_without_catalog_code(configured):
     assert get_heritage("unesco:101").period == "근거 부족"  # no registration-time fact promotion
     saved = get_saved_comparison(result["comparison"]["saved_id"]).comparison
     assert saved.left.id == "unesco:101" and len(saved.extracted_fields) == 8
-    assert grade_quiz(result["quiz"]["quiz_id"], [0, 3, 2, 1, 0]).score == 5
+    from culturebridge.services.quiz_service import load_quiz
+
+    saved_quiz = load_quiz(
+        result["quiz"]["quiz_id"],
+        result["comparison"]["left"]["id"],
+        result["comparison"]["right"]["id"],
+    )
+    assert (
+        grade_quiz(saved_quiz.quiz_id, [item.correct_index for item in saved_quiz.items]).score == 5
+    )
     assert "Buddhist" in configured[1]
 
 
@@ -176,7 +185,7 @@ def test_new_targets_questions_use_same_snapshot_and_quiz_requires_evidence(conf
         comparison_id=comparison["saved_id"],
         use_ai=False,
     )
-    assert "wooden" in answer.answer and answer.source_ids
+    assert "나무" in answer.answer and answer.source_ids
     assert answer.verification_status.value == "needs_review"
     with TestClient(app) as client:
         assert (

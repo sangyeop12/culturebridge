@@ -10,6 +10,7 @@ from culturebridge.domain.models import ComparisonScope, LearningLevel
 from culturebridge.services.comparison_scope_service import validate_pair_scope
 from culturebridge.services.curriculum_service import evidence_suits_goal
 from culturebridge.services.dynamic_heritage_service import OfficialTarget, fetch_target
+from culturebridge.services.evidence_reading_service import usable_categories
 from culturebridge.services.extraction_service import _local_extraction, validate_extraction
 from culturebridge.services.operation_service import owner_key, reused_operation
 
@@ -44,7 +45,9 @@ def start_course(identity, level=None):
         if source.status not in {"fresh", "cached"}:
             raise CourseNotReadyError("최신 원문을 확보하지 못해 코스 시작을 보류했어요.")
         categories.append(
-            {d.category for d in _local_extraction([source]) if validate_extraction(d, [source])}
+            usable_categories(
+                [d for d in _local_extraction([source]) if validate_extraction(d, [source])]
+            )
         )
     if not evidence_suits_goal(*categories, course["goal"] + " " + course["goal_text"]):
         raise CourseNotReadyError("이번 목표에 필요한 양쪽 근거가 부족해 시작을 보류했어요.")

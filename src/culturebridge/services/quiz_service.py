@@ -18,6 +18,7 @@ from culturebridge.domain.models import (
     QuizReviewItem,
 )
 from culturebridge.services.catalog_service import LEARNING_GOALS, get_heritage
+from culturebridge.services.curriculum_service import GOAL_LABELS
 from culturebridge.services.display_service import display_name, korean_name
 from culturebridge.services.operation_service import owner_key, reused_operation
 
@@ -215,12 +216,15 @@ def generate_quiz(
             ),
         ]
 
-    # Rotate positions so learners cannot answer all conceptual items by selecting the first choice.
+    # Shuffle once, then persist the same choice ordering for resuming this quiz.
+    from culturebridge.services.quiz_choice_service import answer_positions, arranged_choices
+
     rotated_items = []
-    for position, (item_id, question, choices, correct_index, explanation) in enumerate(raw_items):
-        shift = position % 4
-        rotated = choices[shift:] + choices[:shift]
-        rotated_items.append((item_id, question, rotated, (correct_index - shift) % 4, explanation))
+    for position, (item_id, question, choices, correct_index, explanation) in zip(
+        answer_positions(len(raw_items)), raw_items, strict=True
+    ):
+        rotated = arranged_choices(choices, correct_index, position)
+        rotated_items.append((item_id, question, rotated, position, explanation))
     raw_items = rotated_items
     save_quiz_items(quiz_id, left.id, level.value, raw_items)
     items = [
@@ -326,7 +330,8 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
             if matched:
                 followup = {
                     "시대": "원문에서 연도와 사건을 함께 표시하고, 건립·재건·추정을 구분해 보세요.",
-                    "구조": "원문과 그림에서 모양·부분·배치 중 이 문항의 기준을 찾아보세요.",
+                    "구조": "정답과 고른 보기가 같은 부분을 설명하는지 확인해요. "
+                    "평면·지붕·봉분을 나누어 원문에서 찾아보세요.",
                     "재료": "원문의 재료 표현을 찾고, "
                     "다른 유산의 재료와 같은지 다른지 설명해 보세요.",
                     "종교적 배경": "종교 이름과 유산의 쓰임을 구분해 읽고, "
@@ -338,7 +343,11 @@ def grade_quiz(quiz_id: str, answers: list[int]) -> QuizAttemptResult:
                     question=row["question"],
                     selected=choices[answer],
                     correct_answer=choices[correct_index],
-                    activity=followup,
+                    activity=(
+                        f"‘{choices[answer]}’ 대신 ‘{choices[correct_index]}’인 이유를 "
+                        "설명해 볼까요? "
+                    )
+                    + followup,
                     quote=matched.get("evidence_quote", ""),
                     source_url=matched.get("source_url"),
                 )
@@ -383,10 +392,15 @@ def load_quiz(quiz_id: str, left_id: str, right_id: str) -> QuizResponse:
     saved = get_saved_comparison(comparison_id).comparison
     if (saved.left.id, saved.right.id) != (left_id, right_id):
         raise InvalidQuizAttemptError("퀴즈와 선택한 문화유산이 다릅니다.")
+    with transaction() as connection:
+        metadata = connection.execute(
+            "SELECT generation_note FROM quiz_metadata WHERE quiz_id=?", (quiz_id,)
+        ).fetchone()
     return QuizResponse(
         quiz_id=quiz_id,
+        generation_note=metadata["generation_note"] if metadata else "",
         level=LearningLevel(rows[0]["level"]),
-        learning_goal="목표에 맞는 공식 근거 읽기·비교·검토",
+        learning_goal=GOAL_LABELS[saved.goal.value] + " · 공식 설명으로 배운 내용 확인",
         comparison_id=comparison_id,
         basis="extracted",
         verification_status=saved.verification_status,

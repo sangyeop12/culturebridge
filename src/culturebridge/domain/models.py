@@ -324,6 +324,7 @@ class QuizRequest(BaseModel):
 
 class QuizResponse(BaseModel):
     quiz_id: str
+    generation_note: str = Field(default="", exclude=True)
     level: LearningLevel = LearningLevel.BEGINNER
     learning_goal: str = ""
     items: list[QuizItem]

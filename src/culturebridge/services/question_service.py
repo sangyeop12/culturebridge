@@ -96,6 +96,10 @@ def _gemini_answer(
     settings = get_settings()
     snapshot = comparison is not None
     comparison = comparison or compare_heritages(left_id, right_id, level)
+    from culturebridge.services.source_permission_service import external_ai_allowed
+
+    if not external_ai_allowed(comparison.collected_sources):
+        raise ValueError("외부 AI 이용 조건 확인이 필요한 자료입니다.")
     sources = [] if snapshot else get_sources(comparison.source_ids)
     if snapshot:
         sources = [
@@ -281,9 +285,15 @@ def answer_question(
             for f in supported_fields(snapshot)
             if any(word in reference_question for word in keywords[f.category])
         ]
-        names = {snapshot.left.id: snapshot.left.name, snapshot.right.id: snapshot.right.name}
+        from culturebridge.services.display_service import display_name, short_display_name
+        from culturebridge.services.lesson_service import beginner_text
+
+        names = {
+            h.id: short_display_name(display_name(h.id, h.name))
+            for h in (snapshot.left, snapshot.right)
+        }
         text = "\n".join(
-            f"{names[f.heritage_id]} · {f.category} 후보: {f.value}\n원문: {f.evidence_quote}"
+            f"{names[f.heritage_id]} · {f.category}: {beginner_text(f.category, f.evidence_quote)}"
             for f in fields
         )
         return QuestionAnswer(

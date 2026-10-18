@@ -150,6 +150,8 @@ def focused_text(source):
             re.I,
         )
         subject = korean_subject or english_subject
+        if korean_subject and korean_subject.group(1).strip().endswith("구릉"):
+            subject = None  # A hill in a tomb's location description is not another named tomb.
         if subject:
             named = subject.group(1).strip()
             named = re.sub(r"^The\s+", "", named, flags=re.I)

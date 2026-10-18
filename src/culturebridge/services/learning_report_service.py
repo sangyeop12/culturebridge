@@ -10,6 +10,7 @@ from culturebridge.services.curriculum_service import GOAL_LABELS
 from culturebridge.services.display_service import display_name
 from culturebridge.services.evidence_comparison_service import supported_fields
 from culturebridge.services.evidence_reading_service import reading_units
+from culturebridge.services.learner_presentation_service import learning_day, lesson_activity
 from culturebridge.services.lesson_service import beginner_text
 from culturebridge.services.operation_service import owner_key
 
@@ -113,6 +114,7 @@ def learning_report(record_id, history_id=None):
             for source in saved.sources
         ],
         "assessment": assessment,
+        "activity": lesson_activity(record_id),
         "notices": comparison.learning_notices
         + [
             "저장 당시의 자료를 바탕으로 한 학습용 검토 후보이며 역사적 의미 검증 완료가 아닙니다.",
@@ -135,8 +137,7 @@ def report_markdown(report):
         "- 수준: " + text(report["level_label"]),
         "- 학습 목표: " + text(report["goal"]),
         "- 세부 목표: " + text(report["goal_text"] or "없음"),
-        "- 저장 시각: " + text(report["saved_at"]),
-        "- 비교 ID: " + text(report["comparison_id"]),
+        "- " + learning_day(report["saved_at"]),
         "",
         "## 학습 순서",
         "",
@@ -183,11 +184,14 @@ def report_markdown(report):
         + text(source["title"])
         + " / "
         + text(source["url"])
-        + " / 조회: "
-        + text(source["retrieved_at"])
         for source in report["sources"]
     ]
     lines += ["", "## 안내", ""] + ["- " + text(note) for note in report["notices"]]
+    activity = report.get("activity", {})
+    lines += ["", "## 수업 활동과 내 정리", ""] + [
+        "- " + text(step) for step in activity.get("activities", [])
+    ]
+    lines += [text(activity.get("reflection", "")), "", text(activity.get("note", ""))]
     return "\n".join(lines)
 
 
@@ -216,8 +220,6 @@ def report_html(report):
         + '">'
         + escape(source["url"])
         + "</a>"
-        + " · "
-        + escape(source["retrieved_at"])
         + "</li>"
         for source in report["sources"]
     )
@@ -262,10 +264,8 @@ def report_html(report):
         + escape(report["goal"])
         + "</p>"
         "<p>세부 목표: " + escape(report["goal_text"] or "없음") + "</p>"
-        "<p>저장 시각: "
-        + escape(report["saved_at"])
-        + " · 학습 구성 버전: "
-        + str(report["learning_version"])
+        "<p>"
+        + learning_day(report["saved_at"])
         + "</p><h2>학습 순서</h2><ol>"
         + paragraphs(report["curriculum"])
         + "</ol><h2>공통점 검토</h2><ul>"
@@ -276,5 +276,13 @@ def report_html(report):
         "<h2>퀴즈와 복습</h2>" + quiz + "<h2>내가 정리한 내용</h2>"
         '<p class="writing">공통점:</p><p class="writing">차이점:</p>'
         '<p class="writing">더 확인할 점:</p><h2>공식 출처</h2><ul>' + sources + "</ul>"
-        "<h2>안내</h2><ul>" + paragraphs(report["notices"]) + "</ul></body></html>"
+        "<h2>수업 활동</h2><ul>"
+        + paragraphs(report.get("activity", {}).get("activities", []))
+        + "</ul><p>"
+        + escape(report.get("activity", {}).get("reflection", ""))
+        + '</p><p style="white-space:pre-wrap">'
+        + escape(report.get("activity", {}).get("note", ""))
+        + "</p><h2>안내</h2><ul>"
+        + paragraphs(report["notices"])
+        + "</ul></body></html>"
     )

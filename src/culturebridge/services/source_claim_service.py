@@ -63,6 +63,10 @@ def _generation_schema():
 
 
 def _assess_with_gemini(claim, sources):
+    from culturebridge.services.source_permission_service import external_ai_allowed
+
+    if not external_ai_allowed(sources):
+        raise ValueError("외부 AI 이용 조건 확인이 필요한 자료입니다.")
     settings = get_settings()
     with genai.Client(
         api_key=settings.gemini_api_key,

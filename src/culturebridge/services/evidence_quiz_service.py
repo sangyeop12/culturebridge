@@ -1,7 +1,7 @@
 from itertools import zip_longest
 from uuid import uuid4
 
-from culturebridge.database import save_quiz_items
+from culturebridge.database import save_quiz_items, transaction
 from culturebridge.domain.models import (
     LearningLevel,
     QuizChoice,
@@ -230,7 +230,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
                 + [name for name in ("화강암", "목재", "벽돌", "금속") if name != answer]
             )
             question_rows[0] = (
-                f"자료에서 찾은 후보에 따르면 {names[short_field.heritage_id]}의 재료는?",
+                f"공식 설명에 따르면 {names[short_field.heritage_id]}의 재료는 무엇인가요?",
                 choices,
                 "원문에서 찾은 재료 후보예요. 원문과 함께 확인해요.",
             )
@@ -306,7 +306,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
                 ],
                 "종교": ["불교", "이슬람", "힌두교", "기독교"],
                 "경전": ["법화경", "코란", "성경", "베다"],
-            }[axis]
+            }.get(axis, [])
             labels = {label for _, label in units}
             choices = [answer] + [label for label in alternatives if label not in labels][:3]
             if len(choices) == 4:
@@ -380,18 +380,27 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
             break
     offset = 1 if short_field else 0
     question_rows[offset : offset + len(factual_rows)] = factual_rows
+    from culturebridge.services.classroom_quiz_service import classroom_rows
+
+    classroom = classroom_rows(
+        fields, focus, names, left_id, right_id, level.value, comparison.collected_sources
+    )
+    if classroom:
+        question_rows[: len(classroom)] = classroom
     drafted_rows, generation_note = try_draft_quiz(comparison, level, fields, focus)
     if drafted_rows:
         question_rows = drafted_rows
     quiz_id = uuid4().hex
     raw_items = []
     items = []
+    from culturebridge.services.quiz_choice_service import answer_positions, arranged_choices
+
+    positions = answer_positions(len(question_rows))
     for position, (question, choices, explanation) in enumerate(question_rows):
         if len(set(choices)) != 4:
             raise EvidenceQuizError("선택지가 중복되어 퀴즈를 구성할 수 없습니다.")
-        shift = position % 4
-        choices = choices[shift:] + choices[:shift]
-        correct = (-shift) % 4
+        correct = positions[position]
+        choices = arranged_choices(choices, 0, correct)
         item_id = f"{quiz_id}-{position + 1}"
         raw_items.append((item_id, question, choices, correct, explanation))
         items.append(
@@ -411,10 +420,13 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
         comparison_id=comparison_id,
         evidence=[field.model_dump(mode="json") for field in fields],
     )
+    with transaction() as connection:
+        connection.execute("INSERT INTO quiz_metadata VALUES(?,?)", (quiz_id, generation_note))
     return QuizResponse(
         quiz_id=quiz_id,
+        generation_note=generation_note,
         level=level,
-        learning_goal=f"{GOAL_LABELS[comparison.goal.value]} · 공식 근거 읽기 · {generation_note}",
+        learning_goal=f"{GOAL_LABELS[comparison.goal.value]} · 공식 설명으로 배운 내용 확인",
         items=items,
         comparison_id=comparison_id,
         basis="extracted",

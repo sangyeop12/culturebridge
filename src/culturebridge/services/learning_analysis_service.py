@@ -2,7 +2,12 @@
 
 import re
 
-from culturebridge.services.evidence_reading_service import reading_units, source_years
+from culturebridge.services.evidence_reading_service import (
+    material_scope,
+    observation_scope,
+    reading_units,
+    source_years,
+)
 
 
 def comparison_explanation(category, left, right, level="beginner"):
@@ -10,13 +15,10 @@ def comparison_explanation(category, left, right, level="beginner"):
         return "양쪽 근거를 모두 찾지 못해 이 항목의 비교는 보류해요."
     caution = " 이 차이만으로 교류나 영향 관계를 단정하지 않아요."
     if category == "재료":
-        if any(
-            re.search(r"\bnot\b|without|아니|않|없|모방|imitat", field.evidence_quote, re.I)
-            for field in (left, right)
-        ):
+        if not all(reading_units(category, f.evidence_quote) for f in (left, right)):
             return (
-                "부정·모방 표현이 있어 재료를 단정하지 않아요. "
-                "실제 재료와 표현한 양식을 구분하세요."
+                "어느 부분에 실제로 쓴 재료인지 양쪽 자료에서 확인하지 못했어요. "
+                "없다는 설명과 재료가 확인된 설명을 구분해요."
             )
         materials = [reading_units(category, field.evidence_quote) for field in (left, right)]
         labels = [list(dict.fromkeys(label for _, label in units)) for units in materials]
@@ -34,6 +36,8 @@ def comparison_explanation(category, left, right, level="beginner"):
             if values[0] == values[1]:
                 return (
                     f"양쪽 자료에서 {values[0]}를 찾아볼 수 있어요. "
+                    f"왼쪽 설명 범위는 '{material_scope(left.evidence_quote)}', "
+                    f"오른쪽은 '{material_scope(right.evidence_quote)}'입니다. "
                     "재료가 같아도 만드는 방식은 다를 수 있어요."
                 )
             if any(v in {"돌", "석재"} for v in values) and any(
@@ -44,15 +48,22 @@ def comparison_explanation(category, left, right, level="beginner"):
                     "한쪽은 돌의 종류를 구체적으로 적고 다른 쪽은 석재라고만 적었어요. "
                     "이 표현 차이만으로 실제 재료가 다르다고 단정하지 않아요."
                 )
+            scopes = [material_scope(f.evidence_quote) for f in (left, right)]
             return (
-                f"자료에 나온 재료는 {values[0]}와 {values[1]}로 달라요. "
-                "재료에 따라 구조를 어떻게 만들었는지 살펴보세요." + caution
+                f"왼쪽은 {values[0]}, 오른쪽은 {values[1]} 표현이 나와요. "
+                f"설명 범위는 왼쪽 '{scopes[0]}', 오른쪽 '{scopes[1]}'입니다. "
+                "사용한 부분이 다르면 건물 전체의 재료 차이로 일반화하지 않아요." + caution
             )
     if category == "시대":
         if any(re.search(r"\b(?:BC|BCE)\b|기원전", f.evidence_quote, re.I) for f in (left, right)):
             return (
                 "기원전과 기원후 표기를 먼저 구분하세요. 연대를 양수로 바꿔 단순히 빼지 않아요."
                 + caution
+            )
+        if any(not f.date_event or "확인 필요" in f.date_event for f in (left, right)):
+            return (
+                "연대가 처음 지은 때인지 다시 지은 때인지 아직 확인하지 못했어요. "
+                "사건을 확인한 뒤 비교해요."
             )
         if left.date_event != right.date_event:
             return "두 연대가 가리키는 사건이 달라요. 건립과 재건을 구분한 뒤 비교하세요." + caution
@@ -79,14 +90,33 @@ def comparison_explanation(category, left, right, level="beginner"):
         )
     if category in {"구조", "종교적 배경"}:
         units = [reading_units(category, field.evidence_quote) for field in (left, right)]
-        common = [label for axis, label in units[0] if (axis, label) in units[1]]
+        common = [
+            label for axis, label in units[0] if axis != "건물 종류" and (axis, label) in units[1]
+        ]
         differences = []
         for axis in dict.fromkeys(axis for axis, _ in units[0]):
             a = [label for key, label in units[0] if key == axis]
             b = [label for key, label in units[1] if key == axis]
             if b and a != b:
+                if axis == "모양":
+                    scopes = [
+                        observation_scope(v, f.evidence_quote)
+                        for f, values in ((left, a), (right, b))
+                        for v in values
+                    ]
+                    if "설명 부분 미확인" in scopes or len(set(scopes)) != 1:
+                        differences.append(
+                            "한쪽은 "
+                            + "·".join(a)
+                            + ", 다른 쪽은 "
+                            + "·".join(b)
+                            + "을 설명해요. 평면·봉분·탑신 등 설명한 부분이 같지 않아 "
+                            "모양 차이로 단정하지 않아요."
+                        )
+                        continue
                 differences.append(
-                    f"{axis} 설명은 왼쪽의 {'·'.join(a)}와 오른쪽의 {'·'.join(b)}로 달라요."
+                    f"원문의 {axis} 표현이 서로 달라요: 왼쪽 '{'·'.join(a)}' / "
+                    f"오른쪽 '{'·'.join(b)}'."
                 )
         if common or differences:
             return (
@@ -105,7 +135,7 @@ def comparison_explanation(category, left, right, level="beginner"):
                 + "·".join(label for _, label in units[0])
                 + ", 오른쪽 원문은 "
                 + "·".join(label for _, label in units[1])
-                + "을 설명해요. 설명한 기준이 달라 같은 기준의 차이는 아직 판단하지 않아요."
+                + " 표현이 나와요. 설명한 기준이 달라 같은 기준의 차이는 아직 판단하지 않아요."
                 + caution
             )
     if category == "종교적 배경":

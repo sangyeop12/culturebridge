@@ -21,7 +21,7 @@ COURSES = {
         "reflection": "재료가 다르면 만드는 방법도 반드시 다를까요? 원문이 말하는 범위만 정리해요.",
     },
     "halls-and-roofs": {
-        "title": "큰 건물의 지붕과 공간 읽기",
+        "title": "큰 건물의 재료와 공간 읽기",
         "minutes": 25,
         "level": "intermediate",
         "goal": "observe",
@@ -86,11 +86,11 @@ COURSES = {
         "amount": "brief",
         "left": {"provider": "official", "official_id": "sainte-chapelle"},
         "right": {"provider": "official", "official_id": "durham-cathedral"},
-        "left_name": "생트샤펠 성당",
+        "left_name": "생트샤펠 왕실 예배당",
         "right_name": "더럼 대성당",
         "objective": "원문 연대가 가리키는 사건과 대상 범위를 확인하고 해석의 한계를 적어요.",
         "activities": [
-            "공식 영문과 출처·수집 시각을 확인해요.",
+            "공식 원문과 출처를 확인해요.",
             "건립·재건·복원 중 어떤 사건의 연대인지 구분해요.",
             "구조와 연대의 근거를 대조하고 모르는 점을 표시해요.",
         ],

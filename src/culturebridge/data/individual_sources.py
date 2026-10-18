@@ -201,7 +201,7 @@ EXTENDED_INDIVIDUALS = {
             "기존의 금빛 누각은",
         ),
         subject_names=("금빛 누각", "누각"),
-        aliases=("금각사", "긴카쿠지", "Kinkakuji"),
+        aliases=("금각사", "긴카쿠지", "킨카쿠지", "Kinkakuji"),
     ),
     "petit-trianon": versailles(
         "Petit Trianon Palace",
@@ -235,7 +235,7 @@ EXTENDED_INDIVIDUALS = {
     ),
     "sainte-chapelle": {
         "name": "Sainte-Chapelle",
-        "korean": "생트샤펠 성당",
+        "korean": "생트샤펠 왕실 예배당",
         "country": "France",
         "parent": "unesco:600",
         "type": "Church",
@@ -243,6 +243,7 @@ EXTENDED_INDIVIDUALS = {
         "organization": "프랑스 국립기념물센터(CMN)",
         "url": "https://www.sainte-chapelle.fr/en/discover/history-of-the-sainte-chapelle",
         "starts": ("Precious vestige", "Built in less than", "Damaged during the Revolution"),
+        "aliases": ("생트샤펠 성당", "생트샤펠 예배당", "생트 샤펠"),
     },
     "mont-saint-michel-abbey": {
         "name": "Mont-Saint-Michel Abbey",

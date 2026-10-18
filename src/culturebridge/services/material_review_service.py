@@ -4,6 +4,7 @@ import json
 from urllib.parse import urlsplit
 
 from culturebridge.data.material_review import POLICIES, SCOPE_NOTES
+from culturebridge.data.source_audit import NAME_FINDINGS, PROVIDER_FINDINGS, REVIEW_DATE
 from culturebridge.database import transaction
 from culturebridge.domain.models import CollectedSource
 from culturebridge.services.display_service import display_country
@@ -47,11 +48,19 @@ def material_review():
             else []
         )
         units = primary_type(snapshot.title, focused_text(snapshot)) if snapshot else None
+        finding = next(
+            (
+                value
+                for domain, value in PROVIDER_FINDINGS.items()
+                if host == domain or host.endswith("." + domain)
+            ),
+            None,
+        )
         rows.append(
             {
                 **row,
                 "scope_note": SCOPE_NOTES[identity],
-                "scope_check": "등록 유형과 수집 제목 일치"
+                "scope_check": "등록 유형과 자동 추출 유형 일치·범위 의미 검토는 별도"
                 if units == row["type"]
                 else "원문 대조 필요",
                 "categories": categories,
@@ -59,11 +68,21 @@ def material_review():
                 if row["name_status"] == "reviewed"
                 else "안내 표기·팀 검토 필요",
                 "explanation_check": "한국어 풀이의 의미·수준 적합성 검토 필요",
-                "policy_url": policy[0] if policy else row["source_url"],
-                "policy_note": policy[1]
+                "desk_review": "AI 사전 점검 기록·팀 최종 승인 아님",
+                "desk_review_date": REVIEW_DATE,
+                "name_finding": NAME_FINDINGS[identity],
+                "name_reference_url": row["source_url"],
+                "policy_status": finding[0] if finding else "not_established",
+                "ai_permission": "미확인·외부 AI 전송 허가로 간주하지 않음",
+                "translation_permission": "서비스용 번역 허가 미확인",
+                "redistribution_permission": "공개 재배포 허가 미확인",
+                "policy_url": finding[1] if finding else policy[0] if policy else row["source_url"],
+                "policy_note": finding[2]
+                if finding
+                else policy[1]
                 if policy
                 else "일반 재이용 조건을 확정하지 못했다. 기관 문의·개별 조건 확인 필요.",
-                "policy_checked_date": "2026-10-17" if policy else None,
+                "policy_checked_date": REVIEW_DATE if finding or policy else None,
                 "permission": "허가 완료를 뜻하지 않음",
             }
         )
@@ -105,6 +124,8 @@ def review_markdown():
             "- 공식 출처: [" + row["organization"] + "](" + row["source_url"] + ")",
             "- 한국어 이름: " + row["name_check"] + ". 공식 한국어 번역으로 인증하지 않았습니다.",
             "- 풀이: " + row["explanation_check"] + ".",
+            "- 사전 표기 점검: " + row["name_finding"],
+            "- 점검자·일자: AI 사전 점검 / " + row["desk_review_date"] + " / 팀 최종 승인 아님",
             "- 대상 범위: " + row["scope_note"],
             "- 연결: "
             + row["connection_status"]
@@ -112,6 +133,8 @@ def review_markdown():
             + (row["last_success_at"] or "미기록"),
             "- 이용 조건 참고: [기관 안내](" + row["policy_url"] + ")",
             "- 권리 검토: " + row["policy_note"],
+            "- 번역: " + row["translation_permission"] + " / AI: " + row["ai_permission"],
+            "- 공개 재배포: " + row["redistribution_permission"],
             "",
         ]
     return "\n".join(lines)

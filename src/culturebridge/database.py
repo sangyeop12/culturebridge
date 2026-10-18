@@ -78,6 +78,14 @@ CREATE TABLE IF NOT EXISTS course_runs (
     course_id TEXT NOT NULL, owner TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS learning_notes (
+    comparison_id TEXT NOT NULL REFERENCES comparisons(id) ON DELETE CASCADE,
+    owner TEXT NOT NULL, content TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(comparison_id,owner)
+);
+CREATE TABLE IF NOT EXISTS quiz_metadata (
+    quiz_id TEXT PRIMARY KEY, generation_note TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS official_documents (
     id TEXT PRIMARY KEY,

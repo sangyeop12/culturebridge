@@ -105,6 +105,11 @@ def validate_korean_draft(draft, lesson):
 @reused_operation("korean_lesson")
 def korean_lesson(source, level=LearningLevel.BEGINNER):
     lesson = explain_source(source, level)
+    from culturebridge.services.source_permission_service import external_ai_allowed
+
+    if not external_ai_allowed([source], "translation") or not external_ai_allowed([source]):
+        lesson.notice += " 한국어 풀이 이용 조건 확인 전에는 기본 읽기 도움말을 제공해요."
+        return lesson
     settings = get_settings()
     if lesson.level is LearningLevel.ADVANCED or source.status not in {"fresh", "cached"}:
         return lesson
