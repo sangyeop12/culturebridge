@@ -6,6 +6,7 @@ from datetime import date
 import httpx
 
 from culturebridge.config import get_settings
+from culturebridge.services.english_open_record_service import ENGLISH_OPEN_RECORDS
 from culturebridge.services.official_service import OfficialServiceError
 
 DATASET_ID = "5af120e5b595087cfabcde81"
@@ -32,6 +33,8 @@ OPEN_RECORDS = {
     },
 }
 
+AVAILABLE_OPEN_RECORDS = frozenset(OPEN_RECORDS) | frozenset(ENGLISH_OPEN_RECORDS)
+
 
 def _get_json(client, url, params=None):
     with client.stream("GET", url, params=params) as response:
@@ -48,6 +51,10 @@ def _get_json(client, url, params=None):
 
 def fetch_open_record(identity):
     """No API key, foreign AI call, arbitrary URL, image download, or learner DB mutation."""
+    if identity in ENGLISH_OPEN_RECORDS:
+        from culturebridge.services.english_open_record_service import fetch_english_open_record
+
+        return fetch_english_open_record(identity)
     if identity not in OPEN_RECORDS:
         raise KeyError(identity)
     selected = OPEN_RECORDS[identity]
@@ -102,6 +109,7 @@ def fetch_open_record(identity):
             "reference": selected["reference"],
             "scope": selected["scope"],
             "language": "fr",
+            "organization": "프랑스 문화부 · Monuments historiques",
             "fields": {key: value for key, value in fields.items() if value},
             "guidance": guidance,
             "source_url": "https://pop.culture.gouv.fr/notice/merimee/" + selected["reference"],

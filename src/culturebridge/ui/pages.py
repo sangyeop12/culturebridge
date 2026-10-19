@@ -1952,7 +1952,7 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
 @ui.page("/sources")
 def source_catalogue_page():
     from culturebridge.services.material_review_service import material_review
-    from culturebridge.services.open_record_service import OPEN_RECORDS
+    from culturebridge.services.open_record_service import AVAILABLE_OPEN_RECORDS
     from culturebridge.services.source_registry_service import source_overview
 
     _base_styles()
@@ -2010,7 +2010,7 @@ def source_catalogue_page():
                         for purpose in checked["classroom_usage"]["purposes"].values():
                             ui.label(purpose["label"] + ": " + purpose["reason"])
                 identity = row["id"].split(":", 1)[1]
-                if identity in OPEN_RECORDS:
+                if identity in AVAILABLE_OPEN_RECORDS:
                     ui.link("다른 공식 기록도 함께 읽기", "/sources/open/" + identity)
                 ui.link("공식 원문 보기", row["source_url"], new_tab=True)
                 if (
@@ -2022,7 +2022,7 @@ def source_catalogue_page():
 
 @ui.page("/sources/open/{identity}")
 async def open_record_page(identity: str):
-    from culturebridge.services.open_record_service import OPEN_RECORDS, fetch_open_record
+    from culturebridge.services.open_record_service import AVAILABLE_OPEN_RECORDS, fetch_open_record
 
     _base_styles()
     _header()
@@ -2031,7 +2031,7 @@ async def open_record_page(identity: str):
         ui.label("다른 공식 기록도 함께 읽어요").classes("cb-title text-3xl").props(
             "role=heading aria-level=1"
         )
-        if identity not in OPEN_RECORDS:
+        if identity not in AVAILABLE_OPEN_RECORDS:
             ui.label("아직 연결하지 않은 추가 기록이에요.")
             return
         try:
@@ -2041,7 +2041,8 @@ async def open_record_page(identity: str):
             ui.link("이 유산 학습으로 돌아가기", "/discover/official/" + identity)
             return
         ui.label(record["scope"])
-        ui.label("프랑스 문화부 공개 기록 · 원문 언어: 프랑스어").classes("cb-muted")
+        language = {"fr": "프랑스어", "en": "영어"}[record["language"]]
+        ui.label(record["organization"] + " · 원문 언어: " + language).classes("cb-muted")
         if record["guidance"]:
             ui.label(record["guidance"])
         with ui.card().classes("cb-card w-full p-5 gap-3"):
