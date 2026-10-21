@@ -8,6 +8,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from nicegui import ui
 
+from culturebridge.api.learning_router import router as learning_router
+from culturebridge.api.pwa_router import router as pwa_router
 from culturebridge.api.router import router
 from culturebridge.config import get_settings
 from culturebridge.database import initialize_database
@@ -46,6 +48,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(router)
+app.include_router(learning_router)
+app.include_router(pwa_router)
 app.add_middleware(AnonymousSessionMiddleware)
 
 

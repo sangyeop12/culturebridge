@@ -10,6 +10,7 @@ def list_learning_reviews(limit=20, offset=0, level="all"):
     with transaction() as connection:
         rows = connection.execute(
             """SELECT h.id,h.level,h.score,h.total,h.created_at,r.quiz_id,r.result_json,
+            r.owner AS review_owner,
             c.name AS heritage_name,c.id AS heritage_id,
             (SELECT comparison_id FROM quiz_items WHERE quiz_id=r.quiz_id LIMIT 1) AS comparison_id
             FROM learning_history h JOIN learning_reviews r ON r.history_id=h.id
@@ -18,4 +19,11 @@ def list_learning_reviews(limit=20, offset=0, level="all"):
             ORDER BY h.id DESC LIMIT ? OFFSET ?""",
             (owner_key() if private else None, owner_key(), level, level, limit, offset),
         ).fetchall()
-    return [{**dict(row), "result": json.loads(row["result_json"])} for row in rows]
+    return [
+        {
+            **{key: row[key] for key in row.keys() if key != "review_owner"},
+            "result": json.loads(row["result_json"]),
+            "can_conversation_review": row["review_owner"] == owner_key(),
+        }
+        for row in rows
+    ]

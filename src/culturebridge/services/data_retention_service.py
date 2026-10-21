@@ -16,6 +16,14 @@ def delete_records(*, owner=None, cutoff=None, apply=False):
     if owner is None and cutoff is None:
         raise ValueError("소유 세션 또는 보관 기한이 필요합니다.")
     with transaction() as connection:
+        conversations = [
+            r["id"]
+            for r in connection.execute(
+                "SELECT id FROM learning_conversations WHERE (? IS NULL OR owner=?) "
+                "AND (? IS NULL OR julianday(updated_at)<julianday(?))",
+                (owner, owner, cutoff, cutoff),
+            )
+        ]
         resources = connection.execute(
             "SELECT o.kind,o.id FROM resource_owners o JOIN resource_created c "
             "ON c.kind=o.kind AND c.id=o.id WHERE (? IS NULL OR o.owner=?) "
@@ -45,6 +53,7 @@ def delete_records(*, owner=None, cutoff=None, apply=False):
             )
         ]
         counts = {
+            "conversations": len(conversations),
             "comparisons": len(comparison_ids),
             "quizzes": len(quiz_ids),
             "history": len(histories),
@@ -52,6 +61,41 @@ def delete_records(*, owner=None, cutoff=None, apply=False):
         }
         if not apply:
             return counts
+        if conversations:
+            connection.execute(
+                f"DELETE FROM learning_conversations WHERE id IN ({_marks(conversations)})",
+                conversations,
+            )
+        if owner is not None and cutoff is None:
+            connection.execute("DELETE FROM learner_profiles WHERE owner=?", (owner,))
+            connection.execute("DELETE FROM learning_preferences WHERE owner=?", (owner,))
+            connection.execute("DELETE FROM learning_intents WHERE owner=?", (owner,))
+            connection.execute("DELETE FROM inferred_learning_intents WHERE owner=?", (owner,))
+        elif cutoff is not None:
+            connection.execute(
+                "DELETE FROM inferred_learning_intents WHERE (? IS NULL OR owner=?) "
+                "AND julianday(updated_at)<julianday(?) "
+                "AND owner NOT IN (SELECT owner FROM learning_conversations)",
+                (owner, owner, cutoff),
+            )
+            connection.execute(
+                "DELETE FROM learning_intents WHERE (? IS NULL OR owner=?) "
+                "AND julianday(updated_at)<julianday(?) "
+                "AND owner NOT IN (SELECT owner FROM learning_conversations)",
+                (owner, owner, cutoff),
+            )
+            connection.execute(
+                "DELETE FROM learning_preferences WHERE (? IS NULL OR owner=?) "
+                "AND julianday(updated_at)<julianday(?) "
+                "AND owner NOT IN (SELECT owner FROM learning_conversations)",
+                (owner, owner, cutoff),
+            )
+            # Profiles follow the learner's surviving conversations, not an orphaned history.
+            connection.execute(
+                "DELETE FROM learner_profiles WHERE (? IS NULL OR owner=?) AND owner NOT IN "
+                "(SELECT owner FROM learning_conversations)",
+                (owner, owner),
+            )
         if histories:
             connection.execute(
                 f"DELETE FROM learning_reviews WHERE history_id IN ({_marks(histories)})", histories

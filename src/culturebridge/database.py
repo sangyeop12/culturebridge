@@ -11,6 +11,36 @@ from culturebridge.services.operation_service import owner_key, session_owner
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS learner_profiles (
+    owner TEXT PRIMARY KEY, state_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS learning_preferences (
+    owner TEXT PRIMARY KEY, state_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS learning_intents (
+    owner TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0, state_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS inferred_learning_intents (
+    owner TEXT PRIMARY KEY, state_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS learning_conversations (
+    id TEXT PRIMARY KEY, owner TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0,
+    state_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS learning_conversation_owner ON learning_conversations(owner);
+CREATE TABLE IF NOT EXISTS learning_turn_requests (
+    conversation_id TEXT NOT NULL REFERENCES learning_conversations(id) ON DELETE CASCADE,
+    request_id TEXT NOT NULL, payload_hash TEXT NOT NULL, response_json TEXT NOT NULL,
+    PRIMARY KEY(conversation_id, request_id)
+);
+CREATE TABLE IF NOT EXISTS learning_interrupts (
+    conversation_id TEXT PRIMARY KEY REFERENCES learning_conversations(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS resource_owners (
     kind TEXT NOT NULL, id TEXT NOT NULL, owner TEXT NOT NULL,
     PRIMARY KEY (kind, id)
@@ -33,6 +63,11 @@ END;
 CREATE TABLE IF NOT EXISTS learning_reviews (
     history_id INTEGER PRIMARY KEY REFERENCES learning_history(id),
     quiz_id TEXT NOT NULL, result_json TEXT NOT NULL, owner TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS learning_review_links (
+    history_id INTEGER PRIMARY KEY REFERENCES learning_history(id) ON DELETE CASCADE,
+    conversation_id TEXT NOT NULL UNIQUE REFERENCES learning_conversations(id) ON DELETE CASCADE,
+    owner TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS heritages (

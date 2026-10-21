@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     learning_reuse_seconds: int = Field(default=300, ge=0, le=3600)
     requests_per_minute: int = Field(default=30, ge=1, le=120)
     individual_sources_enabled: bool = True
+    learning_turn_seconds: int = Field(default=45, ge=5, le=90)
+    learning_turn_steps: int = Field(default=6, ge=2, le=8)
+    stdict_api_key: SecretStr | None = Field(default=None, validation_alias="STDICT_API_KEY")
 
 
 @lru_cache

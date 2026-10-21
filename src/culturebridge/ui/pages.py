@@ -93,9 +93,32 @@ from culturebridge.services.unesco_service import (
     normalize_search,
     search_unesco,
 )
+from culturebridge.ui.learning_chat import learning_chat, learning_entry
 from culturebridge.ui.theme import ACCENT, BRAND, PALE, THEME_HEAD
 
 logger = logging.getLogger(__name__)
+
+
+def _conversation_review_button(history_id):
+    from culturebridge.services.conversation_review_service import ReviewNotFoundError
+    from culturebridge.services.learning_conversation_service import create_conversation
+
+    async def start_review():
+        button.disable()
+        try:
+            state = await _io_bound(create_conversation, review_history_id=history_id)
+            ui.navigate.to(f"/learn?conversation_id={state.id}")
+        except (ReviewNotFoundError, ValueError, OperationBusyError):
+            ui.notify(
+                "복습 대화를 열지 못했어요. 이 브라우저의 채점 기록을 확인해 주세요.",
+                color="warning",
+            )
+        except sqlite3.Error:
+            ui.notify("복습 기록을 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.", color="warning")
+        finally:
+            button.enable()
+
+    button = ui.button("대화로 다시 익히기", icon="forum", on_click=start_review).props("outline")
 
 
 def _review_cards(items):
@@ -188,8 +211,11 @@ LEVEL_LABELS = {
 
 
 def _base_styles() -> None:
+    from culturebridge.api.pwa_router import PWA_HEAD
+
     ui.colors(primary=ACCENT, secondary="#977444", accent="#977444")
     ui.add_head_html(THEME_HEAD)
+    ui.add_head_html(PWA_HEAD)
 
 
 def _header() -> None:
@@ -212,6 +238,7 @@ def _header() -> None:
             ui.space()
             with ui.row().classes("cb-nav").props('role=navigation aria-label="주요 메뉴"'):
                 for label, route in (
+                    ("역사 이야기", "/learn"),
                     ("비교 학습", "/"),
                     ("추천 학습 코스", "/courses"),
                     ("한국 문화유산", "/official"),
@@ -554,10 +581,11 @@ def home_page(
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-7 py-10"):
+        learning_entry(_io_bound)
         with ui.column().classes("cb-hero cb-illustrated"):
             ui.label("문화유산을 잇고, 배움을 넓히다").classes("cb-eyebrow")
             ui.label("하나의 문화유산에서 세계로").classes("cb-hero-title").props(
-                "role=heading aria-level=1"
+                "role=heading aria-level=2"
             )
             ui.label(
                 "한국 문화유산과 세계유산을 검색하고, 지원 유산은 비교 학습으로 이어가세요."
@@ -967,6 +995,46 @@ def home_page(
             render_results()
             if auto and q.strip():
                 _restore_results(lambda: submit_search(page=max(1, min(page, 10000))))
+
+
+@ui.page("/learn")
+def conversation_page(conversation_id: str = ""):
+    _base_styles()
+    _header()
+    with ui.column().classes("cb-shell gap-6 py-10"):
+        learning_chat(_io_bound, conversation_id)
+
+
+@ui.page("/install")
+def install_page():
+    _base_styles()
+    _header()
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("홈 화면에서 바로 시작하기").classes("cb-title text-3xl").props(
+            "role=heading aria-level=1"
+        )
+        ui.label("별도 앱 파일 없이 컬처브릿지를 홈 화면에 추가할 수 있어요.")
+        ui.label("Android·PC: 브라우저 메뉴의 ‘앱 설치’ 또는 아래 버튼을 이용해 주세요.")
+        ui.label("iPhone·iPad: Safari의 공유 메뉴 → ‘홈 화면에 추가’를 선택해 주세요.")
+        ui.label("설치 버튼은 브라우저와 접속 환경에 따라 보이지 않을 수 있어요.")
+        ui.html('<p id="cb-install-status" role="status" aria-live="polite"></p>')
+        ui.html('<p id="cb-update-status" role="status" aria-live="polite"></p>')
+        ui.button("홈 화면에 추가", icon="add_to_home_screen").on(
+            "click", js_handler="() => window.CultureBridgePWA?.install()"
+        )
+        ui.button("새 버전 적용", icon="refresh").on(
+            "click", js_handler="() => window.CultureBridgePWA?.update()"
+        ).props("outline")
+        ui.label(
+            "대화·검색에는 인터넷과 실행 중인 서버가 필요해요. "
+            "오프라인에서는 연결 안내만 보여줘요."
+        )
+        ui.label("실제 기기에서는 HTTPS 주소가 필요해요. 홈 화면 추가는 서버를 대신 켜주지 않아요.")
+        ui.label(
+            "기록은 브라우저의 익명 세션에 연결돼요. "
+            "다른 기기·설치 환경과 자동 공유되지 않아요."
+        )
+        ui.link("역사 이야기로", "/learn")
 
 
 @ui.page("/domestic")
@@ -1797,6 +1865,8 @@ async def quiz_page(
                             _extracted_field_cards(result.evidence, learning_level)
                     if quiz.comparison_id and not _is_kiosk(mode):
                         _report_links(quiz.comparison_id, result.history_id)
+                    if result.history_id and not _is_kiosk(mode):
+                        _conversation_review_button(result.history_id)
             submit_button.disable()
             ui.run_javascript(
                 f'document.getElementById("c{result_box.id}")?.scrollIntoView({{block:"start"}})'
@@ -1878,6 +1948,10 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
         ui.label(
             "브라우저 세션별 기록" if get_settings().public_mode else "로컬 서버의 공유 학습 기록"
         ).classes("cb-muted")
+        ui.label(
+            "대화로 복습하기는 이 브라우저에서 채점한 기록에서만 열려요. "
+            "예전 공유 기록은 해설을 읽거나 퀴즈를 다시 풀어보세요."
+        ).classes("cb-muted")
         page = max(1, min(page, 100000))
         level = level if level in LEVEL_LABELS else "all"
         ui.select(
@@ -1913,8 +1987,12 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
                 else:
                     for step in review["result"].get("review_steps", []):
                         ui.label(step)
-                if not review["result"].get("review_steps"):
+                if review["score"] == review["total"] and review["total"] > 0:
                     ui.label("모든 문항을 맞혔어요. 원문 근거를 다시 확인해 보세요.")
+                elif not items and not review["result"].get("review_steps"):
+                    ui.label("이 기록에는 문항별 해설이 없어요. 설명을 다시 읽으며 복습해 주세요.")
+                if review.get("can_conversation_review"):
+                    _conversation_review_button(review["id"])
                 if review["comparison_id"]:
                     try:
                         comparison = get_saved_comparison(review["comparison_id"]).comparison
@@ -2217,13 +2295,15 @@ def data_policy_page():
             "role=heading aria-level=1"
         )
         ui.label(
-            "비교 결과·퀴즈 답안·점수·오답 복습을 익명 브라우저 세션과 연결해 저장합니다. "
+            "대화·관심사·학습 목표·자기 설명·말투 설정·잠정 이해도·비교 결과·퀴즈 답안·오답 복습을 "
+            "익명 브라우저 세션과 연결해 저장합니다. "
             "계정 로그인 방식이 아니므로 쿠키를 지우거나 다른 브라우저를 쓰면 "
             "이전 기록에 접근하지 못할 수 있어요."
         )
         if not settings.public_mode:
             ui.label(
-                "현재는 로컬 공유 모드라 이 서버의 학습 기록을 함께 열람할 수 있어요. "
+                "현재는 로컬 공유 모드라 비교·퀴즈 기록을 함께 열람할 수 있어요. "
+                "새 대화와 이해도 기록은 이 모드에서도 세션별로 분리해요. "
                 "파일 저장과 정리 수정·삭제는 기록을 만든 브라우저에서만 할 수 있어요."
             ).props("role=note")
         ui.label(
@@ -2242,7 +2322,7 @@ def data_policy_page():
             else "자동 백업은 현재 비활성 상태입니다."
         )
         ui.label(
-            "아래 삭제는 이 브라우저 세션의 저장 비교·퀴즈·학습 결과에만 적용됩니다. "
+            "아래 삭제는 이 브라우저 세션의 대화·이해도·저장 비교·퀴즈·학습 결과에 적용됩니다. "
             "공용 공식 자료와 다른 세션 기록은 유지해요. 실행 취소는 할 수 없습니다. "
             "기존 백업 사본은 관리자 보관 주기에 따라 별도로 만료됩니다."
         ).classes("cb-muted")
@@ -2254,7 +2334,8 @@ def data_policy_page():
                     result = await _io_bound(delete_session_records)
                     ui.notify(
                         f"비교 {result['comparisons']}개·퀴즈 {result['quizzes']}개·"
-                        f"학습 결과 {result['history']}개를 삭제했어요."
+                        f"학습 결과 {result['history']}개·대화 {result['conversations']}개와 "
+                        "이해도 기록을 삭제했어요."
                     )
                     dialog.close()
                 except (ValueError, OperationBusyError):
