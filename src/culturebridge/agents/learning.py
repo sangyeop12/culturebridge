@@ -124,6 +124,9 @@ def _model_decision(state):
                     "search_world는 해외 개별 유산과 UNESCO 등재 목록 검색이다. "
                     "일본·중국 등 해외 유산 이름이나 국가를 찾을 때 선택한다. "
                     "UNESCO 목록 결과는 이름·공식 링크 안내이며 AI 설명 근거로 읽지 않는다. "
+                    "한국 역사 인물·사건은 search_history로 신편 한국사 제목을 검색한다. "
+                    "query는 짧은 인물·사건명이다. 결과는 제목과 공식 링크이며 본문 근거가 아니다. "
+                    "검색 원문을 읽었다거나 그 사실에 답했다고 주장하지 않는다. "
                     "일반 역사 인물·사건의 근거를 현재 도구에서 확보할 수 없으면 references로 "
                     "국사편찬위원회와 국립문화유산연구원의 자료 찾기를 안내한다. "
                     "references는 문서를 실제 수집하거나 답한 것이 아니다. "
@@ -340,7 +343,7 @@ def route(state):
     decision = state["decision"]
     key = f"{decision.action}:{decision.query}:{decision.source_id}"
     if (
-        decision.action in {"search", "search_world", "read", "define"}
+        decision.action in {"search", "search_world", "search_history", "read", "define"}
         and key not in state["seen"]
         and state["steps"] < get_settings().learning_turn_steps
         and time.monotonic() < state["deadline"]
@@ -367,6 +370,11 @@ def tool(state):
                 "steps": state["steps"] + 1,
                 "seen": state["seen"] + [key],
             }
+        if decision.action == "search_history":
+            from culturebridge.services.history_search_service import search_history
+
+            conversation.search_results, notice = search_history(decision.query)
+            return {"steps": state["steps"] + 1, "seen": state["seen"] + [key], "notice": notice}
         if decision.action == "search_world":
             from culturebridge.services.learning_reference_service import world_learning_results
 
@@ -396,9 +404,9 @@ def tool(state):
                 return {
                     "steps": state["steps"] + 1, "seen": state["seen"] + [key], "notice": notice
                 }
-            if result["id"].startswith("unesco:"):
+            if result.get("metadata_only"):
                 notice = (
-                    "세계유산 목록은 공식 링크에서 확인해 주세요. "
+                    "이 자료는 공식 링크에서 원문을 확인해 주세요. "
                     "AI 설명 근거로 전송하지 않아요."
                 )
                 return {
@@ -450,7 +458,8 @@ def respond(state):
             "아래 기관에서 자료를 찾아볼 수 있어요. "
             "아직 원문을 수집하거나 답을 확인한 것은 아니에요."
         )
-        suggestions = [{"label": label, "url": url} for label, url in HISTORY_REFERENCES]
+        suggestions = [{"label": "인물·사건 자료 검색하기", "url": "/history-search"}]
+        suggestions += [{"label": label, "url": url} for label, url in HISTORY_REFERENCES]
     elif decision.action == "define":
         result = state.get("dictionary_result", {})
         output = result.get("notice", "사전의 뜻을 확인하지 못했어요.")

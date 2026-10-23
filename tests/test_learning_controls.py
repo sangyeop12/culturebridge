@@ -135,6 +135,8 @@ def test_ui_renders_optional_controls_and_install_guidance(isolated):
         install = client.get("/install")
         assert install.status_code == 200
         assert "Safari" in install.text and "서버를 대신" in install.text
+        assert "새 버전 적용 확인" in install.text and "계속 학습하기" in install.text
+        assert "cb_pwa_update_confirm" in install.text
 
 
 def test_settings_move_keeps_preferences_and_conversation_controls(isolated):

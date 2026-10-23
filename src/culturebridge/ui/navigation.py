@@ -14,7 +14,9 @@ PRIMARY = (
 def section_for(path):
     if path == "/":
         return "home"
-    if path.startswith("/learn") and not path.startswith("/learning-history"):
+    if path == "/history-search" or (
+        path.startswith("/learn") and not path.startswith("/learning-history")
+    ):
         return "conversation"
     if path.startswith("/courses"):
         return "courses"
@@ -53,6 +55,7 @@ def secondary_navigation(path):
         ),
         "conversation": (
             ("대화 학습", "/learn"),
+            ("인물·사건 자료 찾기", "/history-search"),
             ("학습 기록", "/learning-history"),
             ("설정", "/settings"),
         ),

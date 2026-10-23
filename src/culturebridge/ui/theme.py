@@ -178,6 +178,10 @@ body {background:var(--cb-paper);color:var(--cb-ink);font-family:'Segoe UI','Mal
  text-underline-offset:4px}
 .cb-footer-brand {font-size:17px;font-weight:750;color:#193e3a}
 :focus-visible {outline:3px solid #94652e;outline-offset:4px}
+.cb-shell[tabindex="-1"]:focus {outline:3px solid #94652e;outline-offset:4px}
+.q-btn:focus-visible,.q-item:focus-visible {outline-offset:-3px}
+.cb-shell .q-field,.cb-shell .q-field__inner {min-width:0;max-width:100%}
+.cb-shell .q-table__container {max-width:100%;overflow-x:auto}
 .cb-skip-link {position:fixed;top:-100px;left:16px;z-index:99999;padding:12px;background:white;
  color:#193e3a}
 .cb-skip-link:focus {top:12px}

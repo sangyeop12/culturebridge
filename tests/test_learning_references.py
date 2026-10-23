@@ -91,5 +91,5 @@ def test_general_history_guidance_never_claims_a_retrieved_answer():
     assert "아직 원문을 수집하거나 답을 확인한 것은 아니에요" in message.text
     assert not message.citations
     assert {s["url"] for s in message.suggestions} == {
-        "https://db.history.go.kr/", "https://portal.nrich.go.kr/"
+        "/history-search", "https://db.history.go.kr/", "https://portal.nrich.go.kr/"
     }

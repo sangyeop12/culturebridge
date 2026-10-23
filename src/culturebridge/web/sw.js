@@ -1,4 +1,4 @@
-const CACHE = 'culturebridge-public-v1';
+const CACHE = 'culturebridge-public-v2';
 const PUBLIC = ['/pwa/offline', '/pwa/icon-180.png', '/pwa/icon-192.png', '/pwa/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(PUBLIC)));
@@ -16,8 +16,8 @@ self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin ||
-      url.pathname.startsWith('/api/') || url.search) return;
-  if (PUBLIC.includes(url.pathname)) {
+      url.pathname.startsWith('/api/')) return;
+  if (PUBLIC.includes(url.pathname) && !url.search) {
     event.respondWith(caches.open(CACHE).then(async cache =>
       (await cache.match(request)) || fetch(request)));
   } else if (request.mode === 'navigate') {

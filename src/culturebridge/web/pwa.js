@@ -24,20 +24,43 @@
       }
       const event = promptEvent;
       promptEvent = null;
-      await event.prompt();
-      const choice = await event.userChoice;
-      status(choice.outcome === 'accepted' ? '홈 화면 추가를 요청했어요.' : '웹에서도 계속 이용할 수 있어요.');
+      try {
+        await event.prompt();
+        const choice = await event.userChoice;
+        status(choice.outcome === 'accepted' ? '홈 화면 추가를 요청했어요.' : '웹에서도 계속 이용할 수 있어요.');
+      } catch {
+        status('설치 창을 열지 못했어요. 브라우저 메뉴를 이용하거나 웹에서 계속 학습해 주세요.');
+      }
     },
     update() {
       if (!registration?.waiting) return status('대기 중인 업데이트가 없어요.', 'cb-update-status');
-      if (!window.confirm('작성 중인 입력은 사라질 수 있어요. 대화를 보낸 뒤 새 버전으로 바꿀까요?')) return;
+      if (typeof emitEvent === 'function') emitEvent('cb_pwa_update_confirm');
+      else status('확인 창을 열지 못했어요. 입력을 마친 뒤 다시 시도해 주세요.', 'cb-update-status');
+    },
+    applyUpdate() {
+      if (!registration?.waiting) return status('대기 중인 업데이트가 없어요.', 'cb-update-status');
       updateRequested = true;
-      registration.waiting.postMessage({type: 'SKIP_WAITING'});
+      try {
+        registration.waiting.postMessage({type: 'SKIP_WAITING'});
+      } catch {
+        updateRequested = false;
+        status('새 버전을 적용하지 못했어요. 작성한 내용을 보낸 뒤 다시 시도해 주세요.', 'cb-update-status');
+      }
     },
   };
-  if (!window.isSecureContext || !('serviceWorker' in navigator)) return;
+  const connection = () => status(navigator.onLine === false
+    ? '브라우저 연결이 끊겼어요. 연결 전에는 질문을 보내지 마세요.'
+    : '브라우저가 네트워크에 연결돼 있어요. 학습하려면 서버도 실행 중이어야 해요.', 'cb-connection-status');
+  window.addEventListener('online', connection);
+  window.addEventListener('offline', connection);
+  window.addEventListener('DOMContentLoaded', connection);
+  connection();
+  if (!window.isSecureContext || !('serviceWorker' in navigator)) {
+    status('이 환경에서는 홈 화면 추가를 준비할 수 없어요. 일반 웹으로 이용해 주세요.');
+    return;
+  }
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (updateRequested) location.reload();
+    if (updateRequested) { updateRequested = false; location.reload(); }
   });
   navigator.serviceWorker.register('/sw.js', {scope: '/', updateViaCache: 'none'})
     .then(value => {

@@ -229,14 +229,14 @@ def _header() -> None:
     )
 
     path = ui.context.client.request.url.path if ui.context.client.request else "/"
-    ui.button(
-        "본문 바로가기",
-        on_click=lambda: ui.run_javascript(
-            'const main=document.querySelector(".cb-shell");'
-            'if(main){main.setAttribute("tabindex","-1");main.focus();main.scrollIntoView();}'
-        ),
-    ).classes("cb-skip-link")
     with ui.header().classes("cb-header p-0"):
+        ui.button(
+            "본문 바로가기",
+            on_click=lambda: ui.run_javascript(
+                'const main=document.querySelector(".cb-shell");'
+                'if(main){main.setAttribute("tabindex","-1");main.focus();main.scrollIntoView();}'
+            ),
+        ).classes("cb-skip-link")
         with ui.row().classes("cb-header-inner"):
             ui.icon("account_balance", size="22px").classes("cb-brand-mark").props(
                 "aria-hidden=true"
@@ -1040,6 +1040,55 @@ def learning_settings_page():
         ui.link("대화 학습으로", "/learn")
 
 
+@ui.page("/history-search")
+def history_search_page():
+    from culturebridge.services.history_search_service import search_history
+
+    _base_styles()
+    _header()
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("인물과 사건 자료 찾기").classes("cb-title text-3xl").props(
+            "role=heading aria-level=1"
+        )
+        ui.label("국사편찬위원회 ‘신편 한국사’의 실제 검색 결과를 찾아요.").classes("cb-muted")
+        ui.label(
+            "제목을 고르면 공식 사이트의 원문을 읽을 수 있어요. "
+            "검색 결과만으로 역사적 사실을 판단하거나 AI 설명을 만들지는 않아요."
+        )
+        query = ui.input(label="인물·사건 이름", placeholder="예: 세종, 임진왜란").props(
+            "outlined maxlength=80"
+        ).classes("w-full")
+        status = ui.label("궁금한 이름을 입력해 보세요.").props("role=status aria-live=polite")
+        results = ui.column().classes("w-full gap-3").props('aria-label="역사 자료 검색 결과"')
+        busy = False
+
+        async def search():
+            nonlocal busy
+            if busy:
+                return
+            busy = True
+            button.disable()
+            results.clear()
+            status.set_text("공식 자료에서 찾고 있어요…")
+            try:
+                records, notice = await _io_bound(search_history, query.value or "")
+                status.set_text(f"자료 {len(records)}개. " + notice)
+                with results:
+                    for record in records:
+                        with ui.card().classes("cb-card w-full p-5"):
+                            ui.link(record["name"], record["reading_url"], new_tab=True)
+                            ui.label(record["region"]).classes("cb-muted text-sm")
+            except ValueError as exc:
+                status.set_text(str(exc))
+            finally:
+                busy = False
+                button.enable()
+
+        button = ui.button("역사 자료 검색", on_click=search, icon="search")
+        query.on("keydown.enter", search)
+        ui.link("대화 학습으로", "/learn")
+
+
 @ui.page("/install")
 def install_page():
     _base_styles()
@@ -1054,6 +1103,19 @@ def install_page():
         ui.label("설치 버튼은 브라우저와 접속 환경에 따라 보이지 않을 수 있어요.")
         ui.html('<p id="cb-install-status" role="status" aria-live="polite"></p>')
         ui.html('<p id="cb-update-status" role="status" aria-live="polite"></p>')
+        ui.html('<p id="cb-connection-status" role="status" aria-live="polite"></p>')
+        with ui.dialog().props(
+            'role=dialog aria-modal=true aria-label="새 버전 적용 확인"'
+        ) as update_confirmation:
+            with ui.card().classes("cb-card p-6 gap-4"):
+                ui.label("새 버전으로 바꿀까요?").classes("cb-title text-xl")
+                ui.label("작성 중인 입력은 사라질 수 있어요. 대화를 보낸 뒤 적용해 주세요.")
+                with ui.row().classes("gap-3 flex-wrap"):
+                    ui.button("계속 학습하기", on_click=update_confirmation.close).props("flat")
+                    ui.button("지금 새 버전 적용", on_click=update_confirmation.close).on(
+                        "click", js_handler="() => window.CultureBridgePWA?.applyUpdate()"
+                    )
+        ui.on("cb_pwa_update_confirm", update_confirmation.open)
         ui.button("홈 화면에 추가하기", icon="add_to_home_screen").on(
             "click", js_handler="() => window.CultureBridgePWA?.install()"
         )

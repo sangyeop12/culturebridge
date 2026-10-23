@@ -13,7 +13,7 @@
     const session = active;
     active = null;
     clearTimeout(session.timer);
-    session.recognition.abort();
+    try { session.recognition.abort(); } catch { /* Already stopped. */ }
     notify(session.target, 'aborted');
   };
   window.CultureBridgeVoice = {
@@ -43,14 +43,16 @@
           const current = input(inputId);
           if (!current || current.disabled || current.value !== session.base) {
             notify(target, 'edited');
-          } else if (!text || text.length + session.base.length + 1 > 1000) {
+          } else if (!text) {
+            notify(target, 'no-speech');
+          } else if (text.length + session.base.length + (session.base ? 1 : 0) > 1000) {
             notify(target, 'too-long');
           } else {
             notify(target, 'result', {text, base: session.base});
           }
           active = null;
           clearTimeout(session.timer);
-          recognition.abort();
+          try { recognition.abort(); } catch { /* Already stopped. */ }
         };
         recognition.onerror = event => {
           if (active !== session) return;

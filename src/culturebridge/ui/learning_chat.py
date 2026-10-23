@@ -215,7 +215,11 @@ def learning_chat(worker, conversation_id=""):
                     for result in state.search_results:
                         if result.get("metadata_only"):
                             ui.link(result["name"], result["reading_url"], new_tab=True)
-                            ui.label("세계유산 등재 목록 · 공식 사이트에서 읽기").classes(
+                            ui.label(
+                                "신편 한국사 검색 결과 · 공식 원문에서 읽기"
+                                if result.get("catalogue") == "history"
+                                else "세계유산 등재 목록 · 공식 사이트에서 읽기"
+                            ).classes(
                                 "cb-muted"
                             )
                         else:
