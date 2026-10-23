@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from datetime import date
 from pathlib import Path
 
 from culturebridge.config import get_settings
@@ -66,7 +67,7 @@ def main():
             }
         )
     report = {
-        "date": "2026-10-19",
+        "date": date.today().isoformat(),
         "reviewer": "AI desk review",
         "human_approved": False,
         "permission_granted": False,

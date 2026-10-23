@@ -95,6 +95,8 @@ from culturebridge.services.unesco_service import (
 )
 from culturebridge.ui.copy import service_text
 from culturebridge.ui.learning_chat import learning_chat, learning_entry
+from culturebridge.ui.learning_controls import tone_controls
+from culturebridge.ui.learning_intent import learning_intent_editor
 from culturebridge.ui.theme import ACCENT, BRAND, PALE, THEME_HEAD
 
 logger = logging.getLogger(__name__)
@@ -244,6 +246,11 @@ def _header() -> None:
             )
             ui.space()
             primary_navigation(path)
+            with ui.link(target="/settings").classes("cb-settings-link").props(
+                'aria-label="설정"' + (' aria-current="page"' if path == "/settings" else "")
+            ):
+                ui.icon("settings", size="22px").props("aria-hidden=true")
+                ui.tooltip("설정")
     secondary_navigation(path)
     footer = site_footer()
     # The shared header is built before the page body. Move the footer after the
@@ -1014,6 +1021,23 @@ def conversation_page(conversation_id: str = ""):
     _header()
     with ui.column().classes("cb-shell gap-6 py-10"):
         learning_chat(_io_bound, conversation_id)
+
+
+@ui.page("/settings")
+def learning_settings_page():
+    _base_styles()
+    _header()
+    with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("설정").classes("cb-title text-3xl").props("role=heading aria-level=1")
+        ui.label("나에게 편한 설명 방식을 골라보세요.").classes("cb-muted")
+        ui.label(
+            "이 브라우저에서 이용하는 학습에 적용돼요. 대화 중에도 "
+            "‘더 쉽게’, ‘짧게 설명해줘’라고 요청할 수 있어요."
+        ).classes("cb-muted")
+        with ui.card().classes("cb-card w-full p-5 gap-3"):
+            tone_controls(_io_bound, expanded=True)
+        ui.link("관심사와 학습 목표 관리", "/learning-history#learning-profile")
+        ui.link("대화 학습으로", "/learn")
 
 
 @ui.page("/install")
@@ -1955,8 +1979,13 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-5 py-10"):
+        ui.label("나의 학습").classes("cb-title text-3xl").props("role=heading aria-level=1")
+        ui.label("관심 있는 이야기와 지금까지의 배움을 함께 살펴봐요.").classes("cb-muted")
+        ui.link("설명 방식 설정", "/settings")
+        with ui.card().classes("cb-card w-full p-5 gap-3").props("id=learning-profile"):
+            learning_intent_editor(_io_bound)
         ui.label("학습 기록과 오답 복습").classes("cb-title text-3xl").props(
-            "role=heading aria-level=1"
+            "role=heading aria-level=2"
         )
         ui.label(
             "이 브라우저의 학습 기록" if get_settings().public_mode else "함께 사용하는 학습 기록"

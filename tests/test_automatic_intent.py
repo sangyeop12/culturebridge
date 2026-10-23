@@ -258,7 +258,7 @@ def test_owned_memory_and_full_session_deletion(isolated):
 def test_api_and_ui_do_not_request_confirmation(isolated):
     with TestClient(app) as client:
         assert client.get("/api/learning/intent/automatic").json()["enabled"] is True
-        page = client.get("/").text
+        page = client.get("/learning-history").text
         assert "매번 저장 여부를 묻지 않아요" in page
         assert "자동 파악 끄고 기록 비우기" in page
         assert client.post("/api/learning/intent/automatic/reset").status_code == 200

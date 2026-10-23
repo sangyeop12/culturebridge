@@ -199,5 +199,5 @@ def test_api_and_optional_ui(isolated):
         assert b.get(path).json()["interests"] == []
         assert a.put(path, json={"goal": "stale"}).status_code == 409
         assert a.put(path, json={"interests": ["x" * 41]}).status_code == 422
-        page = a.get("/")
+        page = a.get("/learning-history")
         assert page.status_code == 200 and "내 관심사와 학습 목표" in page.text

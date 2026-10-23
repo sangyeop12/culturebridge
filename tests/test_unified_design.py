@@ -30,6 +30,7 @@ from culturebridge.ui.navigation import PRIMARY, section_for
         ("/sources/open/dayanta", "heritage"),
         ("/courses/palaces", "courses"),
         ("/install", "guide"),
+        ("/settings", "settings"),
     ],
 )
 def test_all_screen_families_share_navigation(path, section):
@@ -69,10 +70,11 @@ def test_home_keeps_both_workflows_and_progressive_controls(tmp_path, monkeypatc
             "함께 알아보기",
             "공식 자료 통합 검색",
             "말로 질문하기",
-            "설명 스타일",
-            "내 관심사와 학습 목표",
+            "/settings",
         ]:
             assert text in page
+        assert "설명 스타일" not in page
+        assert "내 관심사와 학습 목표" not in page
         assert page.index("질문에서 시작하는") < page.index("궁금한 역사 이야기부터 시작해요")
         assert "현재 위치" in client.get("/official").text
         assert "관련 화면" in client.get("/learning-history").text

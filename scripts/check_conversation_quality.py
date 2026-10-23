@@ -26,8 +26,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--live", action="store_true", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--case", action="append", default=[], help="Run selected named cases only")
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    if args.output.exists() or args.output.with_suffix(".db").exists():
+        parser.error("Choose new report and database paths; existing evidence is preserved.")
     settings = get_settings()
     settings.db_path = args.output.with_suffix(".db")
     if settings.db_path.resolve() == Path("data/culturebridge.db").resolve():
@@ -90,6 +93,21 @@ def main():
             ),
             ("no_reason_yet", "아직 잘 모르겠어요. 더 쉽게 설명해 주세요.", "unclear"),
         ]
+        extras = [
+            ("interest_negative", "궁궐에는 관심이 없어요.", None),
+            ("goal_change", "이전 목표는 취소하고 고분 구조를 배우고 싶어요.", None),
+        ]
+        known = {name for name, _, _ in cases + extras} | {
+            "explanation_friendly_easy", "explanation_polite_detailed"
+        }
+        if set(args.case) - known:
+            parser.error("Unknown case name")
+        if args.case:
+            cases = [case for case in cases + extras if case[0] in args.case]
+        report["max_model_calls"] = sum(2 if expected else 1 for _, _, expected in cases) + sum(
+            2 for name in ("explanation_friendly_easy", "explanation_polite_detailed")
+            if not args.case or name in args.case
+        )
         rate_limited = False
         for name, text, expected in cases:
             if rate_limited:
@@ -114,6 +132,9 @@ def main():
                 "steps": 0,
                 "assessed": False,
             }
+            if name in {"interest_negative", "goal_change"}:
+                state["automatic_intent"] = {"interests": [{"topic": "궁궐"}]}
+                conversation.goal = "궁궐 배치 배우기"
             result = {"case": name, "input": text, "expected_assessment": expected}
             try:
                 decision = _model_decision(state)
@@ -127,6 +148,15 @@ def main():
                         result["check_passed"] = decision.assessment in {"none", "unclear"}
                 elif name == "no_unfounded_interest":
                     result["check_passed"] = not decision.intent_signals
+                elif name == "interest_negative":
+                    result["check_passed"] = any(
+                        s.kind == "forget_interest" and "궁궐" in s.topic
+                        for s in decision.intent_signals
+                    ) and not any(s.kind == "interest" for s in decision.intent_signals)
+                elif name == "goal_change":
+                    result["check_passed"] = any(
+                        s.kind == "goal" and "고분" in s.topic for s in decision.intent_signals
+                    )
                 else:
                     result["check_passed"] = any(
                         s.kind == "interest" for s in decision.intent_signals
@@ -141,6 +171,8 @@ def main():
             report["cases"].append(result)
             print(name, "PASS" if result["check_passed"] else "NEEDS_REVIEW", flush=True)
         for tone, depth in [("friendly", "easy"), ("polite", "detailed")]:
+            if args.case and f"explanation_{tone}_{depth}" not in args.case:
+                continue
             if rate_limited:
                 report["cases"].append(
                     {

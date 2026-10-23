@@ -15,6 +15,7 @@ from culturebridge.ui.learning_chat import message_body
     [
         "/",
         "/learn",
+        "/settings",
         "/official",
         "/unesco",
         "/courses",
@@ -41,12 +42,16 @@ def test_public_screens_use_reviewed_interface_copy(path, tmp_path, monkeypatch)
         ]:
             assert old not in response.text
         if path in {"/", "/learn"}:
-            assert "설명 스타일" in response.text
-            assert "설명 문체" in response.text
-            assert "앞으로 배우고 싶은 것" in response.text
-            assert "친근하게" in response.text
+            assert "설명 스타일" not in response.text
+            assert "내 관심사와 학습 목표" not in response.text
             assert "함께 알아보기" in response.text
             assert "하십시오" not in response.text
+        if path == "/settings":
+            assert "설명 스타일" in response.text
+            assert "설명 문체" in response.text
+            assert "친근하게" in response.text
+        if path == "/learning-history":
+            assert "앞으로 배우고 싶은 것" in response.text
 
 
 def test_guidance_changes_preserve_official_quotes_and_record():

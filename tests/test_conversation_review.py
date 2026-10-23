@@ -242,4 +242,5 @@ def test_api_and_ui_provide_explicit_start_not_get_side_effect(isolated):
         assert "모든 문항을 맞혔어요" not in history
         page = a.get("/learn?conversation_id=" + created.json()["id"])
         assert page.status_code == 200 and "다른 문항 다시 살펴보기" in page.text
-        assert "공식 원문" in page.text
+        assert "퀴즈 문항·답안·채점 근거로 복습해요" in page.text
+        assert "설명 설정 저장" not in page.text

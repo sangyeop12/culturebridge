@@ -53,7 +53,10 @@ class LearningIntentSignal(BaseModel):
 
 
 class LearningDecision(BaseModel):
-    action: Literal["ask", "search", "read", "define", "explain", "check", "review", "stop"]
+    action: Literal[
+        "ask", "search", "search_world", "references", "read", "define", "explain", "check",
+        "review", "stop",
+    ]
     query: str = Field(default="", max_length=80)
     source_id: str = Field(default="", max_length=100)
     goal: str = Field(default="", max_length=200)

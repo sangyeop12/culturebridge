@@ -76,9 +76,9 @@ def voice_controls(prompt):
     return button
 
 
-def tone_controls(worker, on_saved=None):
+def tone_controls(worker, on_saved=None, *, expanded=False):
     preferences = get_preferences()
-    with ui.expansion("설명 스타일", icon="tune").classes("w-full"):
+    with ui.expansion("설명 스타일", icon="tune", value=expanded).classes("w-full"):
         ui.label(
             "설명의 말투와 풀이 깊이를 조절해요. 공식 원문과 이해도 판단 기준은 바꾸지 않아요."
         )

@@ -88,6 +88,15 @@ def _generate(schema, payload, instruction, deadline):
 
 def valid_draft(draft, quote):
     numbers = set(re.findall(r"\d+(?:[.,]\d+)?", quote))
+    uncertainty = (
+        r"추정|추측|전해|전승|짐작|불명확|확실하지|"
+        r"\b(?:probably|possibly|estimated|believed)\b"
+    )
+    if re.search(uncertainty, quote, re.I) and not re.search(
+        uncertainty + r"|것으로\s*(?:봐요|봅니다|보여)|여겨|단정.*(?:않|어려)",
+        " ".join(s.text for s in draft.sentences), re.I,
+    ):
+        return False
     return all(
         s.evidence_quote in quote
         and set(re.findall(r"\d+(?:[.,]\d+)?", s.text)) <= numbers
@@ -124,7 +133,9 @@ def explain(concept, quote, preferences, route, deadline, *, allow_ai=True, lear
             "배경지식·새 사실·비유·상상·감정·추천·질문을 덧붙이지 않는다. "
             "각 문장의 evidence_quote는 original의 8자 이상 연속 인용이다. "
             "대상 전체와 구성 부분, 건립과 재건, 부정·추정·전승·연대 범위를 보존한다. "
-            "easy는 짧은 문장 2~3개와 쉬운 낱말, detailed는 근거의 범위까지 3~4개 문장이다. "
+            "easy는 짧은 문장 1~3개, detailed는 근거 범위 안의 1~4개 문장이다. "
+            "원문이 짧으면 한 문장으로 끝내며 문장 수를 채우려고 새 내용을 넣지 않는다. "
+            "원문에 추측·추정·전승이 있으면 그 표현을 설명에도 명시한다. "
             "friendly는 해요체, polite는 합니다체, concise는 짧은 핵심 문장이다. "
             "local_reading_guide는 참고일 뿐 원문보다 우선하지 않는다.",
             deadline,
@@ -156,5 +167,17 @@ def explain(concept, quote, preferences, route, deadline, *, allow_ai=True, lear
             "review": "ai_checked_not_expert_approval",
             "sentences": [s.model_dump() for s in draft.sentences],
         }
-    except Exception:
-        return local, {"method": "local_guide", "review": "rewrite_unavailable_or_rejected"}
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        internal = str(exc) if isinstance(exc, ValueError) else ""
+        failure = (
+            "provider_rate_limit" if code == 429 else
+            "provider_unavailable" if code in {500, 502, 503, 504} else
+            internal if internal in {
+                "explanation_time_budget", "unsupported_span_or_number", "semantic_review_rejected"
+            } else "response_unavailable"
+        )
+        return local, {
+            "method": "local_guide", "review": "rewrite_unavailable_or_rejected",
+            "failure_kind": failure,
+        }

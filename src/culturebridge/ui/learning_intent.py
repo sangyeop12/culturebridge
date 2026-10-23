@@ -15,9 +15,9 @@ from culturebridge.services.learning_intent_service import (
 )
 
 
-def learning_intent_editor(worker):
+def learning_intent_editor(worker, *, expanded=False):
     state = get_learning_intent()
-    with ui.expansion("내 관심사와 학습 목표", icon="explore").classes("w-full"):
+    with ui.expansion("내 관심사와 학습 목표", icon="explore", value=expanded).classes("w-full"):
         ui.label("대화하면서 관심사와 목표를 파악해요. 매번 저장 여부를 묻지 않아요.")
         ui.label(
             "파악한 내용은 다음 대화에도 이어져요. "

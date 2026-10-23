@@ -128,8 +128,36 @@ def test_ui_renders_optional_controls_and_install_guidance(isolated):
     with TestClient(app) as client:
         response = client.get("/")
         assert response.status_code == 200
-        for text in ("말로 입력", "설명 스타일", "홈 화면에 추가하기", "/manifest.webmanifest"):
+        for text in ("말로 입력", "/settings", "홈 화면에 추가하기", "/manifest.webmanifest"):
             assert text in response.text
+        settings = client.get("/settings")
+        assert settings.status_code == 200 and "설명 스타일" in settings.text
         install = client.get("/install")
         assert install.status_code == 200
         assert "Safari" in install.text and "서버를 대신" in install.text
+
+
+def test_settings_move_keeps_preferences_and_conversation_controls(isolated):
+    with TestClient(app) as client:
+        client.put(
+            "/api/learning/preferences",
+            json={"tone": "polite", "explanation_depth": "detailed"},
+        ).raise_for_status()
+        state = client.post("/api/learning/conversations").json()
+        for path in ("/", "/learn", f"/learn?conversation_id={state['id']}"):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert "설명 설정 저장" not in response.text
+            assert "내 관심사와 학습 목표" not in response.text
+            assert "/settings" in response.text
+        settings = client.get("/settings")
+        assert settings.status_code == 200
+        for text in ("설명 스타일", "설명 설정 저장", "정중하게", "근거까지 자세히"):
+            assert text in settings.text
+        profile = client.get("/learning-history")
+        assert "learning-profile" in profile.text
+        assert "자동 파악 끄고 기록 비우기" in profile.text
+        assert "직접 수정한 내용과 설정 적용" in profile.text
+        assert client.get("/api/learning/preferences").json() == {
+            "tone": "polite", "custom_style": "", "explanation_depth": "detailed"
+        }

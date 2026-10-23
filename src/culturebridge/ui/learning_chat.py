@@ -17,8 +17,7 @@ from culturebridge.services.learning_conversation_service import (
 from culturebridge.services.learning_preferences import get_preferences, present_message
 from culturebridge.services.operation_service import OperationBusyError
 from culturebridge.ui.copy import service_text
-from culturebridge.ui.learning_controls import tone_controls, voice_controls
-from culturebridge.ui.learning_intent import learning_intent_editor
+from culturebridge.ui.learning_controls import voice_controls
 
 
 def learning_entry(worker, *, embedded=False):
@@ -37,9 +36,6 @@ def learning_entry(worker, *, embedded=False):
         )
         with ui.expansion("말로 질문하기", icon="mic").classes("w-full"):
             mic = voice_controls(prompt)
-        with ui.element("div").classes("cb-start-options"):
-            tone_controls(worker)
-            learning_intent_editor(worker)
 
         async def start():
             if not (prompt.value or "").strip():
@@ -122,8 +118,6 @@ def learning_chat(worker, conversation_id=""):
     busy = False
     send_button = None
 
-    refresh_intent = None
-
     async def submit(control="message", source_id=""):
         nonlocal state, pending, busy
         if busy:
@@ -156,8 +150,6 @@ def learning_chat(worker, conversation_id=""):
                 prompt.set_value("")
             pending = None
             render()
-            if refresh_intent:
-                refresh_intent()
             status.set_text("")
         except ConversationConflictError:
             state = await worker(get_conversation, state.id)
@@ -221,12 +213,18 @@ def learning_chat(worker, conversation_id=""):
             if state.search_results:
                 with ui.expansion("찾은 공식 자료 살펴보기").classes("w-full"):
                     for result in state.search_results:
-                        ui.button(
-                            result["name"],
-                            on_click=lambda _, identity=result["id"]: submit(
-                                "read_source", identity
-                            ),
-                        ).props("flat no-caps")
+                        if result.get("metadata_only"):
+                            ui.link(result["name"], result["reading_url"], new_tab=True)
+                            ui.label("세계유산 등재 목록 · 공식 사이트에서 읽기").classes(
+                                "cb-muted"
+                            )
+                        else:
+                            ui.button(
+                                result["name"],
+                                on_click=lambda _, identity=result["id"]: submit(
+                                    "read_source", identity
+                                ),
+                            ).props("flat no-caps")
             if state.quiz_review.get("items"):
                 with ui.expansion("다른 문항 다시 살펴보기").classes("w-full"):
                     ui.label("점수나 한 번의 오답만으로 이해도를 확정하지 않아요.")
@@ -295,9 +293,6 @@ def learning_chat(worker, conversation_id=""):
                         "outline no-caps"
                     )
                 )
-    with ui.element("div").classes("cb-start-options cb-chat-options"):
-        tone_controls(worker, render)
-        refresh_intent = learning_intent_editor(worker)
 
 
 def message_body(message, preferences):
