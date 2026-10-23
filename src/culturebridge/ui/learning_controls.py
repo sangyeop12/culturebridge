@@ -78,7 +78,7 @@ def voice_controls(prompt):
 
 def tone_controls(worker, on_saved=None):
     preferences = get_preferences()
-    with ui.expansion("말투 바꾸기", icon="tune").classes("w-full"):
+    with ui.expansion("설명 스타일", icon="tune").classes("w-full"):
         ui.label(
             "설명의 말투와 풀이 깊이를 조절해요. 공식 원문과 이해도 판단 기준은 바꾸지 않아요."
         )
@@ -90,7 +90,7 @@ def tone_controls(worker, on_saved=None):
                 "custom": "직접 선택",
             },
             value=preferences.tone,
-            label="선호하는 말투",
+            label="설명 문체",
         ).classes("w-full")
         depth = ui.select(
             {"auto": "대화에 맞춰 조절", "easy": "짧고 쉽게", "detailed": "근거까지 자세히"},
@@ -125,4 +125,4 @@ def tone_controls(worker, on_saved=None):
             finally:
                 button.enable()
 
-        button = ui.button("설명 방식 저장", on_click=save).props("outline")
+        button = ui.button("설명 설정 저장", on_click=save).props("outline")

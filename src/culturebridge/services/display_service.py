@@ -140,7 +140,7 @@ def readable_reason(criteria: list[str], beginner: bool = True) -> str:
     text = " ".join(criteria)
     themes = [label for key, label in THEME_LABELS.items() if re.search(rf"\b{key}\b", text)]
     if themes:
-        reason = "공식 소개에서 함께 찾아볼 표현: " + " · ".join(themes) + "."
+        reason = "공식 자료의 공통 주제: " + " · ".join(themes) + "."
         if "같은 핵심 유형" in text:
             reason = "같은 종류의 유산이라 구조를 함께 살펴볼 수 있어요. " + reason
     else:
@@ -149,9 +149,9 @@ def readable_reason(criteria: list[str], beginner: bool = True) -> str:
         reason += " 다른 나라에 있는 유산이에요."
     for criterion in criteria:
         if criterion.startswith("함께 살펴볼 내용:"):
-            reason += " " + criterion + "을 읽고 비교해요."
+            reason += " 비교 내용: " + criterion.split(":", 1)[1].strip() + "."
         if criterion.startswith("함께 확인할 수 있는 항목:"):
-            reason += " " + criterion + "."
+            reason += " 확인 가능한 항목: " + criterion.split(":", 1)[1].strip() + "."
         elif criterion.startswith("선택 목표의 양쪽 근거:"):
             reason += " 선택한 목표를 두 유산의 자료에서 함께 살펴볼 수 있어요."
     if beginner:
@@ -183,7 +183,7 @@ def readable_trace(step):
 def learning_title(name):
     last = name[-1]
     particle = "과" if "가" <= last <= "힣" and (ord(last) - ord("가")) % 28 else "와"
-    return name + particle + " 함께 살펴볼 문화유산"
+    return name + particle + " 비교할 문화유산"
 
 
 def learner_status(result, beginner: bool):

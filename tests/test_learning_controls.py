@@ -128,7 +128,7 @@ def test_ui_renders_optional_controls_and_install_guidance(isolated):
     with TestClient(app) as client:
         response = client.get("/")
         assert response.status_code == 200
-        for text in ("말로 입력", "말투 바꾸기", "홈 화면에 추가하기", "/manifest.webmanifest"):
+        for text in ("말로 입력", "설명 스타일", "홈 화면에 추가하기", "/manifest.webmanifest"):
             assert text in response.text
         install = client.get("/install")
         assert install.status_code == 200

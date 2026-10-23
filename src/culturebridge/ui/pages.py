@@ -93,6 +93,7 @@ from culturebridge.services.unesco_service import (
     normalize_search,
     search_unesco,
 )
+from culturebridge.ui.copy import service_text
 from culturebridge.ui.learning_chat import learning_chat, learning_entry
 from culturebridge.ui.theme import ACCENT, BRAND, PALE, THEME_HEAD
 
@@ -219,6 +220,12 @@ def _base_styles() -> None:
 
 
 def _header() -> None:
+    from culturebridge.ui.navigation import (
+        primary_navigation,
+        secondary_navigation,
+        site_footer,
+    )
+
     path = ui.context.client.request.url.path if ui.context.client.request else "/"
     ui.button(
         "본문 바로가기",
@@ -236,26 +243,12 @@ def _header() -> None:
                 'aria-label="CultureBridge 처음으로"'
             )
             ui.space()
-            with ui.row().classes("cb-nav").props('role=navigation aria-label="주요 메뉴"'):
-                for label, route in (
-                    ("역사 이야기", "/learn"),
-                    ("비교 학습", "/"),
-                    ("추천 학습 코스", "/courses"),
-                    ("한국 문화유산", "/official"),
-                    ("세계유산", "/unesco"),
-                    ("나의 학습", "/learning-history"),
-                    ("공식 자료 안내", "/sources"),
-                ):
-                    link = ui.link(label, route)
-                    learning_path = path == "/domestic" or path.startswith(
-                        ("/explore/", "/discover/", "/research/", "/compare/", "/quiz/")
-                    )
-                    if (
-                        path == route
-                        or (route == "/" and learning_path)
-                        or (route != "/" and path.startswith(route + "/"))
-                    ):
-                        link.props('aria-current="page"')
+            primary_navigation(path)
+    secondary_navigation(path)
+    footer = site_footer()
+    # The shared header is built before the page body. Move the footer after the
+    # body on connection so visual, keyboard and screen-reader order agree.
+    ui.context.client.on_connect(lambda: footer.move(target_index=-1))
 
 
 def _kiosk_header() -> None:
@@ -383,7 +376,8 @@ def _comparison_entry(
     if comparison_scope is ComparisonScope.OVERSEAS:
         with ui.expansion("국내 문화유산과 비교").classes("w-full"):
             ui.label(
-                "한국 문화유산끼리 비교하거나 해외 유산을 한국 유산과 비교하고 싶을 때 이용하세요."
+                "한국 문화유산끼리 비교하거나 해외 유산을 한국"
+                " 유산과 비교하고 싶을 때 이용해 주세요."
             )
             ui.button(
                 "국내 문화유산과 비교",
@@ -426,7 +420,7 @@ def _error_page(message: str, mode: str) -> None:
         ui.label(message).props("role=alert").classes("cb-title text-2xl").props(
             "role=heading aria-level=2"
         )
-        ui.label("처음 화면에서 다시 선택해 주세요. 문제가 계속되면 잠시 후 다시 시도하세요.")
+        ui.label("처음 화면에서 다시 선택해 주세요. 문제가 계속되면 잠시 후 다시 시도해 주세요.")
         ui.button("처음으로", on_click=lambda: ui.navigate.to(_home_route(mode))).classes(
             _action_classes(mode)
         )
@@ -507,7 +501,7 @@ def _render_lesson(lesson, level):
         )
         ui.label(
             "검토할 점: 연대가 건립·재건 중 무엇을 뜻하는지, "
-            "주변 건물과 대상이 구분되는지 확인하세요."
+            "주변 건물과 대상이 구분되는지 확인해 주세요."
         ).classes("cb-muted")
     else:
         for section in lesson.sections:
@@ -581,27 +575,43 @@ def home_page(
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-7 py-10"):
-        learning_entry(_io_bound)
         with ui.column().classes("cb-hero cb-illustrated"):
-            ui.label("문화유산을 잇고, 배움을 넓히다").classes("cb-eyebrow")
-            ui.label("하나의 문화유산에서 세계로").classes("cb-hero-title").props(
-                "role=heading aria-level=2"
+            ui.label("공식 자료와 함께하는 역사 배움").classes("cb-eyebrow")
+            ui.label("질문에서 시작하는\n나만의 역사 수업").classes("cb-hero-title").props(
+                "role=heading aria-level=1"
             )
             ui.label(
-                "한국 문화유산과 세계유산을 검색하고, 지원 유산은 비교 학습으로 이어가세요."
+                '궁금한 이야기를 들려주세요. 관심에 맞춰 살펴'
+                    '보고, 문화유산의 유사점과 차이점도 함께 알아'
+                    '봐요.'
             ).classes("cb-hero-copy")
             with ui.row().classes("gap-2"):
                 ui.label("국가유산청 · UNESCO 공식 자료").classes("cb-badge")
-                ui.label("초급부터 고급까지").classes("cb-badge")
+                ui.label("나에게 맞는 설명과 복습").classes("cb-badge")
+            with ui.row().classes("cb-hero-actions gap-3 flex-wrap"):
+                ui.link("역사 이야기 시작하기", "#history-start").classes("cb-link-primary")
+                ui.link("문화유산 찾아보기", "#heritage-search").classes("cb-link-secondary")
             ui.html(
-                '<div class="cb-study-steps" aria-label="학습 과정">'
-                "<span><b>1</b> 유산 찾기</span><span><b>2</b> 함께 비교하기</span>"
-                "<span><b>3</b> 퀴즈로 확인하기</span></div>"
+                '<div class="cb-study-step'
+                    's" aria-label="학습 과정"><sp'
+                    'an><b>1</b> 질문</span><spa'
+                    'n><b>2</b> 근거 살펴보기</span>'
+                    '<span><b>3</b> 내 말로 익히기</'
+                    'span></div>'
             )
             ui.label("유산 유형을 표현한 창작 삽화 · 실제 모습이나 복원도가 아니에요.").classes(
                 "cb-art-caption"
             )
             ui.html(heritage_art(panoramic=True)).classes("cb-hero-art")
+
+        learning_entry(_io_bound, embedded=True)
+        with ui.column().classes("cb-section-heading gap-1 w-full"):
+            ui.label("하나의 문화유산에서 세계로").classes("cb-title text-2xl").props(
+                "role=heading aria-level=2"
+            )
+            ui.label("직접 유산을 찾고, 공식 설명을 읽으며 비교 학습을 시작해 보세요.").classes(
+                "cb-muted"
+            )
 
         with ui.element("section").classes("cb-mode-strip").props('aria-label="비교 범위"'):
             with ui.column().classes("gap-1"):
@@ -613,7 +623,7 @@ def home_page(
                 ).classes("cb-muted text-sm")
             _comparison_entry(q, level, comparison_scope, context=lambda: return_context(page))
 
-        with ui.card().classes("cb-card w-full p-6 gap-5"):
+        with ui.card().classes("cb-card w-full p-6 gap-5").props("id=heritage-search"):
             with ui.expansion("학습 설정 · 수준과 목표 바꾸기").classes("w-full"):
                 ui.label("처음이라면 초급으로 시작해 보세요.").classes("cb-muted")
                 level = (
@@ -667,7 +677,7 @@ def home_page(
                 )
             ui.label(
                 "한국은 국가유산청, 세계는 UNESCO 등재 목록에서 찾습니다. "
-                "해외 유산은 등록된 한글 별칭·공식 영문 이름·국가명으로 검색하세요."
+                "해외 문화유산은 등록된 한국어 명칭·공식 영문 이름·국가명으로 검색할 수 있습니다."
             ).classes("cb-muted text-sm")
             search_submit = ui.row().classes("cb-search-submit")
             suggestions = (
@@ -760,18 +770,19 @@ def home_page(
                             "cb-title text-xl"
                         )
                         for notice in response.notices:
-                            ui.label(notice).props("role=alert")
+                            ui.label(service_text(notice)).props("role=alert")
                         ui.label(
-                            "관심 있는 유산을 고르면 함께 살펴볼 유산과 설명을 찾아드려요. "
-                            "자료가 부족하면 판단을 보류합니다."
+                            '관심 있는 유산을 고르면 함께 살펴볼 유산과 '
+                                '설명을 찾아드려요. 자료가 부족하면 판단을 보'
+                                '류합니다.'
                         )
                         if response.individual:
                             ui.label(f"해외 개별 문화유산 · {len(response.individual)}건").classes(
                                 "font-semibold"
                             )
                             ui.label(
-                                "공식 자료 연결 대상입니다. "
-                                "선택한 뒤 원문 연결과 학습 근거를 확인해요."
+                                '공식 자료 연결 대상입니다. 선택한 뒤 원문 '
+                                    '연결과 학습 근거를 확인해요.'
                             ).classes("cb-muted")
                             for item in response.individual:
                                 with ui.card().classes("cb-card cb-result-card w-full p-4 gap-2"):
@@ -1010,7 +1021,7 @@ def install_page():
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-5 py-10"):
-        ui.label("홈 화면에서 바로 시작하기").classes("cb-title text-3xl").props(
+        ui.label("홈 화면에 추가하기").classes("cb-title text-3xl").props(
             "role=heading aria-level=1"
         )
         ui.label("별도 앱 파일 없이 컬처브릿지를 홈 화면에 추가할 수 있어요.")
@@ -1019,22 +1030,18 @@ def install_page():
         ui.label("설치 버튼은 브라우저와 접속 환경에 따라 보이지 않을 수 있어요.")
         ui.html('<p id="cb-install-status" role="status" aria-live="polite"></p>')
         ui.html('<p id="cb-update-status" role="status" aria-live="polite"></p>')
-        ui.button("홈 화면에 추가", icon="add_to_home_screen").on(
+        ui.button("홈 화면에 추가하기", icon="add_to_home_screen").on(
             "click", js_handler="() => window.CultureBridgePWA?.install()"
         )
         ui.button("새 버전 적용", icon="refresh").on(
             "click", js_handler="() => window.CultureBridgePWA?.update()"
         ).props("outline")
         ui.label(
-            "대화·검색에는 인터넷과 실행 중인 서버가 필요해요. "
-            "오프라인에서는 연결 안내만 보여줘요."
+            "대화·검색에는 인터넷과 실행 중인 서버가 필요해요. 오프라인에서는 연결 안내만 보여줘요."
         )
         ui.label("실제 기기에서는 HTTPS 주소가 필요해요. 홈 화면 추가는 서버를 대신 켜주지 않아요.")
-        ui.label(
-            "기록은 브라우저의 익명 세션에 연결돼요. "
-            "다른 기기·설치 환경과 자동 공유되지 않아요."
-        )
-        ui.link("역사 이야기로", "/learn")
+        ui.label("기록은 이 브라우저에 연결돼요. 다른 기기·설치 환경과 자동 공유되지 않아요.")
+        ui.link("대화 학습으로", "/learn")
 
 
 @ui.page("/domestic")
@@ -1074,7 +1081,7 @@ def kiosk_page(reset: str | None = None) -> None:
 
         with ui.column().classes("w-full items-center gap-3 text-center"):
             ui.label("문화유산 비교 체험").classes("cb-title text-5xl")
-            ui.label("학습 수준을 누른 뒤 문화유산을 선택하세요.").classes("cb-muted text-2xl")
+            ui.label("학습 수준을 누른 뒤 문화유산을 선택해 주세요.").classes("cb-muted text-2xl")
 
         with ui.card().classes("cb-card w-full p-8 gap-6"):
             ui.label("1. 학습 수준").classes("cb-title text-3xl").props("role=heading aria-level=1")
@@ -1129,7 +1136,7 @@ def explore_page(
             _return_button(return_to, _home_route(mode), mode=mode)
             ui.label("선택한 유산의 설명을 읽고 함께 살펴볼 유산을 찾아드려요.")
             ui.link(
-                "함께 살펴볼 유산 찾기",
+                "함께 살펴볼 문화유산을 찾아요",
                 with_return(
                     f"/discover/{provider}/{identity}?level={level}&"
                     + _goal_query(goal, goal_text, amount, comparison_scope),
@@ -1202,7 +1209,7 @@ def explore_page(
                 )
                 ui.label(candidate.reason).classes("text-base")
                 ui.button(
-                    "기본 자료 비교",
+                    "예제 자료로 비교",
                     on_click=lambda right_id=candidate.heritage.id: ui.navigate.to(
                         with_return(
                             _route(
@@ -1338,11 +1345,12 @@ def comparison_page(
                 ui.label("학습 순서: " + " → ".join(result.curriculum))
                 ui.label("학습 분량: " + AMOUNT_LABELS[result.amount.value])
                 for notice in result.learning_notices:
-                    ui.label(notice).classes("cb-muted")
+                    ui.label(service_text(notice)).classes("cb-muted")
             if saved_id and result.learning_version < LEARNING_VERSION:
                 ui.label(
-                    "이전 방식의 설명이에요. 아래 학습 기록 관리에서 다시 탐구하면 "
-                    "개선된 설명으로 학습할 수 있어요."
+                    '이전 방식의 설명이에요. 아래 학습 기록 관리'
+                        '에서 다시 탐구하면 개선된 설명으로 학습할 수'
+                        ' 있어요.'
                 ).props("role=note").classes("cb-muted")
             with ui.expansion("학습 기록 관리 · 저장과 다시 탐구").classes("w-full"):
                 if saved_id:
@@ -1368,8 +1376,8 @@ def comparison_page(
                             sqlite3.Error,
                         ):
                             ui.notify(
-                                "다시 탐구하지 못했어요. 기존 기록은 그대로 보존됩니다. "
-                                "잠시 후 다시 시도하세요.",
+                                '다시 탐구하지 못했어요. 기존 기록은 그대로 '
+                                    '보존됩니다. 잠시 후 다시 시도해 주세요.',
                                 color="warning",
                             )
                         finally:
@@ -1408,8 +1416,9 @@ def comparison_page(
 
         if result.collected_sources or result.extracted_fields:
             ui.label(
-                "설명의 뜻과 대상은 추가 확인이 필요합니다. "
-                "핵심 비교 아래에서 공식 원문과 상세 설명을 확인할 수 있어요."
+                '설명의 뜻과 대상은 추가 확인이 필요합니다. '
+                    '핵심 비교 아래에서 공식 원문과 상세 설명을 '
+                    '확인할 수 있어요.'
             ).classes("cb-muted")
             with ui.expansion("자세한 설명과 공식 원문 읽기").classes("w-full"):
                 if result.collected_sources:
@@ -1466,8 +1475,8 @@ def comparison_page(
             }[result.verification_status.value]
             ui.label(status_label).classes("font-bold")
             ui.label(
-                "연결된 원문을 바탕으로 정리했어요. "
-                "출처가 있다는 것과 해석이 확인됐다는 것은 달라요."
+                '연결된 원문을 바탕으로 정리했어요. 출처가 있'
+                    '다는 것과 해석이 확인됐다는 것은 달라요.'
                 if result.basis == "extracted"
                 else result.verification_note
             ).classes("cb-muted")
@@ -1574,11 +1583,13 @@ def comparison_page(
                 "role=heading aria-level=2"
             )
             if result.collected_sources:
-                ui.label("이 비교에 저장된 개별 원문과 대조합니다. AI 판정은 검토 후보입니다.")
+                ui.label(
+                    "이 비교에 사용된 공식 원문과 대조합니다. AI 검토 결과는 확정 판정이 아닙니다."
+                )
             ui.label(
                 "확인할 사실을 입력하세요. 원문 비교에서는 복합 주장도 나누어 검토해요."
                 if result.collected_sources
-                else "한 가지 사실을 입력하세요. 예: 석굴암의 재료는 화강암이다"
+                else "한 가지 사실을 입력해 주세요. 예: 석굴암의 재료는 화강암이다"
             ).classes("cb-muted")
             claim_input = (
                 ui.textarea(
@@ -1607,7 +1618,7 @@ def comparison_page(
                     )
                 except (ComparisonNotFoundError, ClaimTargetMismatchError, sqlite3.Error):
                     ui.notify(
-                        "주장 검증의 저장 자료를 확인하지 못했습니다. 다시 시도하세요.",
+                        "주장 검증의 저장 자료를 확인하지 못했습니다. 다시 시도해 주세요.",
                         color="negative",
                     )
                     return
@@ -1625,7 +1636,7 @@ def comparison_page(
                     ui.label(labels[checked.verification_status.value]).classes("cb-title text-xl")
                     ui.label(checked.explanation)
                     if checked.execution_trace:
-                        with ui.expansion(f"주장 재검토 기록 · 추가 조회 {checked.retry_count}회"):
+                        with ui.expansion(f"검증 과정 · 추가 자료 확인 {checked.retry_count}회"):
                             for step in checked.execution_trace:
                                 ui.label(step)
                         with ui.expansion("대조에 사용한 공식 설명"):
@@ -1799,8 +1810,9 @@ async def quiz_page(
             ui.label("5개 문항에 모두 답한 뒤 채점하세요.").classes("cb-muted text-lg")
             if back_record_id and back_record.learning_version < LEARNING_VERSION:
                 ui.label(
-                    "이전 방식의 저장본에 연결된 퀴즈예요. "
-                    "비교 화면에서 최신 근거로 다시 탐구하는 것을 권해요."
+                    '이전 방식의 저장본에 연결된 퀴즈예요. 비교 '
+                        '화면에서 최신 근거로 다시 탐구하는 것을 권해'
+                        '요.'
                 ).classes("cb-muted")
             if quiz.basis == "extracted":
                 ui.label(
@@ -1906,10 +1918,11 @@ def comparison_history_page(page: int = 1) -> None:
             "role=heading aria-level=1"
         )
         ui.label(
-            "이 브라우저 세션의 비교 기록입니다. "
-            "브라우저를 닫거나 쿠키를 지우면 접근이 종료될 수 있어요."
+            '이 브라우저에서 만든 비교 기록이에요. 브라우'
+                '저를 닫거나 쿠키를 지우면 접근이 종료될 수 '
+                '있어요.'
             if get_settings().public_mode
-            else "로컬 공유 모드입니다. 이 서버에 저장된 비교 기록을 보여줍니다."
+            else "함께 사용하는 비교 기록이에요. 개인 대화 기록은 여기에 표시하지 않아요."
         ).classes("cb-muted")
         ui.link("퀴즈 결과와 오답 복습", "/learning-history")
         if not records:
@@ -1946,11 +1959,12 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
             "role=heading aria-level=1"
         )
         ui.label(
-            "브라우저 세션별 기록" if get_settings().public_mode else "로컬 서버의 공유 학습 기록"
+            "이 브라우저의 학습 기록" if get_settings().public_mode else "함께 사용하는 학습 기록"
         ).classes("cb-muted")
         ui.label(
-            "대화로 복습하기는 이 브라우저에서 채점한 기록에서만 열려요. "
-            "예전 공유 기록은 해설을 읽거나 퀴즈를 다시 풀어보세요."
+            '대화로 복습하기는 이 브라우저에서 채점한 기록'
+                '에서만 열려요. 예전 공유 기록은 해설을 읽거'
+                '나 퀴즈를 다시 풀어보세요.'
         ).classes("cb-muted")
         page = max(1, min(page, 100000))
         level = level if level in LEVEL_LABELS else "all"
@@ -1998,8 +2012,8 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
                         comparison = get_saved_comparison(review["comparison_id"]).comparison
                         if comparison.learning_version < LEARNING_VERSION:
                             ui.label(
-                                "이전 학습 기록입니다. "
-                                "설명 다시 읽기에서 최신 근거로 재탐구할 수 있어요."
+                                '이전 학습 기록입니다. 설명 다시 읽기에서 최'
+                                    '신 근거로 재탐구할 수 있어요.'
                             ).classes("cb-muted")
                         ui.link(
                             "설명 다시 읽기",
@@ -2011,7 +2025,7 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
                         )
                         _report_links(comparison.saved_id, review["id"])
                     except ComparisonNotFoundError:
-                        ui.label("이 비교 기록은 현재 세션에서 열 수 없습니다.")
+                        ui.label("이 브라우저에서는 이 비교 기록을 열 수 없어요.")
         with ui.row():
             if page > 1:
                 ui.link(
@@ -2040,8 +2054,10 @@ def source_catalogue_page():
             "role=heading aria-level=1"
         )
         ui.label(
-            "기관 원문·연결 상태·한국어 이름과 이용 조건의 검토 상태를 확인해요. "
-            "수집 성공이 역사적 의미 검증이나 재배포 허가를 뜻하지는 않아요."
+            '기관 원문·연결 상태·한국어 이름과 이용 조건'
+                '의 검토 상태를 확인해요. 수집 성공이 역사적'
+                ' 의미 검증이나 재배포 허가를 뜻하지는 않아요'
+                '.'
         ).classes("cb-muted")
         rows = source_overview()
         checklist = {row["id"]: row for row in material_review()}
@@ -2049,15 +2065,15 @@ def source_catalogue_page():
         ready = sum(r["connection_status"] == "fresh" for r in rows)
         ui.label(f"연결 확인 {ready}개 · 전체 등록 {len(rows)}개").classes("cb-muted")
         statuses = {
-            "fresh": "최근 수집 성공",
-            "stale": "갱신 실패·이전 자료 보관",
+            "fresh": "자료 연결 확인",
+            "stale": "최신 자료 확인 필요",
             "unavailable": "연결 보류",
-            "not_checked": "이 서버에서 아직 확인하지 않음",
+            "not_checked": "자료 연결 확인 전",
         }
         usage = {
             "pending": "이용 허용 범위 확인 중",
-            "reviewed": "이용 조건 검토 기록 있음",
-            "restricted": "관리자가 이용 제한으로 표시",
+            "reviewed": "이용 조건 검토 내역 제공",
+            "restricted": "이용 제한 자료",
         }
         for row in rows:
             with ui.card().classes("cb-card w-full p-4 gap-2"):
@@ -2066,7 +2082,7 @@ def source_catalogue_page():
                 ui.label(statuses.get(row["connection_status"], row["connection_status"]))
                 ui.label(
                     "한국어 이름: "
-                    + ("팀 검토 이름" if row["name_status"] == "reviewed" else "학습용 안내명")
+                    + ("검토된 명칭" if row["name_status"] == "reviewed" else "학습용 안내명")
                     + " · "
                     + usage[row["usage_status"]]
                 ).classes("cb-muted")
@@ -2089,7 +2105,7 @@ def source_catalogue_page():
                             ui.label(purpose["label"] + ": " + purpose["reason"])
                 identity = row["id"].split(":", 1)[1]
                 if identity in AVAILABLE_OPEN_RECORDS:
-                    ui.link("다른 공식 기록도 함께 읽기", "/sources/open/" + identity)
+                    ui.link("다른 공식 기록도 함께 읽어요", "/sources/open/" + identity)
                 ui.link("공식 원문 보기", row["source_url"], new_tab=True)
                 if (
                     row["usage_status"] != "restricted"
@@ -2148,8 +2164,9 @@ def courses_page():
         )
         ui.label("목표를 정하고, 두 유산을 읽고, 퀴즈와 복습으로 마무리하는 대표 코스예요.")
         ui.label(
-            "5개 코스는 학습 예시입니다. 전체 25개 자료는 "
-            "홈 검색과 개별 탐구에서 계속 이용할 수 있어요."
+            '5개 코스는 학습 예시입니다. 전체 25개 자'
+                '료는 홈 검색과 개별 탐구에서 계속 이용할 수'
+                ' 있어요.'
         ).classes("cb-muted")
         ui.label("삽화는 학습 주제를 표현한 것으로, 실제 유산의 모습과 다를 수 있어요.").classes(
             "cb-art-caption"
@@ -2169,7 +2186,7 @@ def courses_page():
                         ui.label(course["left_name"] + " ↔ " + course["right_name"])
                         ui.label(course["objective"]).classes("cb-muted")
                         ui.link("학습 코스 살펴보기 →", "/courses/" + course["id"])
-        ui.link("직접 문화유산 찾아보기", "/")
+        ui.link("문화유산 찾아보기", "/")
 
 
 @ui.page("/courses/{course_id}")
@@ -2210,8 +2227,9 @@ def course_detail_page(course_id: str, level: str = ""):
                 ui.label(f"{index}. {activity}")
             ui.label("마무리 질문: " + course["reflection"])
             ui.label(
-                "시작하면 양쪽 원문과 목표 근거를 확인해요. 자료가 부족하면 비교를 보류해요. "
-                "원문 이용 조건과 한국어 풀이 검토는 별도로 필요합니다."
+                '시작하면 양쪽 원문과 목표 근거를 확인해요. '
+                    '자료가 부족하면 비교를 보류해요. 원문 이용 '
+                    '조건과 한국어 풀이 검토는 별도로 필요합니다.'
             ).classes("cb-muted")
             status = ui.column().classes("w-full").props("role=status aria-live=polite")
 
@@ -2235,8 +2253,9 @@ def course_detail_page(course_id: str, level: str = ""):
                     status.clear()
                     with status:
                         ui.label(
-                            "현재 양쪽 자료나 학습 근거를 준비하지 못했어요. "
-                            "잠시 후 다시 시작하거나 홈에서 다른 유산을 선택해 주세요."
+                            '현재 양쪽 자료나 학습 근거를 준비하지 못했어'
+                                '요. 잠시 후 다시 시작하거나 홈에서 다른 유'
+                                '산을 선택해 주세요.'
                         )
                         ui.link("다른 유산 찾아보기", "/")
                 finally:
@@ -2245,7 +2264,7 @@ def course_detail_page(course_id: str, level: str = ""):
             start_button = ui.button("이 코스로 학습 시작", on_click=begin).classes("cb-action")
         progress = course_progress(course_id)
         if progress:
-            ui.label("이 세션의 코스 학습 기록").classes("cb-title text-2xl").props(
+            ui.label("이 브라우저의 코스 학습 기록").classes("cb-title text-2xl").props(
                 "role=heading aria-level=2"
             )
         for item in progress:
@@ -2295,20 +2314,26 @@ def data_policy_page():
             "role=heading aria-level=1"
         )
         ui.label(
-            "대화·관심사·학습 목표·자기 설명·말투 설정·잠정 이해도·비교 결과·퀴즈 답안·오답 복습을 "
-            "익명 브라우저 세션과 연결해 저장합니다. "
-            "계정 로그인 방식이 아니므로 쿠키를 지우거나 다른 브라우저를 쓰면 "
-            "이전 기록에 접근하지 못할 수 있어요."
+            '대화·관심사·학습 목표·자기 설명·말투 설정·'
+                '잠정 이해도·비교 결과·퀴즈 답안·오답 복습을'
+                ' 현재 브라우저에 연결해 저장해요. 계정 로그'
+                '인 방식이 아니므로 쿠키를 지우거나 다른 브라'
+                '우저를 쓰면 이전 기록에 접근하지 못할 수 있'
+                '어요.'
         )
         if not settings.public_mode:
             ui.label(
-                "현재는 로컬 공유 모드라 비교·퀴즈 기록을 함께 열람할 수 있어요. "
-                "새 대화와 이해도 기록은 이 모드에서도 세션별로 분리해요. "
-                "파일 저장과 정리 수정·삭제는 기록을 만든 브라우저에서만 할 수 있어요."
+                '현재 환경에서는 비교·퀴즈 기록을 함께 열람할'
+                    ' 수 있어요. 개인 대화와 이해도 기록은 브라'
+                    '우저별로 분리해요. 파일 저장과 정리 수정·삭'
+                    '제는 기록을 만든 브라우저에서만 할 수 있어요'
+                    '.'
             ).props("role=note")
         ui.label(
-            "자유 질문과 공식 원문 일부는 AI 기능을 사용할 때 Gemini로 전달될 수 있어요. "
-            "이름·연락처·민감한 개인정보는 질문에 입력하지 마세요."
+            '자유 질문과 공식 원문 일부는 AI 기능을 사'
+                '용할 때 Gemini로 전달될 수 있어요. 이'
+                '름·연락처·민감한 개인정보는 질문에 입력하지 '
+                '마세요.'
         )
         ui.label(
             f"자동 보관 정책: {settings.record_retention_days}일 후 삭제 대상"
@@ -2322,12 +2347,15 @@ def data_policy_page():
             else "자동 백업은 현재 비활성 상태입니다."
         )
         ui.label(
-            "아래 삭제는 이 브라우저 세션의 대화·이해도·저장 비교·퀴즈·학습 결과에 적용됩니다. "
-            "공용 공식 자료와 다른 세션 기록은 유지해요. 실행 취소는 할 수 없습니다. "
-            "기존 백업 사본은 관리자 보관 주기에 따라 별도로 만료됩니다."
+            '아래 삭제는 이 브라우저의 대화·이해도·저장 '
+                '비교·퀴즈·학습 결과에 적용돼요. 공용 공식 '
+                '자료와 다른 브라우저의 기록은 유지돼요. 삭제'
+                '한 기록은 되돌릴 수 없어요. 기존 백업 사본'
+                '은 관리자 보관 주기에 따라 별도로 만료됩니다'
+                '.'
         ).classes("cb-muted")
         with ui.dialog() as dialog, ui.card():
-            ui.label("이 세션의 학습 기록을 삭제할까요?")
+            ui.label("이 브라우저의 학습 기록을 삭제할까요?")
 
             async def confirm_delete():
                 try:
@@ -2335,7 +2363,7 @@ def data_policy_page():
                     ui.notify(
                         f"비교 {result['comparisons']}개·퀴즈 {result['quizzes']}개·"
                         f"학습 결과 {result['history']}개·대화 {result['conversations']}개와 "
-                        "이해도 기록을 삭제했어요."
+                        "학습 이해도 기록을 삭제했습니다."
                     )
                     dialog.close()
                 except (ValueError, OperationBusyError):
@@ -2343,7 +2371,9 @@ def data_policy_page():
 
             ui.button("삭제", on_click=confirm_delete).props("color=negative")
             ui.button("취소", on_click=dialog.close).props("flat")
-        ui.button("이 세션의 학습 기록 삭제", on_click=dialog.open).props("outline color=negative")
+        ui.button("이 브라우저의 학습 기록 삭제", on_click=dialog.open).props(
+            "outline color=negative"
+        )
         ui.link("학습 기록으로", "/learning-history")
 
 
@@ -2364,7 +2394,6 @@ def official_search_page(
             "국가유산청의 설명으로 우리 문화유산을 만나보세요. 원문 출처도 함께 확인할 수 있어요."
         )
         search = ui.input(label="국가유산 이름", value=q[:100]).props("outlined maxlength=100")
-        results = ui.column().classes("w-full gap-4").props("role=status aria-live=polite")
 
         async def submit_search() -> None:
             query = (search.value or "").strip()
@@ -2384,7 +2413,7 @@ def official_search_page(
             with results:
                 ui.label(f"총 {response.total}건 · 첫 페이지 최대 10건 표시")
                 if not response.items:
-                    ui.label("검색 결과가 없습니다. 다른 이름으로 검색해 주세요.")
+                    ui.label("이 이름으로 찾은 세계유산이 없어요. 다른 이름으로 검색해 주세요.")
                 for item in response.items:
                     with ui.card().classes("cb-card w-full p-5 gap-2"):
                         ui.label(item.name).classes("cb-title text-xl")
@@ -2406,6 +2435,8 @@ def official_search_page(
                         )
 
         search_button = ui.button("문화유산 찾기", on_click=submit_search).classes("cb-action")
+        search.on("keydown.enter", submit_search)
+        results = ui.column().classes("w-full gap-4").props("role=status aria-live=polite")
         ui.link("비교 학습 시작 화면", "/")
         if auto and q.strip():
             _restore_results(submit_search)
@@ -2427,11 +2458,11 @@ async def official_detail_page(
         document = await _io_bound(get_official_document, kind, number, region)
     except (OfficialServiceError, OfficialDocumentNotFoundError, ValueError):
         _error_page(
-            "공식 자료를 불러올 수 없습니다. 조회 코드를 확인하거나 다시 시도하세요.", "web"
+            "공식 자료를 불러올 수 없습니다. 조회 코드를 확인하거나 다시 시도해 주세요.", "web"
         )
         return
     except sqlite3.Error:
-        _error_page("공식 자료를 저장할 수 없습니다. 잠시 후 다시 시도하세요.", "web")
+        _error_page("공식 자료를 저장할 수 없습니다. 잠시 후 다시 시도해 주세요.", "web")
         return
     with ui.column().classes("cb-shell gap-5 py-10"):
         back_search = search_return(
@@ -2467,7 +2498,7 @@ async def official_detail_page(
             _lesson_content(official_source(document), learning_level)
         ui.link("국가유산청 원문 보기", str(document.source_url), new_tab=True)
         ui.button(
-            "함께 살펴볼 유산 찾기",
+            "함께 살펴볼 문화유산을 찾아요",
             on_click=lambda: ui.navigate.to(
                 with_return(
                     f"/discover/khs/{kind}:{number}:{region}?level={learning_level.value}&"
@@ -2494,7 +2525,7 @@ async def official_detail_page(
                     return
                 except (OfficialServiceError, sqlite3.Error):
                     with location_box:
-                        ui.label("위치정보를 불러오지 못했습니다. 잠시 후 다시 시도하세요.")
+                        ui.label("위치정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
                     return
                 finally:
                     location_button.enable()
@@ -2571,10 +2602,10 @@ def unesco_page(
             "한글 별칭·국가명과 공식 영문 이름으로 검색합니다. 등재연도는 건립연도가 아닙니다."
         )
         ui.link("자료 출처와 이용 안내", UNESCO_TERMS_URL, new_tab=True)
-        ui.label("유네스코 등재 정보의 출처와 자료 이용 조건을 함께 확인하세요.")
+        ui.label("유네스코 등재 정보의 출처와 자료 이용 조건을 함께 확인해 주세요.")
         query = (
             ui.input(
-                label="유산 이름·국가·등재 ID",
+                label="유산 이름·국가·등재번호",
                 value=q[:100],
                 placeholder="예: 타지마할, 호류지, 일본, 660",
             )
@@ -2590,7 +2621,6 @@ def unesco_page(
         suggestions = (
             ui.column().classes("w-full gap-1").props('role=group aria-label="검색어 제안"')
         )
-        results = ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
 
         async def load(refresh: bool = False) -> None:
             nonlocal suggestion_index
@@ -2607,11 +2637,11 @@ def unesco_page(
             except OfficialServiceError as exc:
                 with results:
                     ui.label(str(exc))
-                    ui.label("로컬 XML 가져오기 방법은 README의 UNESCO 연결 안내를 참고하세요.")
+                    ui.label("세계유산 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.")
                 return
             except sqlite3.Error:
                 with results:
-                    ui.label("목록을 저장하거나 불러오지 못했습니다. 다시 시도하세요.")
+                    ui.label("목록을 저장하거나 불러오지 못했습니다. 다시 시도해 주세요.")
                 return
             finally:
                 button.enable()
@@ -2623,8 +2653,8 @@ def unesco_page(
                 )
                 if not response.records:
                     ui.label(
-                        "이 이름으로 찾은 세계유산이 없어요. "
-                        "다른 이름이나 국가명으로 검색해 보세요."
+                        '이 이름으로 찾은 세계유산이 없어요. 다른 이'
+                            '름이나 국가명으로 검색해 보세요.'
                     ).props("role=status")
                     ui.link(
                         "개별 문화유산까지 통합 검색하기",
@@ -2636,7 +2666,7 @@ def unesco_page(
                 ui.link(
                     "DataHub 데이터셋·이용 조건 (CC BY-SA 4.0)"
                     if response.source_format == "json"
-                    else "XML 배포 이용 조건",
+                    else "세계유산 목록 이용 조건",
                     response.license_url,
                     new_tab=True,
                 )
@@ -2650,7 +2680,7 @@ def unesco_page(
                             new_tab=True,
                         )
                         ui.label(display_country(record.countries))
-                        ui.label(f"등재연도 {record.inscription_year} · ID {record.id}")
+                        ui.label(f"등재연도 {record.inscription_year} · 등재번호 {record.id}")
                         ui.link(
                             "이 세계유산 알아보기",
                             with_return(
@@ -2704,12 +2734,17 @@ def unesco_page(
         query.on_value_change(lambda _: render_suggestions())
         query.on("keydown.enter", search_data)
 
-        button = ui.button("세계유산 찾기", on_click=search_data).classes("cb-action")
-
         async def refresh_data() -> None:
             await load(refresh=True)
 
-        refresh_button = ui.button("최신 목록 확인하기", on_click=refresh_data).classes("cb-action")
+        with ui.row().classes("gap-3 flex-wrap"):
+            button = ui.button("세계유산 찾기", on_click=search_data).classes("cb-action")
+            refresh_button = (
+                ui.button("최신 목록 확인하기", on_click=refresh_data)
+                .classes("cb-action")
+                .props("outline")
+            )
+        results = ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
         ui.link("처음으로", "/")
         if auto:
             _restore_results(load)
@@ -2789,7 +2824,7 @@ async def research_page(
             ).classes("cb-muted")
             ui.label("학습 순서: " + " → ".join(state["curriculum"]))
             for notice in state["comparison"]["learning_notices"]:
-                ui.label(notice).classes("cb-muted")
+                ui.label(service_text(notice)).classes("cb-muted")
             with ui.expansion("자료를 찾고 확인한 과정").classes("w-full"):
                 ui.label(state["verification_note"])
                 for step in state["execution_trace"]:
@@ -2922,7 +2957,7 @@ async def autonomous_page(
             panel.clear()
             with panel:
                 ui.label(
-                    "공식 자료를 확보하거나 탐구를 저장하지 못했습니다. 잠시 후 다시 시도하세요."
+                    "공식 자료를 확보하거나 탐구를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요."
                 )
                 ui.link("홈 검색으로 돌아가기", "/")
             return
@@ -2943,8 +2978,9 @@ async def autonomous_page(
             ui.label(learner_status(result, request.level is LearningLevel.BEGINNER))
             if not result["candidates"]:
                 ui.label(
-                    "선택한 범위에서 조건에 맞는 근거를 확보하지 못해 비교를 보류했어요. "
-                    "범위를 자동 변경하지 않아요."
+                    '선택한 범위에서 조건에 맞는 근거를 확보하지 '
+                        '못해 비교를 보류했어요. 범위를 자동 변경하지'
+                        ' 않아요.'
                 ).classes("cb-muted")
                 if request.target.provider == "khs":
                     ui.link(

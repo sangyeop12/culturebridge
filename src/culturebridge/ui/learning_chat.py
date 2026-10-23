@@ -16,15 +16,16 @@ from culturebridge.services.learning_conversation_service import (
 )
 from culturebridge.services.learning_preferences import get_preferences, present_message
 from culturebridge.services.operation_service import OperationBusyError
+from culturebridge.ui.copy import service_text
 from culturebridge.ui.learning_controls import tone_controls, voice_controls
 from culturebridge.ui.learning_intent import learning_intent_editor
 
 
-def learning_entry(worker):
-    with ui.card().classes("cb-card w-full p-6 gap-4"):
-        ui.label("궁금한 역사 이야기부터 시작해요").classes("cb-title text-2xl").props(
-            "role=heading aria-level=1"
-        )
+def learning_entry(worker, *, embedded=False):
+    with ui.card().classes("cb-card cb-learning-start w-full p-6 gap-4").props("id=history-start"):
+        ui.label("궁금한 역사 이야기부터 시작해요").classes(
+            "cb-title " + ("text-2xl" if embedded else "text-3xl")
+        ).props(f"role=heading aria-level={2 if embedded else 1}")
         ui.label("수준이나 문화유산을 먼저 고르지 않아도 괜찮아요.").classes("cb-muted")
         prompt = (
             ui.textarea(
@@ -34,9 +35,11 @@ def learning_entry(worker):
             .props("outlined autogrow maxlength=1000")
             .classes("w-full")
         )
-        mic = voice_controls(prompt)
-        tone_controls(worker)
-        learning_intent_editor(worker)
+        with ui.expansion("말로 질문하기", icon="mic").classes("w-full"):
+            mic = voice_controls(prompt)
+        with ui.element("div").classes("cb-start-options"):
+            tone_controls(worker)
+            learning_intent_editor(worker)
 
         async def start():
             if not (prompt.value or "").strip():
@@ -59,9 +62,12 @@ def learning_entry(worker):
                 button.enable()
                 mic.enable()
 
-        button = ui.button("함께 알아보기", on_click=start).props("unelevated")
-        ui.link("이전 대화 이어가기", "/learn")
-        ui.link("홈 화면에 추가하기", "/install")
+        with ui.row().classes("cb-start-actions"):
+            button = ui.button("함께 알아보기", on_click=start, icon="arrow_forward").props(
+                "unelevated"
+            )
+            ui.link("이전 대화 이어가기", "/learn")
+            ui.link("홈 화면에 추가하기", "/install")
 
 
 def learning_chat(worker, conversation_id=""):
@@ -74,33 +80,47 @@ def learning_chat(worker, conversation_id=""):
             ui.link("대화 목록으로", "/learn")
             return
     if state is None:
-        ui.label("이어서 나누는 역사 이야기").classes("cb-title text-2xl")
-        ui.label(
-            "대화는 현재 브라우저의 익명 세션에 연결돼요. 다른 기기와 자동 동기화되지는 않아요."
-        )
-        for item in list_conversations():
-            ui.link(item["goal"], f"/learn?conversation_id={item['id']}")
+        conversations = list_conversations()
         learning_entry(worker)
+        with ui.column().classes("w-full gap-3"):
+            ui.label("이어서 나누는 역사 이야기").classes("cb-title text-2xl").props(
+                "role=heading aria-level=2"
+            )
+            ui.label(
+                '이 브라우저에서 나눈 대화를 이어갈 수 있어요'
+                    '. 다른 기기와 자동으로 연결되지는 않아요.'
+            ).classes("cb-muted text-sm")
+            for item in conversations:
+                ui.link(item["goal"], f"/learn?conversation_id={item['id']}").classes(
+                    "cb-conversation-link"
+                )
+            if not conversations:
+                ui.label(
+                    "아직 나눈 이야기가 없어요. 첫 질문으로 나만의 배움을 시작해 보세요."
+                ).classes("cb-muted")
         return
 
-    ui.label("함께 알아가는 역사").classes("cb-title text-2xl").props("role=heading aria-level=1")
+    ui.label("함께 알아가는 역사").classes("cb-title text-3xl").props("role=heading aria-level=1")
     ui.link("대화 목록으로", "/learn")
     if state.quiz_review:
         ui.link("퀴즈 해설과 학습 기록으로", "/learning-history")
         ui.label(
-            "퀴즈 문항·답안·채점 근거로 복습해요. "
-            "대화를 보내면 AI가 이 내용을 함께 참고할 수 있어요."
+            '퀴즈 문항·답안·채점 근거로 복습해요. 대화를'
+                ' 보내면 AI가 이 내용을 함께 참고할 수 있'
+                '어요.'
         ).classes("cb-muted")
-    transcript = ui.column().classes("w-full gap-4")
+    transcript = ui.column().classes("cb-transcript w-full gap-4")
     status = ui.label().props("role=status aria-live=polite").classes("cb-muted")
     prompt = (
         ui.textarea(label="이야기 이어가기")
         .props("outlined autogrow maxlength=1000")
-        .classes("w-full")
+        .classes("cb-composer w-full")
     )
-    controls = [voice_controls(prompt)]
+    with ui.expansion("말로 질문하기", icon="mic").classes("cb-chat-options"):
+        controls = [voice_controls(prompt)]
     pending = None
     busy = False
+    send_button = None
 
     refresh_intent = None
 
@@ -108,7 +128,7 @@ def learning_chat(worker, conversation_id=""):
         nonlocal state, pending, busy
         if busy:
             return
-        text = (prompt.value or "").strip()
+        text = control_text(control, prompt.value or "")
         if control in {"message", "correct"} and not text:
             ui.notify("내용을 입력해 주세요.", color="warning")
             return
@@ -132,7 +152,7 @@ def learning_chat(worker, conversation_id=""):
         status.set_text("자료와 다음 학습을 살펴보고 있어요…")
         try:
             state = await worker(send_learning_turn, state.id, pending[1])
-            if control != "review_question":
+            if control in {"message", "correct", "change_topic"}:
                 prompt.set_value("")
             pending = None
             render()
@@ -145,7 +165,7 @@ def learning_chat(worker, conversation_id=""):
             render()
             status.set_text("대화가 바뀌었어요. 최신 내용을 불러왔으니 확인 후 다시 보내주세요.")
         except (ValueError, OperationBusyError) as exc:
-            status.set_text(str(exc))
+            status.set_text(service_text(str(exc)))
         except Exception:
             status.set_text(
                 "처리 결과를 확인하지 못했어요. 같은 내용으로 다시 보내면 중복을 확인해요."
@@ -162,15 +182,18 @@ def learning_chat(worker, conversation_id=""):
             if state.goal:
                 ui.label("지금 함께 살펴볼 목표: " + state.goal).classes("cb-title text-lg")
             if state.notice:
-                ui.label(state.notice).classes("cb-muted").props("role=status")
+                ui.label(display_notice(state.notice)).classes("cb-muted").props("role=status")
             if state.status == "paused":
                 ui.label("잠시 멈춘 대화예요. ‘이어서 학습’을 누르면 다시 시작해요.")
             for message in state.messages:
-                with ui.card().classes("cb-card w-full p-5 gap-2"):
+                with ui.card().classes(
+                    "cb-card cb-message w-full "
+                    + ("cb-message-user" if message.role == "user" else "cb-message-assistant")
+                ):
                     ui.label("나" if message.role == "user" else "컬처브릿지").classes(
                         "font-semibold"
                     )
-                    ui.label(present_message(message, preferences)).style("white-space:pre-wrap")
+                    ui.label(message_body(message, preferences)).classes("cb-message-body")
                     if message.kind == "dictionary" and message.citations:
                         ui.label("출처: 국립국어원 표준국어대사전 · 뜻풀이 원문 그대로")
                         ui.link(
@@ -179,7 +202,7 @@ def learning_chat(worker, conversation_id=""):
                             new_tab=True,
                         )
                     for citation in message.citations:
-                        with ui.expansion("설명의 공식 근거"):
+                        with ui.expansion("설명의 공식 근거 · 원문 보기"):
                             ui.label(citation["quote"]).style("white-space:pre-wrap")
                             ui.link(citation["title"], citation["url"], new_tab=True)
                             if citation.get("license_url"):
@@ -236,6 +259,9 @@ def learning_chat(worker, conversation_id=""):
             if state.plan_history:
                 with ui.expansion("다음 학습을 이렇게 제안했어요"):
                     ui.label(state.plan_history[-1]["reason"])
+        if send_button is not None:
+            send_button.set_text("이어서 학습" if state.status == "paused" else "보내기")
+            send_button.props("icon=play_arrow" if state.status == "paused" else "icon=send")
 
     async def stop():
         if not busy:
@@ -248,19 +274,47 @@ def learning_chat(worker, conversation_id=""):
             status.set_text("요청이 끝났거나 대화가 바뀌었어요. 최신 내용을 확인해 주세요.")
 
     render()
-    tone_controls(worker, render)
-    refresh_intent = learning_intent_editor(worker)
-    with ui.row().classes("flex-wrap gap-2"):
-        for label, control in (
-            ("보내기", "message"),
-            ("건너뛰기", "skip"),
-            ("다른 주제로", "change_topic"),
-            ("이어서 학습", "resume"),
-            ("입력한 내용으로 정정 요청", "correct"),
-        ):
-            controls.append(
-                ui.button(label, on_click=lambda _, action=control: submit(action)).props(
-                    "outline no-caps"
-                )
-            )
+    with ui.row().classes("cb-composer-actions flex-wrap"):
+        send_button = ui.button(
+            "이어서 학습" if state.status == "paused" else "보내기",
+            icon="play_arrow" if state.status == "paused" else "send",
+            on_click=lambda: submit("resume" if state.status == "paused" else "message"),
+        ).props("unelevated")
+        controls.append(send_button)
         ui.button("잠시 중단", on_click=stop).props("outline no-caps")
+    with ui.expansion("학습 진행 방식 바꾸기", icon="tune").classes("cb-chat-options"):
+        with ui.row().classes("flex-wrap gap-2"):
+            for label, control in (
+                ("건너뛰기", "skip"),
+                ("다른 주제로", "change_topic"),
+                ("이어서 학습", "resume"),
+                ("입력한 내용으로 정정 요청", "correct"),
+            ):
+                controls.append(
+                    ui.button(label, on_click=lambda _, action=control: submit(action)).props(
+                        "outline no-caps"
+                    )
+                )
+    with ui.element("div").classes("cb-start-options cb-chat-options"):
+        tone_controls(worker, render)
+        refresh_intent = learning_intent_editor(worker)
+
+
+def message_body(message, preferences):
+    """Avoid repeating the same quote in prose and its source panel; keep stored text intact."""
+    text = present_message(message, preferences)
+    if message.role == "assistant" and message.kind != "dictionary":
+        for citation in message.citations:
+            quote = citation.get("quote", "")
+            if quote:
+                text = text.replace("\n\n공식 원문: " + quote, "", 1)
+    return text
+
+
+def display_notice(text):
+    return service_text(text)
+
+
+def control_text(control, draft):
+    """Progress controls must not accidentally transmit an unfinished draft."""
+    return draft.strip() if control in {"message", "correct", "change_topic"} else ""
