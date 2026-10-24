@@ -130,8 +130,9 @@ def learning_chat(worker, conversation_id=""):
     pending = None
     busy = False
     send_button = None
+    quiz_controls = []
 
-    async def submit(control="message", source_id=""):
+    async def submit(control="message", source_id="", answers=None):
         nonlocal state, pending, busy
         if busy:
             return
@@ -140,7 +141,7 @@ def learning_chat(worker, conversation_id=""):
             ui.notify("내용을 입력해 주세요.", color="warning")
             return
         # Keep the same ID after an uncertain transport failure; never duplicate a turn on retry.
-        signature = (state.revision, text, control, source_id)
+        signature = (state.revision, text, control, source_id, tuple(answers or []))
         if pending is None or pending[0] != signature:
             pending = (
                 signature,
@@ -150,11 +151,12 @@ def learning_chat(worker, conversation_id=""):
                     text=text,
                     control=control,
                     source_id=source_id,
+                    answers=answers or [],
                 ),
             )
         busy = True
         ui.run_javascript("window.CultureBridgeVoice?.cancel()")
-        for button in controls:
+        for button in controls + quiz_controls:
             button.disable()
         status.set_text("자료와 다음 학습을 살펴보고 있어요…")
         try:
@@ -177,15 +179,32 @@ def learning_chat(worker, conversation_id=""):
             )
         finally:
             busy = False
-            for button in controls:
+            for button in controls + quiz_controls:
                 button.enable()
 
     def render():
+        nonlocal quiz_controls
+        quiz_controls = []
         preferences = get_preferences()
         transcript.clear()
         with transcript:
             if state.goal:
                 ui.label("지금 함께 살펴볼 목표: " + state.goal).classes("cb-title text-lg")
+            if state.learning_plan:
+                labels = {
+                    "search": "자료 찾기",
+                    "read": "근거 읽기",
+                    "explain": "내용 익히기",
+                    "compare": "유사점과 차이점",
+                    "quiz": "학습 확인",
+                    "review": "복습",
+                }
+                with ui.expansion("이번 학습 계획").classes("w-full"):
+                    for index, action in enumerate(state.learning_plan, 1):
+                        ui.label(f"{index}. {labels.get(action, action)}")
+                    ui.label(
+                        "찾은 자료와 내 설명에 따라 계획을 조절해요. 숙달 완료 표시는 아니에요."
+                    )
             if state.notice:
                 ui.label(display_notice(state.notice)).classes("cb-muted").props("role=status")
             if state.status == "paused":
@@ -222,6 +241,68 @@ def learning_chat(worker, conversation_id=""):
                             suggestion["label"],
                             suggestion["url"],
                             new_tab=suggestion["url"].startswith(("https://", "http://")),
+                        )
+            if (
+                state.active_quiz
+                and not state.active_quiz.get("submitted")
+                and state.status != "paused"
+            ):
+                with ui.card().classes("cb-card w-full gap-4"):
+                    ui.label("배운 내용 확인하기").classes("cb-title text-xl")
+                    radios = []
+                    for number, item in enumerate(state.active_quiz["items"], 1):
+                        ui.label(f"{number}. {item['question']}")
+                        radios.append(
+                            ui.radio({c["id"]: c["text"] for c in item["choices"]}).props(
+                                f'aria-label="대화 퀴즈 {number}번 선택지"'
+                            )
+                        )
+
+                    async def answer_quiz():
+                        answers = [radio.value for radio in radios]
+                        if any(answer is None for answer in answers):
+                            ui.notify("모든 문항에 답해 주세요.", color="warning")
+                            return
+                        await submit("submit_quiz", answers=answers)
+
+                    quiz_controls.append(
+                        ui.button("답안 제출하고 이어서 학습", on_click=answer_quiz)
+                    )
+                    ui.label("답안은 직접 골라요. 제출 후 결과에 맞춰 다음 활동을 계획해요.")
+            if state.tool_observations:
+                with ui.expansion("자료를 찾고 학습을 이어간 과정").classes("w-full"):
+                    status_names = {
+                        "ok": "확인",
+                        "empty": "결과 없음",
+                        "error": "연결 확인 필요",
+                        "blocked": "조건 확인 필요",
+                        "insufficient": "근거 부족",
+                        "duplicate": "중복 방지",
+                        "waiting": "답변 기다림",
+                        "budget": "이번 탐색 종료",
+                    }
+                    for entry in state.tool_observations[-12:]:
+                        name = {
+                            "search": "국내 유산 찾기",
+                            "search_world": "해외 유산 찾기",
+                            "search_history": "인물·사건 찾기",
+                            "read": "공식 근거 읽기",
+                            "define": "용어 찾기",
+                            "discover": "비교 후보 찾기",
+                            "compare": "근거 비교",
+                            "quiz": "확인 퀴즈",
+                            "review_quiz": "오답 근거 읽기",
+                            "submit_quiz": "답안 채점",
+                        }.get(entry["tool"], "학습 활동")
+                        ui.label(name + " · " + status_names.get(entry["status"], "추가 확인"))
+                        if entry.get("reason"):
+                            ui.label(entry["reason"])
+                        ui.label(
+                            "AI가 선택한 실행"
+                            if entry.get("planner") == "ai"
+                            else "직접 제출한 답안"
+                            if entry.get("planner") == "learner"
+                            else "기본 처리"
                         )
             if state.search_results:
                 with ui.expansion("찾은 공식 자료 살펴보기").classes("w-full"):

@@ -67,10 +67,12 @@ def test_new_search_action_uses_existing_bounded_tool_loop(monkeypatch):
     assert learning.route(value) == "tool"
     result = learning.tool(value)
     assert result["steps"] == 2
-    assert result["seen"] == ["search_world:대안탑:"]
+    from culturebridge.services.learning_agent_tools import action_key
+
+    assert result["seen"] == [action_key(value["decision"])]
     assert value["conversation"].search_results[0]["name"] == "대안탑"
     value.update(result)
-    assert learning.route(value) == "respond"
+    assert learning.route(value) == "plan"
 
 
 def test_reading_only_registered_result_never_uses_model_url(monkeypatch):

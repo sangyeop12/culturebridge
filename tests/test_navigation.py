@@ -97,6 +97,22 @@ def click(page, text):
         ).handler(None)
 
 
+@pytest.mark.parametrize("path", ["/", "/learn", "/settings"])
+def test_brand_mark_and_name_share_one_home_link(isolated, path):
+    with TestClient(app) as client:
+        assert client.get(path).status_code == 200
+        page = next(
+            c for c in reversed(list(Client.instances.values()))
+            if any("cb-brand" in e._classes for e in c.elements.values())
+        )
+        brand = next(e for e in page.elements.values() if "cb-brand" in e._classes)
+        assert brand._props.get("href") == "/"
+        children = brand.default_slot.children
+        assert any("cb-brand-mark" in child._classes for child in children)
+        assert any(getattr(child, "text", "") == "CultureBridge" for child in children)
+        assert brand._props["aria-label"] == "CultureBridge 처음으로"
+
+
 def test_home_restores_learning_and_search_controls_without_remote_work(isolated, monkeypatch):
     monkeypatch.setattr(
         pages, "search_home", lambda *a: pytest.fail("Must await client connection")

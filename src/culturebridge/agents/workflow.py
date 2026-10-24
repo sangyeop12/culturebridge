@@ -44,6 +44,7 @@ class ExplorationState(TypedDict, total=False):
     execution_trace: list[str]
     quiz: dict | None
     quiz_notice: str
+    generate_quiz: bool
 
 
 def plan_curriculum(state):
@@ -209,7 +210,11 @@ def build_exploration_graph():
         {"retry": "retry_tool", "finish": "compare_tool"},
     )
     graph.add_edge("retry_tool", "extract_tool")
-    graph.add_edge("compare_tool", "quiz_agent")
+    graph.add_conditional_edges(
+        "compare_tool",
+        lambda state: "quiz" if state.get("generate_quiz", True) else "finish",
+        {"quiz": "quiz_agent", "finish": END},
+    )
     graph.add_edge("quiz_agent", END)
     return graph.compile()
 

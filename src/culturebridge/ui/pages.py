@@ -239,12 +239,13 @@ def _header() -> None:
             ),
         ).classes("cb-skip-link")
         with ui.row().classes("cb-header-inner"):
-            ui.icon("account_balance", size="22px").classes("cb-brand-mark").props(
-                "aria-hidden=true"
-            )
-            ui.link("CultureBridge", "/").classes("cb-brand").props(
+            with ui.link(target="/").classes("cb-brand").props(
                 'aria-label="CultureBridge 처음으로"'
-            )
+            ):
+                ui.icon("account_balance", size="22px").classes("cb-brand-mark").props(
+                    "aria-hidden=true"
+                )
+                ui.label("CultureBridge")
             ui.space()
             primary_navigation(path)
             with ui.link(target="/settings").classes("cb-settings-link").props(

@@ -23,7 +23,8 @@ body {background:var(--cb-paper);color:var(--cb-ink);font-family:'Segoe UI','Mal
  box-shadow:none;
  backdrop-filter:blur(12px)}
 .cb-header-inner {min-height:80px;align-items:center;gap:24px}
-.cb-brand {font-size:22px;font-weight:780;letter-spacing:-.055em;color:#193e3a;
+.cb-brand {display:inline-flex;align-items:center;gap:10px;min-height:44px;
+ font-size:22px;font-weight:780;letter-spacing:-.055em;color:#193e3a;
  text-decoration:none;white-space:nowrap}
 .cb-brand-mark {color:var(--cb-green);padding:10px;border:1px solid #cedbd0;
  background:var(--cb-soft);border-radius:13px}

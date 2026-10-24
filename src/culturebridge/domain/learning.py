@@ -20,6 +20,7 @@ class LearningTurn(BaseModel):
     control: Literal[
         "message",
         "stop",
+        "submit_quiz",
         "resume",
         "skip",
         "change_topic",
@@ -28,6 +29,14 @@ class LearningTurn(BaseModel):
         "review_question",
     ] = "message"
     source_id: str = Field(default="", max_length=100)
+    answers: list[int] = Field(default_factory=list, max_length=5)
+
+    @field_validator("answers")
+    @classmethod
+    def valid_answers(cls, values):
+        if any(value < 0 or value > 3 for value in values):
+            raise ValueError("선택지 번호를 확인해 주세요.")
+        return values
 
     @field_validator("text")
     @classmethod
@@ -65,6 +74,11 @@ class LearningDecision(BaseModel):
         "check",
         "review",
         "stop",
+        "discover",
+        "compare",
+        "quiz",
+        "review_quiz",
+        "finish",
     ]
     query: str = Field(default="", max_length=80)
     source_id: str = Field(default="", max_length=100)
@@ -72,6 +86,18 @@ class LearningDecision(BaseModel):
     concept: str = Field(default="", max_length=80)
     question: str = Field(default="", max_length=200)
     reason: str = Field(default="", max_length=300)
+    target_id: str = Field(default="", max_length=100)
+    comparison_id: str = Field(default="", max_length=100)
+    review_number: int = Field(default=0, ge=0, le=5)
+    level: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    goal_mode: Literal["observe", "compare", "religion", "verify"] = "compare"
+    comparison_scope: Literal["overseas", "domestic"] = "overseas"
+    activity: Literal[
+        "auto", "explain", "scaffold", "remediate", "contrast", "alternate_question", "deepen"
+    ] = "auto"
+    plan: list[Literal["search", "read", "explain", "compare", "quiz", "review"]] = Field(
+        default_factory=list, max_length=8
+    )
     assessment: Literal["none", "tentative_support", "possible_misconception", "unclear"] = "none"
     assessment_quote: str = Field(default="", max_length=700)
     intent_signals: list[LearningIntentSignal] = Field(default_factory=list, max_length=2)
@@ -115,3 +141,10 @@ class LearningConversation(BaseModel):
     search_results: list[dict] = Field(default_factory=list)
     notice: str = ""
     quiz_review: dict = Field(default_factory=dict)
+    learning_plan: list[str] = Field(default_factory=list)
+    goal_status: Literal["exploring", "practising", "reviewing", "summarized"] = "exploring"
+    comparison_scope: Literal["overseas", "domestic"] = "overseas"
+    tool_observations: list[dict] = Field(default_factory=list)
+    pending_request: str = Field(default="", max_length=1000)
+    learning_artifacts: list[dict] = Field(default_factory=list)
+    active_quiz: dict = Field(default_factory=dict)
