@@ -10,6 +10,7 @@ def create_learning_quiz(state):
             state["comparison_id"],
             LearningLevel(state["level"]),
             comparison_id=state["comparison"]["saved_id"],
+            reuse=True,
         )
         return {
             "quiz": quiz.model_dump(mode="json"),

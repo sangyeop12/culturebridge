@@ -97,6 +97,7 @@ from culturebridge.ui.copy import service_text
 from culturebridge.ui.learning_chat import learning_chat, learning_entry
 from culturebridge.ui.learning_controls import tone_controls
 from culturebridge.ui.learning_intent import learning_intent_editor
+from culturebridge.ui.learning_steps import learning_steps
 from culturebridge.ui.theme import ACCENT, BRAND, PALE, THEME_HEAD
 
 logger = logging.getLogger(__name__)
@@ -1031,8 +1032,8 @@ def learning_settings_page():
         ui.label("설정").classes("cb-title text-3xl").props("role=heading aria-level=1")
         ui.label("나에게 편한 설명 방식을 골라보세요.").classes("cb-muted")
         ui.label(
-            "이 브라우저에서 이용하는 학습에 적용돼요. 대화 중에도 "
-            "‘더 쉽게’, ‘짧게 설명해줘’라고 요청할 수 있어요."
+            "이 브라우저의 대화 학습 설명에 적용돼요. 비교와 학습 코스의 수준·목표는 "
+            "각 화면에서 선택해요. 대화 중에도 ‘더 쉽게’, ‘짧게 설명해줘’라고 요청할 수 있어요."
         ).classes("cb-muted")
         with ui.card().classes("cb-card w-full p-5 gap-3"):
             tone_controls(_io_bound, expanded=True)
@@ -1428,7 +1429,7 @@ def comparison_page(
                 ui.label("선택 목표: " + GOAL_LABELS[result.goal.value])
                 if result.goal_text:
                     ui.label("세부 목표: " + result.goal_text)
-                ui.label("학습 순서: " + " → ".join(result.curriculum))
+                learning_steps(1, result.curriculum)
                 ui.label("학습 분량: " + AMOUNT_LABELS[result.amount.value])
                 for notice in result.learning_notices:
                     ui.label(service_text(notice)).classes("cb-muted")
@@ -1829,10 +1830,13 @@ async def quiz_page(
             quiz = load_quiz(quiz_id, left_id, right_id)
         elif loading:
             quiz = await _io_bound(
-                generate_quiz, left_id, right_id, learning_level, comparison_id=comparison_id
+                generate_quiz, left_id, right_id, learning_level,
+                comparison_id=comparison_id, reuse=True,
             )
         else:
-            quiz = generate_quiz(left_id, right_id, learning_level, comparison_id=comparison_id)
+            quiz = generate_quiz(
+                left_id, right_id, learning_level, comparison_id=comparison_id, reuse=True,
+            )
         comparison_id, learning_level = quiz.comparison_id, quiz.level
     except (ComparisonNotFoundError, EvidenceQuizError) as exc:
         _error_page(
@@ -1905,6 +1909,9 @@ async def quiz_page(
                     "공식 설명을 읽고 푸는 퀴즈예요. 설명의 뜻은 원문과 함께 더 확인해 주세요."
                 )
 
+        stage_box = ui.column().classes("w-full")
+        with stage_box:
+            learning_steps(2)
         for number, item in enumerate(quiz.items, start=1):
             with ui.card().classes("cb-card w-full p-6 gap-4"):
                 ui.label(f"문제 {number} / 5").classes("cb-muted font-semibold")
@@ -1943,6 +1950,9 @@ async def quiz_page(
                 logger.exception("Quiz grading storage failed")
                 ui.notify("채점 결과를 저장하지 못했습니다. 다시 시도해 주세요.", color="negative")
                 return
+            stage_box.clear()
+            with stage_box:
+                learning_steps(3)
             result_box.clear()
             with result_box:
                 with ui.card().classes("cb-card w-full p-6 gap-3"):
@@ -2245,6 +2255,7 @@ async def open_record_page(identity: str):
 @ui.page("/courses")
 def courses_page():
     from culturebridge.services.course_service import list_courses
+    from culturebridge.services.learning_path_service import personalized_courses
     from culturebridge.ui.heritage_art import course_art
 
     _base_styles()
@@ -2262,8 +2273,13 @@ def courses_page():
         ui.label("삽화는 학습 주제를 표현한 것으로, 실제 유산의 모습과 다를 수 있어요.").classes(
             "cb-art-caption"
         )
+        courses, personalized = personalized_courses(list_courses())
+        if personalized:
+            ui.label(
+                "관심사와 맞닿은 코스를 먼저 보여드려요. 다른 코스도 자유롭게 선택할 수 있어요."
+            ).classes("cb-muted")
         with ui.element("div").classes("cb-course-grid"):
-            for index, course in enumerate(list_courses(), 1):
+            for index, course in enumerate(courses, 1):
                 with ui.card().classes("cb-card cb-course-card w-full"):
                     ui.html(course_art(course["id"])).classes("cb-course-art")
                     with ui.column().classes("cb-course-body w-full"):
@@ -2303,17 +2319,14 @@ def course_detail_page(course_id: str, level: str = ""):
         ui.label(course["title"]).classes("cb-title text-3xl").props("role=heading aria-level=1")
         ui.label(course["left_name"] + " ↔ " + course["right_name"]).classes("text-xl")
         ui.label(f"권장 학습 시간: 약 {course['minutes']}분 · {GOAL_LABELS[course['goal']]}")
-        ui.html(course_art(course_id)).classes("cb-course-banner")
-        ui.label("학습 주제를 표현한 창작 삽화 · 실제 유산의 모습이나 복원도가 아니에요.").classes(
-            "cb-art-caption"
-        )
         with ui.card().classes("cb-card w-full p-5 gap-3"):
             ui.label("오늘의 학습 목표").classes("cb-title text-xl")
             ui.label(course["objective"])
             selected = ui.select(
                 LEVEL_LABELS, value=learning_level.value, label="설명 수준"
             ).classes("w-full")
-            ui.label("1. 공식 자료 읽기 → 2. 핵심 비교 → 3. 퀴즈 5문항 → 4. 오답 복습·학습지 저장")
+            start_actions = ui.row().classes("w-full")
+            learning_steps(0)
             for index, activity in enumerate(course["activities"], 1):
                 ui.label(f"{index}. {activity}")
             ui.label("마무리 질문: " + course["reflection"])
@@ -2352,7 +2365,12 @@ def course_detail_page(course_id: str, level: str = ""):
                 finally:
                     start_button.enable()
 
-            start_button = ui.button("이 코스로 학습 시작", on_click=begin).classes("cb-action")
+            with start_actions:
+                start_button = ui.button("이 코스로 학습 시작", on_click=begin).classes("cb-action")
+        ui.html(course_art(course_id)).classes("cb-course-banner")
+        ui.label("학습 주제를 표현한 창작 삽화 · 실제 유산의 모습이나 복원도가 아니에요.").classes(
+            "cb-art-caption"
+        )
         progress = course_progress(course_id)
         if progress:
             ui.label("이 브라우저의 코스 학습 기록").classes("cb-title text-2xl").props(
@@ -2913,7 +2931,7 @@ async def research_page(
             ui.label(
                 "공식 설명에서 찾은 내용을 살펴봐요. 자료가 부족한 부분은 판단을 보류해요."
             ).classes("cb-muted")
-            ui.label("학습 순서: " + " → ".join(state["curriculum"]))
+            learning_steps(0, state["curriculum"])
             for notice in state["comparison"]["learning_notices"]:
                 ui.label(service_text(notice)).classes("cb-muted")
             with ui.expansion("자료를 찾고 확인한 과정").classes("w-full"):
@@ -3050,7 +3068,10 @@ async def autonomous_page(
                 ui.label(
                     "공식 자료를 확보하거나 탐구를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요."
                 )
-                ui.link("홈 검색으로 돌아가기", "/")
+                ui.link("검색 결과로 돌아가기", search_return(return_to, home_context(
+                    level=level, goal=goal, goal_text=goal_text, amount=amount,
+                    comparison_scope=comparison_scope,
+                )))
             return
         panel.clear()
         with panel:
@@ -3149,4 +3170,7 @@ async def autonomous_page(
                     )
                 else:
                     ui.label(result["quiz_notice"])
-            ui.link("홈 검색으로 돌아가기", "/")
+            ui.link("검색 결과로 돌아가기", search_return(return_to, home_context(
+                level=level, goal=goal, goal_text=goal_text, amount=amount,
+                comparison_scope=comparison_scope,
+            )))

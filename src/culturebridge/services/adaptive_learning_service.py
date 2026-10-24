@@ -54,7 +54,7 @@ def teaching_route(conversation, source, concept, text=""):
     }
 
 
-def activity_question(concept, route, index=0):
+def activity_question(concept, route, index=0, quote=""):
     variants = {
         "시대": [
             "이 연대가 가리키는 사건은 무엇인가요? 원문의 표현으로 이유를 설명해 볼까요?",
@@ -79,8 +79,38 @@ def activity_question(concept, route, index=0):
             "원문으로 알 수 있는 점과 아직 판단하기 어려운 점은 무엇인가요?",
         ],
     )
-    if route["mode"] in {"scaffold", "contrast"}:
-        return "먼저 원문에서 중요한 표현 하나를 골라볼까요? 그 표현은 무엇을 설명하나요?"
-    if route["mode"] == "deepen":
-        return "이 근거로 알 수 있는 점과 알 수 없는 점을 구분하고, 더 필요한 자료를 제안해 볼까요?"
-    return variants[index % len(variants)]
+    variants += [
+        f"이 원문에서 '{concept}'를 설명하는 부분만 고르고, 주변 대상 설명과 나눠볼까요?",
+        f"'{concept}'에 관해 원문으로 답할 수 있는 질문과 "
+        "답할 수 없는 질문을 하나씩 만들어 볼까요?",
+        f"'{concept}' 설명을 친구에게 한 문장으로 전한다면 어떤 표현을 꼭 남겨야 할까요?",
+    ]
+    modes = {
+        "scaffold": [
+            f"먼저 '{concept}'와 관련된 단어 하나만 찾아볼까요? 그다음 설명하는 대상을 찾아봐요.",
+            "원문을 짧게 나누고, 누구에 대한 설명인지 먼저 표시해 볼까요?",
+            "확실히 읽을 수 있는 사실 하나만 골라 자기 말로 바꿔볼까요?",
+        ],
+        "contrast": [
+            f"앞서 말한 '{concept}' 설명과 원문을 나란히 놓고, 서로 다른 표현 한 곳을 찾아볼까요?",
+            "원문에 있는 내용과 내가 덧붙인 생각을 두 칸으로 나누어 볼까요?",
+            "혼동했던 표현을 하나 고르고, 원문이 허용하는 범위로 다시 써볼까요?",
+        ],
+        "remediate": [
+            "내 답에서 원문과 연결되지 않는 표현을 지우고, 인용으로 뒷받침되는 내용만 남겨볼까요?",
+            f"'{concept}'의 대상이나 범위를 잘못 넓히지는 않았는지 이유와 함께 다시 설명해 볼까요?",
+            "바꾼 설명이 원문과 맞는 이유를 짧은 인용 하나로 보여줄 수 있나요?",
+        ],
+        "deepen": [
+            "이 근거로 알 수 있는 점과 알 수 없는 점을 구분하고, 더 필요한 자료를 제안해 볼까요?",
+            f"'{concept}'를 다른 유산과 비교하려면 양쪽에서 어떤 근거를 확보해야 할까요?",
+            "같은 원문을 더 넓게 해석할 때 생기는 위험과 "
+            "그 해석을 확인할 추가 자료를 설명해 볼까요?",
+        ],
+    }
+    questions = modes.get(route["mode"], variants)
+    question = questions[index % len(questions)]
+    # Anchor each activity in the actual source rather than inventing new examples or facts.
+    if quote:
+        question += "\n살펴볼 원문 표현: “" + quote[:100] + ("…" if len(quote) > 100 else "") + "”"
+    return question

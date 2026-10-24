@@ -16,7 +16,11 @@ from langgraph.graph import END, START, StateGraph
 from culturebridge.config import get_settings
 from culturebridge.domain.learning import ConversationMessage, LearningDecision
 from culturebridge.services.adaptive_learning_service import activity_question, teaching_route
-from culturebridge.services.conversation_source_policy import conversation_ai_allowed, url_allowed
+from culturebridge.services.conversation_source_policy import (
+    conversation_ai_allowed,
+    current_topic_messages,
+    url_allowed,
+)
 from culturebridge.services.lesson_service import official_source
 from culturebridge.services.official_service import get_official_document, search_official_heritages
 
@@ -55,16 +59,26 @@ def _model_decision(state):
         decision = assessment_decision(state)
         if decision is not None:
             return decision
+    active_ids = {source["id"] for source in conversation.sources}
     context = {
         "message": state["request"].text,
         "control": state["request"].control,
-        "history": [m.model_dump() for m in conversation.messages[-8:] if m.kind != "dictionary"],
+        "history": [
+            m.model_dump()
+            for m in current_topic_messages(conversation)[-8:]
+            if m.kind != "dictionary"
+        ],
         "goal": conversation.goal,
         "learner_confirmed_intent": state.get("learner_intent", {}),
         "dialogue_inferred_intent": state.get("automatic_intent", {}),
         "automatic_intent_enabled": state.get("automatic_intent_enabled", True),
         "concepts": {
-            name: {"status": value["status"], "latest_evidence": value["observations"][-1:]}
+            name: {
+                "status": value["status"],
+                "latest_evidence": [
+                    o for o in value["observations"] if o.get("source_id") in active_ids
+                ][-1:],
+            }
             for name, value in conversation.concepts.items()
         },
         "checkpoint": conversation.checkpoint,
@@ -195,11 +209,33 @@ def _fallback(state):
     )
     if term:
         return LearningDecision(action="define", query=term[1].strip("'\"‘’“” "))
-    if conversation.sources:
+    if getattr(state["request"], "control", "message") == "read_source":
+        selected = getattr(state["request"], "source_id", "")
+        if any(source["id"] == selected for source in conversation.sources):
+            return LearningDecision(action="explain", source_id=selected)
+    # Only explicit continuation requests may reuse an old source while the planner is offline.
+    continuation = bool(
+        re.search(
+            r"^(?:이어서|계속|더 쉽게|쉽게|다시 설명|짧게|자세히|심화|더 깊|모르겠|이해.*안|"
+            r"다른 문제|다른 질문|새 문제|이 (?:자료|유산|내용)|그 (?:자료|유산|내용))",
+            text.strip(),
+        )
+    )
+    if conversation.sources and continuation:
         return LearningDecision(action="explain", source_id=conversation.sources[-1]["id"])
-    if conversation.search_results:
+    if conversation.search_results and continuation:
         return LearningDecision(
             action="ask", question="공식 검색 결과에서 어떤 대상을 살펴보고 싶나요?"
+        )
+    if state["seen"]:
+        return LearningDecision(
+            action="ask",
+            question=(
+                "찾은 공식 자료에서 읽을 항목을 골라주세요. 원문에서 확인하며 이어갈 수 있어요."
+                if conversation.search_results
+                else "이번 검색에서 자료를 찾지 못했어요. "
+                "짧은 대상 이름으로 다시 검색하거나 다른 주제를 선택해 주세요."
+            ),
         )
     from culturebridge.services.automatic_intent_service import explicit_signals
 
@@ -217,6 +253,13 @@ def _fallback(state):
         # Explicit names/short search phrases only. Broad interests require a conversation.
         if len(query.split()) <= 2 and query.endswith(("사", "궁", "탑", "성", "릉", "묘")):
             return LearningDecision(action="search", query=query)
+        if re.search(r"검색|찾아|알려|대해|누구|언제|어디", text):
+            # Public catalogue lookup is still available without Gemini; it is not AI teaching.
+            query = re.sub(
+                r"\s*(?:에 대해|에 관해|알려줘|알려주세요|검색해줘|찾아줘).*", "", text
+            ).strip()
+            if re.fullmatch(r"[\w\s·ㆍ()\-]{1,80}", query):
+                return LearningDecision(action="search_history", query=query)
     interest_hint = next(
         (signal for signal in explicit_signals(text) if signal.kind == "interest"), None
     )
@@ -402,15 +445,18 @@ def tool(state):
 
                 conversation.sources = [individual_learning_record(result["id"])]
                 return {
-                    "steps": state["steps"] + 1, "seen": state["seen"] + [key], "notice": notice
+                    "steps": state["steps"] + 1,
+                    "seen": state["seen"] + [key],
+                    "notice": notice,
                 }
             if result.get("metadata_only"):
                 notice = (
-                    "이 자료는 공식 링크에서 원문을 확인해 주세요. "
-                    "AI 설명 근거로 전송하지 않아요."
+                    "이 자료는 공식 링크에서 원문을 확인해 주세요. AI 설명 근거로 전송하지 않아요."
                 )
                 return {
-                    "steps": state["steps"] + 1, "seen": state["seen"] + [key], "notice": notice
+                    "steps": state["steps"] + 1,
+                    "seen": state["seen"] + [key],
+                    "notice": notice,
                 }
             _, kind, number, region = result["id"].split(":")
             doc = get_official_document(kind, number, region)
@@ -530,7 +576,7 @@ def respond(state):
             question = (
                 decision.question
                 if route["mode"] == "explain" and decision.question
-                else activity_question(concept, route, route["previous_explanations"])
+                else activity_question(concept, route, route["previous_explanations"], quote)
             )
             output += "\n\n" + question
             conversation.checkpoint = {
@@ -643,6 +689,7 @@ def run_learning_turn(conversation, request):
         if control in {"change_topic", "correct", "skip"}:
             state.checkpoint = {}
         if control in {"change_topic", "correct"}:
+            state.topic_start = len(state.messages)
             state.sources, state.search_results = [], []
             state.quiz_review = {}
             state.goal = request.text[:200]

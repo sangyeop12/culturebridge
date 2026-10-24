@@ -54,8 +54,17 @@ class LearningIntentSignal(BaseModel):
 
 class LearningDecision(BaseModel):
     action: Literal[
-        "ask", "search", "search_world", "search_history", "references", "read", "define",
-        "explain", "check", "review", "stop",
+        "ask",
+        "search",
+        "search_world",
+        "search_history",
+        "references",
+        "read",
+        "define",
+        "explain",
+        "check",
+        "review",
+        "stop",
     ]
     query: str = Field(default="", max_length=80)
     source_id: str = Field(default="", max_length=100)
@@ -100,6 +109,7 @@ class LearningConversation(BaseModel):
     concepts: dict = Field(default_factory=dict)
     plan_history: list[dict] = Field(default_factory=list)
     messages: list[ConversationMessage] = Field(default_factory=list)
+    topic_start: int = Field(default=0, ge=0)
     checkpoint: dict = Field(default_factory=dict)
     sources: list[dict] = Field(default_factory=list)
     search_results: list[dict] = Field(default_factory=list)

@@ -37,7 +37,12 @@ def _choice_index(choices: list[str], answer: str) -> int:
 
 @reused_operation("quiz")
 def generate_quiz(
-    left_id: str, right_id: str, level: LearningLevel, *, comparison_id: str | None = None
+    left_id: str,
+    right_id: str,
+    level: LearningLevel,
+    *,
+    comparison_id: str | None = None,
+    reuse: bool = False,
 ) -> QuizResponse:
     left = get_heritage(left_id)
     right = get_heritage(right_id)
@@ -45,6 +50,23 @@ def generate_quiz(
     if comparison_id:
         from culturebridge.services.evidence_quiz_service import generate_evidence_quiz
 
+        if reuse:
+            # Persistent, owner-scoped reuse survives the short request cache and restarts.
+            from culturebridge.services.comparison_service import get_saved_comparison
+
+            comparison = get_saved_comparison(comparison_id).comparison
+            if (comparison.left.id, comparison.right.id) != (left_id, right_id):
+                raise InvalidQuizAttemptError("퀴즈와 선택한 문화유산이 다릅니다.")
+            with transaction() as connection:
+                row = connection.execute(
+                    "SELECT q.quiz_id FROM quiz_items q JOIN resource_owners o "
+                    "ON o.kind='quiz' AND o.id=q.quiz_id "
+                    "WHERE q.comparison_id=? AND q.level=? AND o.owner=? "
+                    "ORDER BY q.rowid DESC LIMIT 1",
+                    (comparison_id, level.value, owner_key()),
+                ).fetchone()
+            if row:
+                return load_quiz(row["quiz_id"], left_id, right_id)
         return generate_evidence_quiz(left_id, right_id, level, comparison_id)
     if left_id.startswith(("khs:", "unesco:", "official:")) or right_id.startswith(
         ("khs:", "unesco:", "official:")

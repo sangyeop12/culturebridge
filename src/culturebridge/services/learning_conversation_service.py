@@ -184,6 +184,8 @@ def send_learning_turn(identity, request: LearningTurn):
             state.concepts = json.loads(profile[0])
         result = run_learning_turn(state, request)
         result.revision = state.revision + 1
+        removed = max(0, len(result.messages) - 40)
+        result.topic_start = max(0, result.topic_start - removed)
         result.messages = result.messages[-40:]
         result.plan_history = result.plan_history[-30:]
         with transaction() as connection:

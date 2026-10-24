@@ -128,6 +128,16 @@ def test_gemini_receives_collected_source_text_and_url(upstream, monkeypatch):
             self.models = self
 
         def generate_content(self, **kwargs):
+            if kwargs["config"].response_schema is question_service.AnswerReview:
+                return SimpleNamespace(
+                    text=json.dumps(
+                        {
+                            "supported": True,
+                            "preserves_scope_and_uncertainty": True,
+                            "reason": "Synthetic review fixture",
+                        }
+                    )
+                )
             captured.update(kwargs)
             return SimpleNamespace(
                 text=json.dumps(

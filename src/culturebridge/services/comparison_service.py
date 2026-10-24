@@ -29,7 +29,7 @@ class ComparisonNotFoundError(KeyError):
     pass
 
 
-LEARNING_VERSION = 6
+LEARNING_VERSION = 7
 
 
 def create_saved_comparison(
@@ -85,9 +85,14 @@ def create_saved_comparison(
         sources=source_records,
     )
     with transaction(path) as connection:
+        identity = result.model_dump(mode="json", exclude={"saved_id"})
+        for source in identity["collected_sources"]:
+            source.pop("retrieved_at", None)
+            if source["status"] in {"fresh", "cached"}:
+                source["status"] = "available"
         fingerprint = hashlib.sha256(
             json.dumps(
-                [owner_key(), result.model_dump(mode="json", exclude={"saved_id"})],
+                [owner_key(), identity],
                 sort_keys=True,
                 ensure_ascii=False,
             ).encode()

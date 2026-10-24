@@ -172,6 +172,7 @@ def build_comparison(state):
         curriculum=state["curriculum"],
         amount=LearningAmount(state["amount"]),
         comparison_scope=scope if (scope := state.get("comparison_scope")) else None,
+        reuse=True,
     )
     return {
         "comparison": result.model_dump(mode="json"),

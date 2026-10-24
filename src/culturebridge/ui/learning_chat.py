@@ -26,6 +26,18 @@ def learning_entry(worker, *, embedded=False):
             "cb-title " + ("text-2xl" if embedded else "text-3xl")
         ).props(f"role=heading aria-level={2 if embedded else 1}")
         ui.label("수준이나 문화유산을 먼저 고르지 않아도 괜찮아요.").classes("cb-muted")
+        with ui.expansion("어떤 자료로 배우나요?").classes("w-full"):
+            ui.label(
+                "한국 문화유산은 국가유산청 자료, 세계유산 검색은 UNESCO 등재 목록을 이용해요."
+            )
+            ui.label(
+                "해외 상세 학습은 연결된 개별 유산 자료를 사용해요. "
+                "모든 해외 유산을 지원하는 것은 아니에요."
+            )
+            ui.label(
+                "인물·사건은 ‘신편 한국사’ 검색 결과에서 공식 원문으로 이동해 읽어요. "
+                "해당 본문을 AI가 읽거나 요약하지는 않아요."
+            )
         prompt = (
             ui.textarea(
                 label="어떤 이야기가 궁금한가요?",
@@ -62,7 +74,8 @@ def learning_entry(worker, *, embedded=False):
             button = ui.button("함께 알아보기", on_click=start, icon="arrow_forward").props(
                 "unelevated"
             )
-            ui.link("이전 대화 이어가기", "/learn")
+            if embedded:
+                ui.link("이전 대화 이어가기", "/learn#conversation-list")
             ui.link("홈 화면에 추가하기", "/install")
 
 
@@ -78,13 +91,13 @@ def learning_chat(worker, conversation_id=""):
     if state is None:
         conversations = list_conversations()
         learning_entry(worker)
-        with ui.column().classes("w-full gap-3"):
+        with ui.column().classes("w-full gap-3").props("id=conversation-list"):
             ui.label("이어서 나누는 역사 이야기").classes("cb-title text-2xl").props(
                 "role=heading aria-level=2"
             )
             ui.label(
-                '이 브라우저에서 나눈 대화를 이어갈 수 있어요'
-                    '. 다른 기기와 자동으로 연결되지는 않아요.'
+                "이 브라우저에서 나눈 대화를 이어갈 수 있어요"
+                ". 다른 기기와 자동으로 연결되지는 않아요."
             ).classes("cb-muted text-sm")
             for item in conversations:
                 ui.link(item["goal"], f"/learn?conversation_id={item['id']}").classes(
@@ -101,9 +114,9 @@ def learning_chat(worker, conversation_id=""):
     if state.quiz_review:
         ui.link("퀴즈 해설과 학습 기록으로", "/learning-history")
         ui.label(
-            '퀴즈 문항·답안·채점 근거로 복습해요. 대화를'
-                ' 보내면 AI가 이 내용을 함께 참고할 수 있'
-                '어요.'
+            "퀴즈 문항·답안·채점 근거로 복습해요. 대화를"
+            " 보내면 AI가 이 내용을 함께 참고할 수 있"
+            "어요."
         ).classes("cb-muted")
     transcript = ui.column().classes("cb-transcript w-full gap-4")
     status = ui.label().props("role=status aria-live=polite").classes("cb-muted")
@@ -219,9 +232,7 @@ def learning_chat(worker, conversation_id=""):
                                 "신편 한국사 검색 결과 · 공식 원문에서 읽기"
                                 if result.get("catalogue") == "history"
                                 else "세계유산 등재 목록 · 공식 사이트에서 읽기"
-                            ).classes(
-                                "cb-muted"
-                            )
+                            ).classes("cb-muted")
                         else:
                             ui.button(
                                 result["name"],

@@ -1,7 +1,7 @@
 from culturebridge.domain.models import LearningAmount, LearningGoal, LearningLevel
 
 AMOUNT_LABELS = {
-    "brief": "짧게 · 핵심 2항목",
+    "brief": "짧게 · 목표 중심",
     "standard": "기본 · 목표 항목",
     "deep": "깊게 · 원문 대조",
 }
@@ -70,7 +70,15 @@ def plan_learning(
         priority = interpreted_categories(goal_text)
     focus = priority + [category for category in focus if category not in priority]
     if amount is LearningAmount.BRIEF:
-        focus = focus[:2]
+        # A short lesson may shorten explanations, never discard a requested goal.
+        required = required_categories(goal.value + " " + goal_text)
+        essential = [category for category in focus if category in required]
+        focus = (
+            essential
+            + [category for category in focus if category not in essential][
+                : max(0, 2 - len(essential))
+            ]
+        )
     labels = {
         LearningLevel.BEGINNER: {
             "시대": "언제 만들었는지 보기",

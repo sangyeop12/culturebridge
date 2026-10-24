@@ -76,6 +76,8 @@ def secondary_navigation(path):
             ui.label(label)
         with ui.element("nav").classes("cb-subnav").props('aria-label="관련 화면"'):
             for title, route in groups[section]:
+                if path == route:
+                    continue  # The breadcrumb already identifies the current screen.
                 link = ui.link(title, route)
                 if path == route or (
                     route in {"/official", "/sources", "/courses"} and path.startswith(route + "/")

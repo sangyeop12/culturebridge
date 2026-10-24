@@ -20,11 +20,16 @@ def url_allowed(url, *, translation=False):
     )
 
 
+def current_topic_messages(conversation):
+    """Keep archived topics visible to the learner, outside the new AI context."""
+    return conversation.messages[getattr(conversation, "topic_start", 0) :]
+
+
 def conversation_ai_allowed(conversation):
     urls = [s["url"] for s in conversation.sources]
     urls += [
         c.get("url", "")
-        for m in conversation.messages
+        for m in current_topic_messages(conversation)
         if m.kind != "dictionary"
         for c in m.citations
     ]
