@@ -370,6 +370,7 @@ def test_assessment_is_observation_not_forced_next_action(isolated, monkeypatch)
     }
     decision = learning._model_decision(turn)
     assert decision.action == "search_world"  # Not assessment's legacy check action.
+    assert decision.source_id == decision.target_id == decision.comparison_id == ""
     assert captured[0]["understanding_feedback"]["judgment"] == "tentative_support"
     assert captured[0]["understanding_feedback"]["not_mastery"]
     assert state.concepts["재료"]["status"] == "tentative_support"

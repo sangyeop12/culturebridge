@@ -90,7 +90,11 @@ def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", so
             seen.add(key)
             seen_facts.add(fact)
             covered.add(field_key)
-            scope = material_scope(field.evidence_quote)
+            scope = (
+                material_scope(field.evidence_quote)
+                if field.category == "재료"
+                else "설명 부분 미확인"
+            )
             name = short_display_name(names[field.heritage_id])
             observed = observation_scope(answer, field.evidence_quote) if axis == "모양" else scope
             part = (
@@ -100,11 +104,11 @@ def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", so
             )
             question = f"{name}{part}: 설명에서 확인할 수 있는 {axis} 표현은?"
             if level == "intermediate":
-                question = f"{name}{part}의 {axis}을 정리한 내용으로 알맞은 것은?"
+                question = f"{name}{part}: {axis}에 관한 설명으로 알맞은 것은?"
             elif level == "advanced":
                 question = (
                     f"{name}{part}: 다른 부분으로 일반화하지 않고 "
-                    f"원문으로 뒷받침할 수 있는 {axis}은?"
+                    f"원문으로 확인할 수 있는 {axis} 설명은?"
                 )
                 if len(chosen) == 3:
                     question = f"{name}{part}의 {axis}: 이 설명을 해석한 내용으로 적절한 것은?"
@@ -118,15 +122,27 @@ def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", so
                 f"복습 항목: {field.category} · {axis}: {answer} · 원문: {field.evidence_quote} · "
                 "표현이 가리키는 부분을 확인하세요. 다른 특징이 없다는 뜻은 아닙니다."
             )
-            chosen.append((field, answer, (question, choices, explanation)))
+            chosen.append((field, axis, answer, (question, choices, explanation)))
             if len(chosen) == 4:
                 break
         if len(chosen) == 4:
             break
-    rows = [row for _, _, row in chosen]
-    a = next(((f, answer) for f, answer, _ in chosen if f.heritage_id == left_id), None)
-    b = next(((f, answer) for f, answer, _ in chosen if f.heritage_id == right_id), None)
-    if len(rows) == 4 and a and b:
+    rows = [row for _, _, _, row in chosen]
+    # A paired question compares the same axis, not one object's date with another's material.
+    pair = next(
+        (
+            ((left_field, left_answer), (right_field, right_answer))
+            for left_field, left_axis, left_answer, _ in chosen
+            for right_field, right_axis, right_answer, _ in chosen
+            if left_field.heritage_id == left_id
+            and right_field.heritage_id == right_id
+            and left_axis == right_axis
+            and left_field.category == right_field.category
+        ),
+        None,
+    )
+    if len(rows) == 4 and pair:
+        a, b = pair
         name_a = short_display_name(names[left_id])
         name_b = short_display_name(names[right_id])
         correct = f"{name_a}: {a[1]} / {name_b}: {b[1]}"

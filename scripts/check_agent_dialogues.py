@@ -76,6 +76,9 @@ class CallBudget:
                     except Exception as exc:
                         code = getattr(exc, "code", None)
                         entry.update(status="error", error_type=type(exc).__name__, code=code)
+                        if code == 400:
+                            # Request-format diagnostics only; never dump credentials or payloads.
+                            entry["request_error"] = str(getattr(exc, "message", ""))[:1400]
                         budget.rate_limited = str(code) == "429"
                         if budget.rate_limited:
                             data = getattr(exc, "details", {})

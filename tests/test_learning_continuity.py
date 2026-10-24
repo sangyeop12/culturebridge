@@ -123,6 +123,60 @@ def test_planning_schema_excludes_unready_tools_and_fabricated_ids():
         schema(action="read", source_id="unesco:660")
 
 
+def test_provider_schema_never_emits_empty_enum_values():
+    from culturebridge.services.learning_agent_tools import NO_TARGET
+
+    def inspect(value):
+        if isinstance(value, dict):
+            assert "" not in value.get("enum", [])
+            for item in value.values():
+                inspect(item)
+        elif isinstance(value, list):
+            for item in value:
+                inspect(item)
+
+    state = LearningConversation(id=uuid4(), revision=0)
+    for targets in ([], [{"id": IDENTITY, "name": "다보탑"}]):
+        state.search_results = targets
+        _, constraints, schema = planning_tools(state)
+        inspect(schema.model_json_schema())
+        assert constraints["unused_id"] == NO_TARGET
+        assert schema(action="ask").source_id == NO_TARGET
+
+
+def test_comparison_cannot_drop_explicitly_named_subject():
+    from culturebridge.domain.learning import ConversationMessage
+    from culturebridge.services.learning_agent_tools import requested_comparison_ids, run_tool
+
+    state = LearningConversation(id=uuid4(), revision=0)
+    state.search_results = [
+        {"id": IDENTITY, "name": "경주 불국사 다보탑"},
+        {"id": "official:dayanta", "name": "대안탑"},
+        {"id": "official:horyuji-pagoda", "name": "호류지 오층탑"},
+    ]
+    state.messages = [
+        ConversationMessage(role="user", text="경주 불국사 다보탑과 해외 탑을 비교해 주세요"),
+        ConversationMessage(role="user", text="찾은 후보로 계속 진행해 주세요"),
+    ]
+    assert requested_comparison_ids(state) == [IDENTITY]
+    status, result = run_tool(
+        state,
+        LearningDecision(
+            action="compare", source_id="official:dayanta", target_id="official:horyuji-pagoda"
+        ),
+        time.monotonic() + 10,
+    )
+    assert status == "blocked" and result["required_ids"] == [IDENTITY]
+    state.messages.append(ConversationMessage(role="user", text="대안탑과 해외 탑을 비교해 주세요"))
+    assert requested_comparison_ids(state) == ["official:dayanta"]
+    state.topic_start = len(state.messages)
+    assert requested_comparison_ids(state) == []
+    state.messages.append(
+        ConversationMessage(role="user", text="다보탑 말고 대안탑과 해외 유산을 비교해 주세요")
+    )
+    assert requested_comparison_ids(state) == []  # Do not lock a negated name.
+
+
 def test_material_rewrite_rejects_height_drift_before_second_ai_call(monkeypatch):
     monkeypatch.setattr(get_settings(), "gemini_enabled", True)
     monkeypatch.setattr(get_settings(), "gemini_api_key", "test-key")
@@ -150,6 +204,36 @@ def test_material_rewrite_rejects_height_drift_before_second_ai_call(monkeypatch
     assert calls == [1]
     assert metadata["failure_kind"] == "learning_focus_mismatch"
     assert "돌" in text and "10.29" not in text
+
+
+def test_failed_planner_can_explain_just_read_explicit_subject(isolated):
+    state = ready_conversation()
+    state.tool_observations = [
+        {
+            "tool": "read",
+            "status": "ok",
+            "revision": state.revision,
+            "arguments": {"source_id": IDENTITY},
+        }
+    ]
+    turn = {
+        "conversation": state,
+        "request": LearningTurn(
+            request_id=uuid4(), revision=0, text="다보탑은 무엇으로 만들었는지 쉽게 설명해 주세요"
+        ),
+        "seen": ["read"],
+        "planner_failed": True,
+    }
+    decision = learning._fallback(turn)
+    assert (decision.action, decision.source_id, decision.concept) == ("explain", IDENTITY, "재료")
+    turn["decision"] = decision
+    turn["deadline"] = time.monotonic() + 5
+    response = learning.respond(turn)
+    message = response["conversation"].messages[-1]
+    assert "돌" in message.text
+    assert message.citations[0]["source_id"] == IDENTITY
+    state.tool_observations[0]["revision"] = -1
+    assert learning._fallback(turn).action == "ask"
 
 
 @pytest.mark.parametrize("action,status", [("search", "empty"), ("search_history", "ok")])

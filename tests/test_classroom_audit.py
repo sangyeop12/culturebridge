@@ -130,6 +130,7 @@ def test_four_short_content_questions_and_one_level_specific_task(level):
     assert len({q for q, _, _ in rows}) == 5
     assert all(len(set(choices)) == 4 for _, choices, _ in rows)
     assert max(len(choice) for _, choices, _ in rows for choice in choices) < 80
+    assert not any("재료을" in q or "재료은" in q or "시기을" in q for q, _, _ in rows)
     if level == "advanced":
         assert "확정할 수 없는" in rows[-1][0]
     elif level == "intermediate":
@@ -150,6 +151,22 @@ def test_other_passage_material_is_not_used_as_an_incorrect_choice():
     )
     assert rows[0][1][0] == "대리석"
     assert "벽돌" not in rows[0][1][1:]
+
+
+def test_paired_question_uses_same_axis_even_when_first_facts_differ():
+    from types import SimpleNamespace
+
+    fields = [
+        SimpleNamespace(heritage_id="left", category="시대", evidence_quote="Built in 700."),
+        SimpleNamespace(heritage_id="left", category="재료", evidence_quote="Made of wood."),
+        SimpleNamespace(heritage_id="right", category="구조", evidence_quote="It has arches."),
+        SimpleNamespace(heritage_id="right", category="재료", evidence_quote="Made of marble."),
+    ]
+    rows = classroom_rows(
+        fields, ["시대", "구조", "재료"], {"left": "왼쪽", "right": "오른쪽"}, "left", "right"
+    )
+    assert len(rows) == 5
+    assert rows[-1][1][0] == "왼쪽: 나무 / 오른쪽: 대리석"
 
 
 def test_round_mound_does_not_have_round_shape_as_a_false_choice():

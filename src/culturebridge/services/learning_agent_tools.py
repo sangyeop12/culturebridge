@@ -4,6 +4,7 @@ The planner chooses arguments and order. Tools enforce evidence, scope and owner
 their observations describe executed work, never hidden reasoning or mastery claims.
 """
 
+import re
 import time
 from typing import Literal
 
@@ -22,6 +23,7 @@ TOOLS = {
     "quiz": "이 대화의 비교 저장본으로 확인 퀴즈 준비(comparison_id); 학습자 답을 기다림",
     "review_quiz": "이 대화에서 채점한 오답의 근거 불러오기(review_number); 다음 설명은 다시 계획",
 }
+NO_TARGET = "__none__"
 
 
 def planning_tools(conversation):
@@ -59,15 +61,16 @@ def planning_tools(conversation):
         "AvailableLearningDecision",
         __base__=LearningDecision,
         action=(Literal[tuple(actions)], ...),
-        source_id=(Literal[tuple([""] + list(known))], ""),
-        target_id=(Literal[tuple([""] + individuals)], ""),
-        comparison_id=(Literal[tuple([""] + comparisons)], ""),
+        source_id=(Literal[tuple([NO_TARGET] + list(known))], NO_TARGET),
+        target_id=(Literal[tuple([NO_TARGET] + individuals)], NO_TARGET),
+        comparison_id=(Literal[tuple([NO_TARGET] + comparisons)], NO_TARGET),
     )
     constraints = {
         "readable_ids": list(known),
         "individual_ids": individuals,
         "quiz_comparison_ids": comparisons,
         "comparison_scope": conversation.comparison_scope,
+        "unused_id": NO_TARGET,
         "rule": "관찰한 ID만 그대로 사용하고, 아직 없으면 먼저 검색한다.",
     }
     return enabled, constraints, schema
@@ -134,6 +137,29 @@ def target(identity):
     return OfficialTarget(provider=provider, kind=kind, number=number, region=region)
 
 
+def requested_comparison_ids(conversation):
+    """Keep explicitly named, observed targets; never infer an unknown identity."""
+    from culturebridge.services.conversation_source_policy import current_topic_messages
+    from culturebridge.services.display_service import short_display_name
+
+    texts = [m.text for m in current_topic_messages(conversation) if m.role == "user"]
+    texts.append(conversation.pending_request)
+    for text in reversed(texts):
+        if "비교" not in text:
+            continue
+        # Negation/correction needs semantic planning, not a positive substring constraint.
+        if re.search(r"말고|제외|아닌|대신|not\b|instead\b|rather than", text, re.I):
+            return []
+        matches = []
+        for identity, row in known_targets(conversation).items():
+            name = short_display_name(row.get("name", ""))
+            if len(name) >= 2 and name in text and not row.get("metadata_only"):
+                matches.append(identity)
+        if matches:
+            return matches
+    return []
+
+
 def run_tool(conversation, decision, deadline):
     """Return a bounded structured observation, without running a fixed lesson pipeline."""
     if time.monotonic() >= deadline:
@@ -153,8 +179,18 @@ def run_tool(conversation, decision, deadline):
             identity not in known or known[identity].get("metadata_only") for identity in identities
         ):
             return "blocked", {"message": "현재 검색·자료·후보에서 확인한 개별 유산 ID만 사용해요."}
+    if decision.action == "compare":
+        requested = requested_comparison_ids(conversation)
+        if not set(requested).issubset({decision.source_id, decision.target_id}):
+            return "blocked", {
+                "message": (
+                    "사용자가 지정한 유산을 포함해 비교해야 해요. 기준 대상을 유지해 주세요."
+                ),
+                "required_ids": requested,
+            }
     if decision.action == "discover":
         from culturebridge.services.agent_discovery_service import discover_candidates
+        from culturebridge.services.display_service import readable_reason
 
         detail, candidates, _, _ = discover_candidates(
             target(decision.source_id),
@@ -167,6 +203,7 @@ def run_tool(conversation, decision, deadline):
                 "name": c.heritage.name,
                 "country": c.heritage.country,
                 "metadata_only": c.heritage.id.startswith("unesco:"),
+                "recommendation_reason": readable_reason(c.criteria),
             }
             for c in candidates[:3]
         ]

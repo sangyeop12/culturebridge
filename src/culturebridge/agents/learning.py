@@ -80,7 +80,7 @@ def _model_decision(state):
                 "recorded": False,
                 "reason": "이해도 판단을 확인하지 못했어요. 숙달을 추정하지 않아요.",
             }
-    from culturebridge.services.learning_agent_tools import planning_tools
+    from culturebridge.services.learning_agent_tools import NO_TARGET, planning_tools
 
     enabled_tools, tool_constraints, decision_schema = planning_tools(conversation)
 
@@ -190,6 +190,7 @@ def _model_decision(state):
                     "출처를 지어내지 않는다. 이미 사용한 동일 도구와 인자는 반복하지 않는다. "
                     "available_tools의 실행 가능한 도구만 선택한다. source_id와 target_id는 "
                     "tool_constraints에 있는 ID만 그대로 쓴다. ID가 없으면 먼저 검색한다. "
+                    "사용하지 않는 ID 필드는 tool_constraints.unused_id로 둔다. "
                     "pending_request는 연결 실패로 남겨 둔 사용자 요청이다. 사용자가 이어 달라고 "
                     "하면 현재 자료·목표와 함께 참고하고 새 주제나 명시적 변경이 우선한다. "
                     "학습 목표는 사용자 관심과 기록에 따라 새로 제안한다. "
@@ -220,6 +221,11 @@ def _model_decision(state):
                     "반환한 후보나 이미 읽은 대상 중 source_id와 target_id를 골라 "
                     "compare로 실행한다. "
                     "비교가 필요하면 링크 안내만 하지 말고 직접 도구를 실행한다. "
+                    "사용자가 지정한 비교의 기준 대상을 다른 후보로 바꾸지 않는다. "
+                    "예를 들어 A와 해외 유산의 비교라면 A가 아직 검색 결과에 없을 때 먼저 "
+                    "A를 검색한다. 해외 후보끼리만 비교하는 것은 원래 요청의 해결이 아니다. "
+                    "직접 골라 달라는 요청에는 근거가 있는 후보를 직접 고르고 추가 선호를 "
+                    "되묻지 않는다. 시대·재료 등 명시된 비교 항목을 goal에 유지한다. "
                     "comparison_scope는 사용자가 정한 비교 범위다. discover/compare의 "
                     "comparison_scope는 이 값을 유지하고 AI가 임의로 바꾸지 않는다. "
                     "quiz는 learning_artifacts의 목표 근거가 충분한 comparison_id로 실행한다. "
@@ -250,8 +256,18 @@ def _model_decision(state):
                 ),
             ),
         )
+    payload = json.loads(response.text or "")
+    for field in ("source_id", "target_id", "comparison_id"):
+        if payload.get(field) in ("", None):
+            payload[field] = NO_TARGET
+    parsed = decision_schema.model_validate(payload).model_dump()
     decision = LearningDecision.model_validate(
-        decision_schema.model_validate_json(response.text or "").model_dump()
+        {
+            key: ""
+            if key in {"source_id", "target_id", "comparison_id"} and value == NO_TARGET
+            else value
+            for key, value in parsed.items()
+        }
     )
     # Only the separate, evidence-validated assessor may update understanding.
     # A planner copying feedback into these optional fields is not a new assessment.
@@ -297,6 +313,35 @@ def _fallback(state):
         selected = getattr(state["request"], "source_id", "")
         if any(source["id"] == selected for source in conversation.sources):
             return LearningDecision(action="explain", source_id=selected)
+    # A successful read in this turn can still answer an explicit, narrow question locally.
+    # Do not reuse unrelated old sources, infer a new goal, or make another AI call.
+    for observation in reversed(conversation.tool_observations):
+        if (
+            observation.get("revision") != conversation.revision
+            or observation.get("tool") != "read"
+            or observation.get("status") != "ok"
+        ):
+            continue
+        source = next(
+            (
+                s
+                for s in conversation.sources
+                if s["id"] == observation.get("arguments", {}).get("source_id")
+            ),
+            None,
+        )
+        if not source or not source.get("name") or source["name"] not in text:
+            continue
+        for concept, pattern in (
+            ("재료", r"재료|무엇으로\s*(?:만들|지었)|뭘로\s*(?:만들|지었)"),
+            ("시대", r"언제|시대|건립\s*시기"),
+            ("구조", r"구조|모양|생김새"),
+            ("종교적 배경", r"종교|불교\s*배경"),
+        ):
+            if re.search(pattern, text) and any(
+                e["concept"] == concept for e in source["excerpts"]
+            ):
+                return LearningDecision(action="explain", source_id=source["id"], concept=concept)
     # Only explicit continuation requests may reuse an old source while the planner is offline.
     continuation = _is_continuation(text)
     if (

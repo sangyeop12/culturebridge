@@ -270,11 +270,11 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
             choices = [normalized_material] + [
                 m for m in ("석재", "목재", "벽돌", "금속") if m != normalized_material
             ][:3]
-            if normalized_material == "화강암":
+            if normalized_material in {"화강암", "대리석", "사암", "석회암"}:
                 choices = [normalized_material, "목재", "벽돌", "금속"]
             factual_rows.append(
                 (
-                    f"원문에서 찾은 {names[field.heritage_id]}의 재료 후보는?",
+                    f"{names[field.heritage_id]}의 공식 설명에 나오는 재료는?",
                     choices,
                     "복습 항목: 재료 · 원문: "
                     + field.evidence_quote
