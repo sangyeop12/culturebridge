@@ -2,7 +2,7 @@
 
 import argparse
 import json
-from datetime import date
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from culturebridge.config import get_settings
@@ -32,6 +32,18 @@ def main():
         }
     result = []
     for row in material_review():
+        if row["id"] not in cache:
+            result.append(
+                {
+                    "id": row["id"],
+                    "source_url": row["source_url"],
+                    "review_status": "source_not_cached",
+                    "human_approved": False,
+                    "original_preserved": False,
+                    "readings_generated": 0,
+                }
+            )
+            continue
         source = CollectedSource.model_validate_json(cache[row["id"]])
         lessons = [explain_source(source, level) for level in LearningLevel]
         sections = lessons[0].sections
@@ -46,11 +58,17 @@ def main():
                 "name_finding": row["name_finding"],
                 "name_status": row["name_status"],
                 "human_approved": False,
+                "review_status": "generated"
+                if source.status in {"fresh", "cached"}
+                else "source_not_current",
+                "readings_generated": len(lessons),
                 "original_preserved": all(
                     lesson.original_text == source.content for lesson in lessons
                 ),
                 "missing_categories": [
-                    section.category for section in sections if not section.evidence_quote
+                    category
+                    for category in ("시대", "구조", "재료", "종교적 배경")
+                    if not any(s.category == category and s.evidence_quote for s in sections)
                 ],
                 "period_reading": next(
                     (
@@ -62,18 +80,25 @@ def main():
                     None,
                 ),
                 "beginner_sections": [
-                    {"category": section.category, "guide": section.text} for section in sections
+                    {
+                        "category": section.category,
+                        "guide": section.text,
+                        "evidence_quote": section.evidence_quote,
+                        "check_question": section.check_question,
+                    }
+                    for section in sections
                 ],
             }
         )
     report = {
-        "date": date.today().isoformat(),
+        "date": datetime.now(timezone(timedelta(hours=9))).date().isoformat(),
         "reviewer": "AI desk review",
         "human_approved": False,
         "permission_granted": False,
         "sources": result,
         "source_count": len(result),
-        "reading_count": len(result) * len(LearningLevel),
+        "reading_count": sum(row["readings_generated"] for row in result),
+        "source_unavailable_count": sum(r["review_status"] != "generated" for r in result),
         "all_originals_preserved": all(row["original_preserved"] for row in result),
     }
     with args.output.open("x", encoding="utf-8") as stream:

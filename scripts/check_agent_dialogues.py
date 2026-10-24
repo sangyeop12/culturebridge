@@ -20,10 +20,12 @@ from google import genai
 from culturebridge.config import get_settings
 from culturebridge.database import initialize_database
 from culturebridge.domain.learning import LearningTurn
+from culturebridge.services.agent_evaluation_service import evaluate_report
 from culturebridge.services.learning_conversation_service import (
     create_conversation,
     send_learning_turn,
 )
+from culturebridge.services.learning_outcome_service import outcome_summary
 from culturebridge.services.operation_service import clear_operation_cache, session_owner
 
 SCENARIOS = {
@@ -47,6 +49,35 @@ SCENARIOS = {
         "경주 불국사 다보탑의 구조가 궁금해요. 공식 자료를 찾아 쉽게 설명해 주세요.",
         "다보탑 이야기는 그만하고 세종대왕의 한글 창제 자료를 찾아 주세요.",
     ],
+    "comparison_rephrased": [
+        "다보탑을 기준으로 해외 유산과 시대와 재료를 비교하고 퀴즈까지 준비해 주세요.",
+        "기준 유산은 유지하고 적절한 후보를 직접 골라 계속 진행해 주세요.",
+    ],
+    "palace_comparison": [
+        "경복궁과 해외 궁전을 구조와 재료로 비교하고 퀴즈도 준비해 주세요.",
+        "찾은 후보 가운데 근거가 충분한 대상으로 이어가 주세요.",
+    ],
+    "tomb_comparison": [
+        "무령왕릉과 해외 무덤을 시대와 구조로 비교하고 퀴즈도 준비해 주세요.",
+        "근거가 부족하면 다른 후보를 찾아서 계속해 주세요.",
+    ],
+}
+
+EXPECTATIONS = {
+    "korean_reading": {
+        "explanation": True,
+        "source_id": "khs:11:0000200000000:37",
+        "concept": "재료",
+        "minimum_turns": 2,
+        "checkpoint": True,
+    },
+    "overseas_comparison": {
+        "anchor_ids": ["khs:11:0000200000000:37"],
+        "categories": ["시대", "재료"],
+    },
+    "comparison_rephrased": {"anchor_name": "다보탑", "categories": ["시대", "재료"]},
+    "palace_comparison": {"anchor_name": "경복궁", "categories": ["구조", "재료"]},
+    "tomb_comparison": {"anchor_name": "무령왕릉", "categories": ["시대", "구조"]},
 }
 
 
@@ -72,6 +103,18 @@ class CallBudget:
                     try:
                         response = entered.models.generate_content(**options)
                         entry["status"] = "response"
+                        usage = getattr(response, "usage_metadata", None)
+                        if usage is not None:
+                            entry["usage"] = {
+                                key: getattr(usage, key, None)
+                                for key in (
+                                    "prompt_token_count",
+                                    "candidates_token_count",
+                                    "thoughts_token_count",
+                                    "cached_content_token_count",
+                                    "total_token_count",
+                                )
+                            }
                         return response
                     except Exception as exc:
                         code = getattr(exc, "code", None)
@@ -137,12 +180,17 @@ def execute_turn(state, text, *, control="message", answers=None):
         "assistant": last.text,
         "citation_count": len(last.citations),
         "citation_sources": [c.get("url") for c in last.citations],
+        "citations": last.citations,
         "checkpoint": bool(state.checkpoint),
         "comparison_count": sum(a.get("kind") == "comparison" for a in state.learning_artifacts),
         "quiz_prepared": bool(state.active_quiz),
         "quiz_submitted": bool(state.active_quiz.get("submitted")),
         "quiz_review": bool(state.quiz_review),
         "concept_judgments": {k: v["status"] for k, v in state.concepts.items()},
+        "outcomes": outcome_summary(state),
+        "comparison_artifacts": [
+            a for a in state.learning_artifacts if a.get("kind") == "comparison"
+        ],
     }
     print(
         json.dumps(
@@ -174,8 +222,14 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--scenario", action="append", choices=SCENARIOS)
     parser.add_argument("--max-calls", type=int, default=40, choices=range(1, 61))
-    parser.add_argument("--repeat", type=int, default=1, choices=(1, 2))
+    parser.add_argument("--repeat", type=int, default=1, choices=range(1, 11))
+    parser.add_argument("--input-usd-per-million", type=float)
+    parser.add_argument("--output-usd-per-million", type=float)
     args = parser.parse_args()
+    # Reject invalid price inputs before making any paid/limited external request.
+    evaluate_report(
+        {}, input_rate=args.input_usd_per_million, output_rate=args.output_usd_per_million
+    )
     settings = get_settings()
     if not settings.gemini_enabled or not settings.gemini_api_key:
         parser.error("Gemini is not configured; no live calls made")
@@ -204,6 +258,15 @@ def main():
             for repetition in range(args.repeat):
                 for name in args.scenario or SCENARIOS:
                     run = {"scenario": name, "repetition": repetition + 1, "turns": []}
+                    if name in EXPECTATIONS:
+                        run["expectations"] = {
+                            **(
+                                {"comparison": True, "quiz": True, "review": True}
+                                if name != "korean_reading"
+                                else {}
+                            ),
+                            **EXPECTATIONS[name],
+                        }
                     report["runs"].append(run)
                     if budget.rate_limited or len(budget.calls) >= budget.limit:
                         run["not_run"] = "provider_rate_limit_or_call_budget"
@@ -228,6 +291,11 @@ def main():
                                     "fixed cyclic choice indices, not real learner"
                                 )
                                 run["turns"].append(result)
+                                if not budget.rate_limited and len(budget.calls) < budget.limit:
+                                    state, result = execute_turn(
+                                        state, "틀린 문항의 근거를 확인하고 다시 설명해 주세요."
+                                    )
+                                    run["turns"].append(result)
                                 break
                     except Exception as exc:
                         run["error_type"] = type(exc).__name__
@@ -241,6 +309,9 @@ def main():
     finally:
         report["sdk_calls"] = budget.calls
         report["finished_at"] = datetime.now(UTC).isoformat()
+        report["metrics"] = evaluate_report(
+            report, input_rate=args.input_usd_per_million, output_rate=args.output_usd_per_million
+        )
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         settings.db_path = previous
     print(

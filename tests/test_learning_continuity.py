@@ -236,6 +236,69 @@ def test_failed_planner_can_explain_just_read_explicit_subject(isolated):
     assert learning._fallback(turn).action == "ask"
 
 
+@pytest.mark.parametrize("failure", ["provider_rate_limit", "provider_unavailable"])
+def test_rewrite_failure_is_visible_and_preserves_request(isolated, monkeypatch, failure):
+    state = ready_conversation()
+    monkeypatch.setattr(
+        learning,
+        "_model_decision",
+        lambda _: LearningDecision(action="explain", source_id=IDENTITY, concept="재료"),
+    )
+    monkeypatch.setattr(
+        personal,
+        "explain",
+        lambda *args, **kwargs: (
+            "공식 설명에는 돌 재료가 나와요.",
+            {
+                "method": "local_guide",
+                "review": "rewrite_unavailable_or_rejected",
+                "failure_kind": failure,
+            },
+        ),
+    )
+    text = "다보탑은 무엇으로 만들었는지 쉽게 설명해 주세요"
+    result = send_learning_turn(state.id, LearningTurn(request_id=uuid4(), revision=0, text=text))
+    assert "기본 풀이" in result.notice
+    if failure == "provider_rate_limit":
+        assert "요청 한도" in result.notice
+    assert result.pending_request == text and result.plan_history[-1]["partial_failure"]
+    assert result.plan_history[-1]["failure_kind"] == failure
+    assert result.messages[-1].teaching["method"] == "local_guide" and not result.concepts
+
+
+def test_assessment_quota_does_not_trigger_another_planner_call(isolated, monkeypatch):
+    from culturebridge.services import understanding_assessment_service as assessment
+
+    monkeypatch.setattr(get_settings(), "gemini_enabled", True)
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "synthetic-test-only")
+    state = ready_conversation()
+    state.checkpoint = {"source_id": IDENTITY, "concept": "재료", "quote": QUOTE}
+    calls = []
+
+    class QuotaError(Exception):
+        code = 429
+
+    def unavailable(_):
+        calls.append(1)
+        raise QuotaError()
+
+    monkeypatch.setattr(assessment, "assessment_decision", unavailable)
+    monkeypatch.setattr(
+        learning.genai, "Client", lambda **kw: pytest.fail("Second model call after 429")
+    )
+    turn = {
+        "conversation": state,
+        "request": LearningTurn(
+            request_id=uuid4(), revision=0, text="돌로 만든 탑이라고 이해했어요"
+        ),
+        "seen": [],
+        "deadline": time.monotonic() + 30,
+    }
+    with pytest.raises(QuotaError):
+        learning._model_decision(turn)
+    assert calls == [1] and not turn["understanding_feedback"]["recorded"]
+
+
 @pytest.mark.parametrize("action,status", [("search", "empty"), ("search_history", "ok")])
 def test_search_outcome_guidance_overrides_vague_question(isolated, monkeypatch, action, status):
     state = create_conversation()

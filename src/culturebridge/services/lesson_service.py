@@ -79,9 +79,34 @@ def beginner_text(category, quote):
         period = read_period(quote)
         if period:
             caution = " 추정·전승이 포함된 설명이에요." if uncertain_date(quote) else ""
+            event_guide = {
+                "건립·창건": "건물을 세운 시기에 관한 설명이에요.",
+                "재건·복원": "다시 짓거나 고친 시기에 관한 설명이에요.",
+            }.get(date_event(quote), "그때 어떤 일이 있었는지는 원문에서 확인해요.")
+            if re.search(r"\b(?:began|started|commenced)\b|착공|공사.*시작", quote, re.I):
+                event_guide = "공사를 시작한 시기에 관한 설명이에요. 완성된 해와는 구분해요."
+            elif re.search(r"\b(?:completed|completion)\b|완공", quote, re.I):
+                event_guide = "공사를 마친 시기에 관한 설명이에요."
+            current = (
+                "현재 남아 있는 건물에 관한 설명이에요. "
+                if re.search(
+                    r"현재의\s*(?:탑|건물|전각|건축물)|현재 남아 있는|"
+                    r"\b(?:present|current|surviving)\s+(?:pagoda|tower|hall|building|structure)\b",
+                    quote,
+                    re.I,
+                )
+                else ""
+            )
+            last = ord(period.text[-1])
+            copula = "이에요" if 0xAC00 <= last <= 0xD7A3 and (last - 0xAC00) % 28 else "예요"
             return (
-                f"공식 설명에 나온 시기는 {period.text}이에요. "
-                f"어떤 일이 있었는지 구분해요: {date_event(quote)}." + caution
+                f"공식 설명에 나온 시기는 {period.text}{copula}. " + current + event_guide + caution
+            )
+        if re.search(r"several stages|여러 단계", quote, re.I):
+            return (
+                "여러 단계에 걸쳐 만들어졌다고 설명하고 있어요. "
+                "연도마다 어떤 부분을 만들었는지 나누어 살펴봐요. "
+                "전체가 한 해에 완성됐다고 단정하지 않아요."
             )
         if re.search(r"\bnot\b|without|아니|않|없", quote, re.I):
             return (

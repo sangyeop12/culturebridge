@@ -330,6 +330,23 @@ def learning_chat(worker, conversation_id=""):
                             f"{number}번 · {item['question']}",
                             on_click=lambda _, n=number: submit("review_question", n),
                         ).props("outline no-caps")
+            if state.concepts or state.task_contract:
+                from culturebridge.services.learning_outcome_service import outcome_summary
+
+                outcomes = outcome_summary(state)
+                with ui.expansion("이번 학습에서 확인한 점"):
+                    ui.label(outcomes["notice"])
+                    if outcomes["comparison_goal_met"] is not None:
+                        ui.label(
+                            "선택한 비교 항목의 양쪽 근거를 확보했어요."
+                            if outcomes["comparison_goal_met"]
+                            else "선택한 비교 항목의 근거를 더 확인해야 해요."
+                        )
+                    for item in outcomes["explanation_observations"]:
+                        if item["explanation_improved_observation"]:
+                            ui.label(
+                                item["concept"] + ": 이전 설명보다 근거와 맞는 답변이 관찰됐어요."
+                            )
             if state.concepts:
                 with ui.expansion("내 이해도에 대한 잠정 기록"):
                     ui.label(

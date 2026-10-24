@@ -74,12 +74,15 @@ def _model_decision(state):
                 "recorded": recorded,
                 "not_mastery": True,
             }
-        except Exception:
+        except Exception as exc:
             state["understanding_feedback"] = {
                 "judgment": "none",
                 "recorded": False,
                 "reason": "이해도 판단을 확인하지 못했어요. 숙달을 추정하지 않아요.",
             }
+            if str(getattr(exc, "code", "")) == "429":
+                # Do not make another model request after this turn already hit a provider limit.
+                raise
     from culturebridge.services.learning_agent_tools import NO_TARGET, planning_tools
 
     enabled_tools, tool_constraints, decision_schema = planning_tools(conversation)
@@ -123,6 +126,7 @@ def _model_decision(state):
         "available_tools": enabled_tools,
         "tool_constraints": tool_constraints,
         "pending_request": conversation.pending_request,
+        "user_task_contract": conversation.task_contract,
         "understanding_feedback": state.get("understanding_feedback", {}),
         "learning_plan": conversation.learning_plan,
         "goal_status": conversation.goal_status,
@@ -191,6 +195,9 @@ def _model_decision(state):
                     "available_tools의 실행 가능한 도구만 선택한다. source_id와 target_id는 "
                     "tool_constraints에 있는 ID만 그대로 쓴다. ID가 없으면 먼저 검색한다. "
                     "사용하지 않는 ID 필드는 tool_constraints.unused_id로 둔다. "
+                    "user_task_contract는 사용자가 명시한 기준 대상과 비교 항목이다. "
+                    "모델이 만든 goal로 덮어쓰지 않는다. subject_to_find가 있으면 그 대상을 "
+                    "먼저 검색한다. required_anchor_ids 중 하나를 비교에 포함한다. "
                     "pending_request는 연결 실패로 남겨 둔 사용자 요청이다. 사용자가 이어 달라고 "
                     "하면 현재 자료·목표와 함께 참고하고 새 주제나 명시적 변경이 우선한다. "
                     "학습 목표는 사용자 관심과 기록에 따라 새로 제안한다. "
@@ -453,9 +460,12 @@ def _assessment(state, decision):
     observations = previous["observations"][-4:] + [
         {
             "learner_text": text,
+            "question": checkpoint.get("question", "자기 말로 근거를 설명하기"),
             "source_id": decision.source_id,
             "quote": decision.assessment_quote,
             "judgment": decision.assessment,
+            "revision": conversation.revision,
+            "topic_start": conversation.topic_start,
             "reason": decision.reason,
             "uncertainty": "AI의 잠정 판단이며 숙달 확정이 아니에요.",
             **(
@@ -801,13 +811,19 @@ def respond(state):
             else "현재 근거로는 퀴즈를 준비하지 못했어요. 다른 자료를 찾아볼 수 있어요."
         )
     elif decision.action == "finish":
+        from culturebridge.services.learning_outcome_service import outcome_summary
+
         pending = conversation.active_quiz and not conversation.active_quiz.get("submitted")
         conversation.goal_status = "practising" if pending else "summarized"
+        if outcome_summary(conversation)["requested_activities_complete"] is False:
+            conversation.goal_status = "practising" if pending else "exploring"
         output = "이번 활동을 정리했어요. 이것은 숙달 인증이 아니에요. " + (
             "아래 퀴즈는 아직 답하지 않았어요. 계속 풀거나 건너뛸 수 있어요."
             if pending
             else "다른 궁금한 점을 들려주면 이어서 계획할게요."
         )
+        if outcome_summary(conversation)["requested_activities_complete"] is False:
+            output += " 요청한 비교나 퀴즈가 아직 남아 있어 전체 목표를 완료한 것은 아니에요."
     elif decision.action in {"explain", "review", "check"} and source and source["excerpts"]:
         excerpt = next(
             (e for e in source["excerpts"] if e["concept"] == decision.concept),
@@ -838,6 +854,22 @@ def respond(state):
             learner_text=state["request"].text,
         )
         teaching = {**route, **rewriting, "source_id": source["id"], "concept": concept}
+        partial_failure = rewriting.get("failure_kind") in {
+            "provider_rate_limit",
+            "provider_unavailable",
+            "response_unavailable",
+            "explanation_time_budget",
+        }
+        if partial_failure:
+            teaching["partial_failure"] = True
+            state["notice"] = (
+                "AI 요청 한도에 도달해 공식 자료의 기본 풀이로 안내해요. 자료와 요청은 유지했어요."
+                if rewriting.get("failure_kind") == "provider_rate_limit"
+                else (
+                    "AI 설명을 만들지 못해 공식 자료의 기본 풀이로 안내해요. "
+                    "자료와 요청은 유지했어요."
+                )
+            )
         output = explanation + "\n\n공식 원문: " + quote
         citations = [
             {
@@ -920,7 +952,9 @@ def respond(state):
                 for r in conversation.search_results
                 if r.get("catalogue") == "history" and r.get("reading_url")
             ]
-    if state.get("planner_failed") and conversation.pending_request:
+    if (
+        state.get("planner_failed") or teaching.get("partial_failure")
+    ) and conversation.pending_request:
         output += (
             "\n\n현재 자료와 요청은 유지했어요. "
             "AI 연결이 복구되면 ‘이어서 진행해 주세요’로 계속할 수 있어요."
@@ -951,6 +985,8 @@ def respond(state):
             "concept": teaching.get("concept", ""),
             "teaching_route": teaching.get("mode", ""),
             "explanation_method": teaching.get("method", ""),
+            "partial_failure": teaching.get("partial_failure", False),
+            "failure_kind": teaching.get("failure_kind", ""),
         }
     )
     conversation.messages.append(
@@ -1042,6 +1078,7 @@ def run_learning_turn(conversation, request):
             state.goal = request.text[:200]
             state.tool_observations, state.learning_artifacts, state.learning_plan = [], [], []
             state.active_quiz, state.goal_status = {}, "exploring"
+            state.task_contract = {}
             if control == "correct":
                 # Retain audit observations; mark disputed rather than silently rewriting history.
                 for concept in state.concepts.values():
@@ -1065,6 +1102,10 @@ def run_learning_turn(conversation, request):
             return state
     if control == "message" and (not state.pending_request or not _is_continuation(request.text)):
         state.pending_request = request.text
+    if control == "message":
+        from culturebridge.services.learning_outcome_service import update_contract
+
+        update_contract(state, request.text)
     state.messages.append(
         ConversationMessage(
             role="user",

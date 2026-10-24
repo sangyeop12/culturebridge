@@ -27,7 +27,7 @@ FEATURES = {
         (r"네모난|square", "네모 모양", "모양"),
         (r"원형|circular", "둥근 모양", "모양"),
         (r"hemispher|반구형", "공을 반으로 자른 모양", "모양"),
-        (r"\bdome\b|돔", "둥글게 덮은 지붕", "부분"),
+        (r"\bdome\b|돔", "둥근 돔", "부분"),
         (r"\barches\b|\barch\b|아치", "위쪽이 둥근 아치", "부분"),
         (r"\broof\b|지붕", "지붕", "부분"),
         (r"\bceiling\b|천장", "천장", "부분"),
@@ -117,8 +117,14 @@ def observation_scope(label, quote):
         return "봉분의 외형"
     if label == "위쪽이 둥근 아치":
         return "아치"
-    if label == "둥글게 덮은 지붕":
-        return "지붕"
+    if label == "둥근 돔":
+        return "돔"
+    if label == "공을 반으로 자른 모양" and re.search(r"\bdome\b|돔", quote, re.I):
+        return "돔의 모양"
+    if label == "여덟 모서리가 있는 모양" and re.search(
+        r"octagonal\s+chamber|팔각(?:형)?\s*(?:방|실)", quote, re.I
+    ):
+        return "방의 모양"
     if label == "직사각형" and re.search(r"plan|평면|기단", quote, re.I):
         return "평면"
     if label == "십자 모양" and re.search(r"평면|plan", quote, re.I):

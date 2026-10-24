@@ -39,6 +39,26 @@ def _period(quote):
     return list(period.choices) if period else None
 
 
+def content_question(axis):
+    return {
+        "시기": "공식 설명에 나온 시기는 언제인가요?",
+        "재료": "설명한 부분에 쓰인 재료는 무엇인가요?",
+        "층수": "몇 층으로 설명되어 있나요?",
+        "모양": "어떤 모양으로 설명되어 있나요?",
+        "배치": "건물이나 시설이 어떻게 놓여 있나요?",
+        "공간": "어떤 공간이 등장하나요?",
+        "부분": "어떤 건물 부분이 등장하나요?",
+        "종교": "어떤 종교와 관련된 이야기가 나오나요?",
+        "경전": "어떤 경전을 언급하나요?",
+        "측정 기준": "어떤 크기를 설명하고 있나요?",
+        "위치": "어디에 있는 것으로 설명하나요?",
+        "천장 구조": "천장은 어떤 구조로 설명되어 있나요?",
+        "창": "어떤 창이 등장하나요?",
+        "건축 방식": "건물을 어떤 방식으로 지었다고 하나요?",
+        "무덤 형태": "무덤은 어떤 형태로 설명되어 있나요?",
+    }.get(axis, "설명에서 확인할 수 있는 특징은 무엇인가요?")
+
+
 def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", sources=()):
     """Return up to four content items plus one paired reading task; correct choice is first."""
     left = [f for f in fields if f.heritage_id == left_id and f.category in focus]
@@ -102,7 +122,7 @@ def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", so
                 if observed not in {"사용 부분 확인 필요", "설명 부분 미확인"}
                 else ""
             )
-            question = f"{name}{part}: 설명에서 확인할 수 있는 {axis} 표현은?"
+            question = f"{name}{part}: {content_question(axis)}"
             if level == "intermediate":
                 question = f"{name}{part}: {axis}에 관한 설명으로 알맞은 것은?"
             elif level == "advanced":
@@ -118,9 +138,15 @@ def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", so
                         f"'{answer}'이므로 다른 유산과 만드는 방법도 반드시 같다",
                         f"'{answer}'만 적혀 있으므로 나머지 특징은 실제로 없다",
                     ]
+            review_hint = {
+                "시대": "연대와 그때 일어난 일을 함께 읽어보세요.",
+                "재료": "재료 이름과 그 재료를 사용한 부분을 연결해 보세요.",
+                "구조": "설명에 나온 부분과 그 모양·배치를 함께 살펴보세요.",
+                "종교적 배경": "종교 이름과 유산의 쓰임을 구분해 읽어보세요.",
+            }.get(field.category, "설명에서 답의 근거가 되는 표현을 다시 찾아보세요.")
             explanation = (
                 f"복습 항목: {field.category} · {axis}: {answer} · 원문: {field.evidence_quote} · "
-                "표현이 가리키는 부분을 확인하세요. 다른 특징이 없다는 뜻은 아닙니다."
+                + review_hint
             )
             chosen.append((field, axis, answer, (question, choices, explanation)))
             if len(chosen) == 4:

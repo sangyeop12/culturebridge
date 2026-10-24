@@ -119,6 +119,43 @@ def test_compare_does_not_automatically_generate_quiz(isolated, monkeypatch):
     assert state.goal_status == "practising" and not state.concepts
 
 
+def test_user_goal_cannot_be_dropped_by_planner_goal_text(isolated, monkeypatch):
+    from culturebridge.services.learning_outcome_service import outcome_summary, update_contract
+
+    state = known_pair()
+    update_contract(state, "석굴암과 해외 유산을 종교적 배경으로 비교하고 퀴즈도 준비해 주세요")
+    sources = synthetic_sources()
+    sources = [
+        s.model_copy(
+            update={
+                "content": s.content.split("석굴암은 불교")[0].split("The temple is a Buddhist")[0]
+            }
+        )
+        for s in sources
+    ]
+    monkeypatch.setattr(workflow, "collect_official_sources", lambda *a, **kw: sources)
+    status, observation = tools.run_tool(
+        state,
+        LearningDecision(
+            action="compare",
+            source_id="seokguram",
+            target_id="horyuji",
+            goal="재료만 보기",
+            goal_mode="observe",
+        ),
+        time.monotonic() + 30,
+    )
+    assert status == "insufficient" and not observation["goal_suitable"]
+    assert not outcome_summary(state)["comparison_goal_met"]
+    status, _ = tools.run_tool(
+        state,
+        LearningDecision(action="quiz", comparison_id=observation["comparison_id"]),
+        time.monotonic() + 10,
+    )
+    assert status == "blocked"
+    assert not state.active_quiz
+
+
 def test_compare_quiz_human_grade_and_agent_review_same_conversation(isolated, monkeypatch):
     state = known_pair()
     monkeypatch.setattr(workflow, "collect_official_sources", lambda *a, **kw: synthetic_sources())

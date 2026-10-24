@@ -70,5 +70,6 @@ def read_period(quote):
     year = int(next(n for n in years[0].groups() if n))
     if re.search(r"년\s*전|years? ago", quote, re.I):
         return None  # A relative age is not a calendar year.
-    choices = tuple(f"{era}{approx}{year + shift}년" for shift in (0, 100, 200, 300))
+    suffix = "년부터" if re.search(r"\bfrom\s+\d{3,4}\b|\d{3,4}년부터", quote, re.I) else "년"
+    choices = tuple(f"{era}{approx}{year + shift}{suffix}" for shift in (0, 100, 200, 300))
     return PeriodReading(choices[0], choices)

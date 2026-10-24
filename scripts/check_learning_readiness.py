@@ -104,11 +104,12 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--live", action="store_true", help="Uses configured Gemini quota")
     parser.add_argument("--refresh-materials", action="store_true")
+    parser.add_argument("--source-db", type=Path, help="Read only public caches from this DB")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("Report already exists; select a new filename.")
     settings = get_settings()
-    prepare_database(args.db, settings.db_path)
+    prepare_database(args.db, args.source_db or settings.db_path)
     from culturebridge.audit_learning import audit_courses
     from culturebridge.services.material_review_service import material_review
     from culturebridge.services.operation_service import session_owner

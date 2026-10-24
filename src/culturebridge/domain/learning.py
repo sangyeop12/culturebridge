@@ -148,3 +148,4 @@ class LearningConversation(BaseModel):
     pending_request: str = Field(default="", max_length=1000)
     learning_artifacts: list[dict] = Field(default_factory=list)
     active_quiz: dict = Field(default_factory=dict)
+    task_contract: dict = Field(default_factory=dict)

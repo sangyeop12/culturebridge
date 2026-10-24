@@ -36,6 +36,10 @@ def planning_tools(conversation):
         if not row.get("metadata_only")
     }
     individuals = [identity for identity in known if not identity.startswith("quiz-review:")]
+    from culturebridge.services.learning_outcome_service import anchored_ids
+
+    anchors = anchored_ids(conversation, known)
+    anchor_ready = not conversation.task_contract.get("subject") or bool(anchors)
     comparisons = [
         a["id"]
         for a in conversation.learning_artifacts
@@ -48,8 +52,8 @@ def planning_tools(conversation):
     }
     for name, condition in {
         "read": bool(known),
-        "discover": bool(individuals),
-        "compare": len(individuals) >= 2,
+        "discover": bool(individuals) and anchor_ready,
+        "compare": len(individuals) >= 2 and anchor_ready,
         "quiz": bool(comparisons)
         and not (conversation.active_quiz and not conversation.active_quiz.get("submitted")),
         "review_quiz": bool(conversation.active_quiz.get("history_id")),
@@ -71,6 +75,10 @@ def planning_tools(conversation):
         "quiz_comparison_ids": comparisons,
         "comparison_scope": conversation.comparison_scope,
         "unused_id": NO_TARGET,
+        "required_anchor_ids": anchors,
+        "subject_to_find": conversation.task_contract.get("subject", "")
+        if not anchor_ready
+        else "",
         "rule": "관찰한 ID만 그대로 사용하고, 아직 없으면 먼저 검색한다.",
     }
     return enabled, constraints, schema
@@ -180,6 +188,19 @@ def run_tool(conversation, decision, deadline):
         ):
             return "blocked", {"message": "현재 검색·자료·후보에서 확인한 개별 유산 ID만 사용해요."}
     if decision.action == "compare":
+        from culturebridge.services.learning_outcome_service import anchored_ids
+
+        anchors = anchored_ids(conversation, known)
+        if conversation.task_contract.get("subject") and not anchors:
+            return "blocked", {
+                "message": "지정한 기준 유산을 먼저 검색해 확인해야 해요.",
+                "search_subject": conversation.task_contract["subject"],
+            }
+        if anchors and not set(anchors) & {decision.source_id, decision.target_id}:
+            return "blocked", {
+                "message": "비교에 사용자가 지정한 기준 유산을 포함해 주세요.",
+                "required_anchor_ids": anchors,
+            }
         requested = requested_comparison_ids(conversation)
         if not set(requested).issubset({decision.source_id, decision.target_id}):
             return "blocked", {
@@ -237,7 +258,11 @@ def run_tool(conversation, decision, deadline):
                 "comparison_id": decision.target_id,
                 "level": decision.level,
                 "goal": decision.goal_mode,
-                "goal_text": (decision.goal or conversation.goal)[:200],
+                "goal_text": (
+                    " ".join(conversation.task_contract.get("categories", []))
+                    + " "
+                    + (decision.goal or conversation.goal)
+                )[:200],
                 "amount": "standard",
                 "comparison_scope": decision.comparison_scope,
                 "generate_quiz": False,
@@ -250,6 +275,9 @@ def run_tool(conversation, decision, deadline):
         left = {f.category for f in fields if f.heritage_id == result.left.id}
         right = {f.category for f in fields if f.heritage_id == result.right.id}
         suitable = evidence_suits_goal(left, right, result.goal.value + " " + result.goal_text)
+        suitable = (
+            suitable and set(conversation.task_contract.get("categories", [])) <= left & right
+        )
         artifact = {
             "kind": "comparison",
             "id": result.saved_id,
@@ -257,6 +285,8 @@ def run_tool(conversation, decision, deadline):
             "right_id": result.right.id,
             "targets": [{"id": h.id, "name": h.name} for h in (result.left, result.right)],
             "suitable": suitable,
+            "shared_categories": sorted(left & right),
+            "contract_subject": conversation.task_contract.get("subject", ""),
             "level": result.level.value,
             "url": f"/compare/{result.left.id}/{result.right.id}?saved_id={result.saved_id}",
         }
@@ -282,6 +312,12 @@ def run_tool(conversation, decision, deadline):
         )
         if artifact is None or not artifact["suitable"]:
             return "blocked", {"message": "이 대화에서 목표 근거를 확보한 비교 저장본이 필요해요."}
+        contract = conversation.task_contract
+        if contract and (
+            artifact.get("contract_subject") != contract.get("subject")
+            or not set(contract.get("categories", [])) <= set(artifact.get("shared_categories", []))
+        ):
+            return "blocked", {"message": "현재 목표의 근거를 갖춘 비교로 퀴즈를 준비해 주세요."}
         require_owned("comparison", artifact["id"])
         if conversation.active_quiz and not conversation.active_quiz.get("submitted"):
             return "waiting", {"message": "준비된 퀴즈에 학습자가 답할 차례예요."}
@@ -294,6 +330,7 @@ def run_tool(conversation, decision, deadline):
         )
         conversation.active_quiz = {
             "id": quiz.quiz_id,
+            "comparison_id": artifact["id"],
             "submitted": False,
             "items": [
                 {
