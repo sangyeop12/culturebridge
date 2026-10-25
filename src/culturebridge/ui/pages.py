@@ -1106,6 +1106,7 @@ def history_search_page():
                         with ui.card().classes("cb-card w-full p-5"):
                             ui.link(record["name"], record["reading_url"], new_tab=True)
                             ui.label(record["region"]).classes("cb-muted text-sm")
+                            ui.label(record["match_note"]).classes("cb-muted text-sm")
             except ValueError as exc:
                 status.set_text(str(exc))
             finally:

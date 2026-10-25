@@ -114,3 +114,32 @@ def test_payload_format_and_size_are_bounded(monkeypatch):
     monkeypatch.setattr(history.httpx, "Client", Client)
     with pytest.raises(ValueError, match="too_large"):
         history._request({})
+
+
+def test_title_ranking_distinguishes_partial_from_unconfirmed_results(monkeypatch):
+    rows = [
+        {"key": "nh_001_01", "title": "문자화의 긴 도정"},
+        {"key": "nh_001_02", "title": "언문자모의 보급"},
+        {"key": "nh_001_03", "title": "세종의 훈민정음 창제"},
+    ]
+    monkeypatch.setattr(history, "_request", lambda _: rows)
+    records, notice = history.search_history("세종대왕 한글 창제")
+    assert [r["title_relevance"] for r in records] == ["all_terms", "some_terms", "unconfirmed"]
+    assert records[0]["title_matched_terms"] == ["세종", "훈민정음", "창제"]
+    assert "관련성을 확인하지 못했어요" in records[-1]["match_note"]
+    assert "원문" in notice
+    assert all(r["metadata_only"] and "excerpts" not in r for r in records)
+    assert len(records) == 3  # Do not hide uncertain catalogue results.
+
+
+@pytest.mark.parametrize(
+    "query,title,terms,total",
+    [
+        ("임진왜란", "임진왜란의 경과", ["임진왜란"], 1),
+        ("세종대왕의 한글", "세종과 훈민정음", ["세종", "훈민정음"], 2),
+        ("한글 훈민정음", "훈민정음", ["훈민정음"], 1),
+        ("무령왕릉", "조선의 궁궐", [], 1),
+    ],
+)
+def test_title_matching_reports_observed_words_only(query, title, terms, total):
+    assert history.title_matches(query, title) == (terms, total)

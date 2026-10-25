@@ -302,6 +302,7 @@ def main():
                     except Exception as exc:
                         run["error_type"] = type(exc).__name__
                     finally:
+                        run["provider_rate_limited"] = budget.rate_limited
                         clear_operation_cache()
                         session_owner.reset(token)
                         report["sdk_calls"] = budget.calls

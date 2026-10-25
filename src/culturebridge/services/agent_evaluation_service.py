@@ -25,6 +25,16 @@ def fraction(numerator, denominator):
     }
 
 
+def review_explained(turn):
+    teaching = turn.get("teaching", {})
+    return (
+        turn.get("quiz_review", False)
+        and teaching.get("source_id", "").startswith("quiz-review:")
+        and teaching.get("method") in {"gemini_grounded_rewrite", "local_guide"}
+        and turn.get("citation_count", 0) > 0
+    )
+
+
 def evaluate_report(report, *, grades=None, input_rate=None, output_rate=None):
     """Rates are optional USD per million tokens, provided explicitly, never guessed."""
     for rate in (input_rate, output_rate):
@@ -40,6 +50,7 @@ def evaluate_report(report, *, grades=None, input_rate=None, output_rate=None):
     generation_failures = {}
     basic_after_failure = 0
     durations = []
+    review_loaded_runs, review_explained_runs = 0, 0
     for run in executed:
         expected = run.get("expectations", {})
         observations = [o for t in run["turns"] for o in t.get("observations", [])]
@@ -65,6 +76,8 @@ def evaluate_report(report, *, grades=None, input_rate=None, output_rate=None):
                 comparisons += 1
                 drifts += not matches_anchor(artifact, expected)
         final = run["turns"][-1]
+        review_loaded_runs += any(t.get("quiz_review", False) for t in run["turns"])
+        review_explained_runs += any(review_explained(t) for t in run["turns"])
         success_checks = []
         if expected.get("explanation"):
             relevant = [t for t in run["turns"] if t.get("selected_concept")]
@@ -104,7 +117,9 @@ def evaluate_report(report, *, grades=None, input_rate=None, output_rate=None):
                 outcome.get("quiz_score") == outcome.get("quiz_total")
             )
             success = success and (
-                not expected.get("review") or all_correct or final.get("quiz_review", False)
+                not expected.get("review")
+                or all_correct
+                or any(review_explained(t) for t in run["turns"])
             )
             success_checks.append(bool(success))
         if success_checks:
@@ -195,8 +210,22 @@ def evaluate_report(report, *, grades=None, input_rate=None, output_rate=None):
         "task_success": fraction(sum(classified), len(classified)),
         "unclassified_executed_runs": len(executed) - len(classified),
         "interrupted_runs": sum(
-            bool(r.get("remaining_not_run") or r.get("error_type")) for r in runs
+            bool(
+                r.get("remaining_not_run")
+                or r.get("error_type")
+                or r.get("provider_rate_limited")
+                or (
+                    executed
+                    and r is executed[-1]
+                    and report.get("sdk_calls")
+                    and str(report["sdk_calls"][-1].get("code")) == "429"
+                    and r.get("turns", [{}])[-1].get("planner") == "limited_fallback"
+                )
+            )
+            for r in runs
         ),
+        "review_source_loaded_runs": review_loaded_runs,
+        "review_explained_runs": review_explained_runs,
         "per_scenario_success": {k: fraction(sum(v), len(v)) for k, v in by_scenario.items()},
         "goal_drift": fraction(drifts, comparisons),
         "explanation_goal_drift": fraction(explanation_drifts, explanations),

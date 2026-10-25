@@ -123,6 +123,16 @@ def focused_draft(draft, concept, quote):
     return True
 
 
+def readable_draft(draft, *, detailed):
+    """A bounded length check, not a measurement of learner comprehension."""
+    if detailed:
+        return True
+    return len(draft.sentences) <= 3 and all(
+        len(sentence.text) <= 65 and len(re.findall(r"[.!?。](?:\s|$)", sentence.text)) <= 1
+        for sentence in draft.sentences
+    )
+
+
 def explain(concept, quote, preferences, route, deadline, *, allow_ai=True, learner_text=""):
     explicit_easy = bool(re.search("쉽게|짧게|모르겠|이해.*안", learner_text))
     detailed = not explicit_easy and (
@@ -154,7 +164,9 @@ def explain(concept, quote, preferences, route, deadline, *, allow_ai=True, lear
             "concept와 학습자의 현재 질문에 직접 답하는 내용만 우선한다. 재료 질문에는 "
             "석탑은 돌로 만든 탑이라는 용어 풀이처럼 재료를 쉽게 설명하고 높이·건립 연도는 "
             "덧붙이지 않는다. 원문에 없는 돌의 종류나 전체 재료를 추측하지 않는다. "
-            "easy는 짧은 문장 1~3개, detailed는 근거 범위 안의 1~4개 문장이다. "
+            "easy는 각 65자 이내의 짧은 문장 1~3개다. 한 항목에 여러 문장을 합치지 말고 "
+            "기단·탑신·계단·난간처럼 여러 부분을 설명하면 문장을 나눈다. "
+            "detailed는 근거 범위 안의 1~4개 문장이다. "
             "원문이 짧으면 한 문장으로 끝내며 문장 수를 채우려고 새 내용을 넣지 않는다. "
             "원문에 추측·추정·전승이 있으면 그 표현을 설명에도 명시한다. "
             "friendly는 해요체, polite는 합니다체, concise는 짧은 핵심 문장이다. "
@@ -165,6 +177,8 @@ def explain(concept, quote, preferences, route, deadline, *, allow_ai=True, lear
             raise ValueError("unsupported_span_or_number")
         if not focused_draft(draft, concept, quote):
             raise ValueError("learning_focus_mismatch")
+        if not readable_draft(draft, detailed=detailed):
+            raise ValueError("easy_readability_rejected")
         review = _generate(
             ExplanationReview,
             {
@@ -208,6 +222,7 @@ def explain(concept, quote, preferences, route, deadline, *, allow_ai=True, lear
                 "unsupported_span_or_number",
                 "semantic_review_rejected",
                 "learning_focus_mismatch",
+                "easy_readability_rejected",
             }
             else "response_unavailable"
         )

@@ -16,6 +16,27 @@ ORIGIN = "https://db.history.go.kr"
 SEARCH_PATH = "/diachronic/search/searchResultList.do"
 
 
+def title_matches(query, title):
+    """Lexical title hints, not proof that an article answers the historical question."""
+    aliases = {"세종대왕": ("세종대왕", "세종"), "한글": ("한글", "훈민정음", "언문")}
+    groups = []
+    for term in query.split():
+        term = term.removesuffix("의") if len(term) > 2 else term
+        if term in {"관한", "대한", "자료", "찾기"}:
+            continue
+        canonical = next((key for key, words in aliases.items() if term in words), term)
+        words = aliases.get(canonical, (term,))
+        if len(term) >= 2 and not any(key == canonical for key, _ in groups):
+            groups.append((canonical, words))
+    compact = re.sub(r"\s+", "", title).casefold()
+    matched = [
+        word
+        for _, words in groups
+        if (word := next((word for word in words if word.casefold() in compact), None))
+    ]
+    return matched, len(groups)
+
+
 def clean_query(query):
     query = query.strip()
     if not query or len(query) > 80 or not re.fullmatch(r"[\w\s·ㆍ()\-]+", query):
@@ -89,7 +110,7 @@ def search_history(query):
             title_only = False
     except Exception as exc:
         raise ValueError("역사 자료 검색에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.") from exc
-    return [
+    records = [
         {
             "id": "nikh:" + item["key"],
             "name": item["title"],
@@ -100,10 +121,29 @@ def search_history(query):
             "reading_url": ORIGIN + "/diachronic/level.do?" + urlencode({"levelId": item["key"]}),
         }
         for item in items
-    ], (
-        "제목이 일치하는 자료를 먼저 찾았어요."
+    ]
+    for record in records:
+        matched, total = title_matches(query, record["name"])
+        record["title_matched_terms"] = matched
+        record["title_relevance"] = (
+            "all_terms"
+            if total and len(matched) == total
+            else "some_terms"
+            if matched
+            else "unconfirmed"
+        )
+        record["match_note"] = (
+            "제목에서 확인한 관련 표현: "
+            + " · ".join(matched)
+            + ". 원문 내용은 직접 확인해 주세요."
+            if matched
+            else "제목만으로 질문과의 관련성을 확인하지 못했어요. 원문을 먼저 살펴봐 주세요."
+        )
+    records.sort(key=lambda row: len(row["title_matched_terms"]), reverse=True)
+    return records, (
+        "제목에서 검색어를 확인한 자료를 먼저 표시해요. 질문의 답인지는 원문에서 확인해 주세요."
         if title_only and items
-        else "본문에 검색어가 포함된 자료예요. 제목과 원문 맥락을 함께 확인해 주세요."
+        else "본문 검색으로 찾은 목록이에요. 제목과 질문의 관련성은 아래 안내를 확인해 주세요."
         if items
         else "일치하는 자료를 찾지 못했어요. 짧은 인물·사건 이름으로 다시 찾아보세요."
     )

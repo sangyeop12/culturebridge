@@ -320,6 +320,8 @@ def learning_chat(worker, conversation_id=""):
                                 if result.get("catalogue") == "history"
                                 else "세계유산 등재 목록 · 공식 사이트에서 읽기"
                             ).classes("cb-muted")
+                            if result.get("match_note"):
+                                ui.label(result["match_note"]).classes("cb-muted text-sm")
                         else:
                             ui.button(
                                 result["name"],

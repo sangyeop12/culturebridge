@@ -318,3 +318,47 @@ def test_multi_component_request_is_counted_once_and_requires_all_components():
     assert metrics["task_success"]["denominator"] == 1
     assert metrics["task_success"]["rate"] == 0  # Required religion evidence is missing.
     assert metrics["unclassified_executed_runs"] == 0
+
+
+def review_report():
+    report = sample_report()
+    report["runs"][0]["expectations"].update(categories=["시대", "재료"], review=True)
+    report["runs"][0]["turns"][0].update(quiz_review=True, planner="limited_fallback")
+    return report
+
+
+def test_loading_review_sources_is_not_completed_review_feedback():
+    metrics = evaluate_report(review_report())
+    assert metrics["task_success"]["rate"] == 0
+    assert metrics["review_source_loaded_runs"] == 1
+    assert metrics["review_explained_runs"] == 0
+
+
+def test_grounded_review_feedback_can_complete_the_activity():
+    report = review_report()
+    report["runs"][0]["turns"][0].update(
+        teaching={"source_id": "quiz-review:1:1", "method": "gemini_grounded_rewrite"},
+        citation_count=1,
+    )
+    assert evaluate_report(report)["task_success"]["rate"] == 1
+
+
+def test_no_wrong_answers_do_not_require_remediation():
+    report = review_report()
+    report["runs"][0]["turns"][0]["outcomes"] = {
+        "quiz_submitted": True,
+        "quiz_score": 5,
+        "quiz_total": 5,
+    }
+    metrics = evaluate_report(report)
+    assert metrics["task_success"]["rate"] == 1
+    assert metrics["review_explained_runs"] == 0
+
+
+def test_quota_interruption_is_reported_even_after_quiz_submission():
+    report = review_report()
+    report["runs"][0]["provider_rate_limited"] = True
+    assert evaluate_report(report)["interrupted_runs"] == 1
+    del report["runs"][0]["provider_rate_limited"]
+    report["sdk_calls"] = [{"status": "error", "code": 429}]
+    assert evaluate_report(report)["interrupted_runs"] == 1  # Older saved reports lack the flag.
