@@ -26,14 +26,28 @@ def main():
             with client.stream("GET", records[0]["reading_url"]) as response:
                 response.raise_for_status()
                 status = response.status_code
-        checks.append({"query": query, "result_count": len(records), "notice": notice,
-                       "first_title": records[0]["name"], "first_url": records[0]["reading_url"],
-                       "original_link_status": status})
+        checks.append(
+            {
+                "query": query,
+                "result_count": len(records),
+                "notice": notice,
+                "first_title": records[0]["name"],
+                "first_url": records[0]["reading_url"],
+                "original_link_status": status,
+            }
+        )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x", encoding="utf-8") as output:
-        json.dump({"date": date.today().isoformat(), "checks": checks,
-                   "scope": "catalogue_titles_and_official_links_not_ai_teaching"},
-                  output, ensure_ascii=False, indent=2)
+        json.dump(
+            {
+                "date": date.today().isoformat(),
+                "checks": checks,
+                "scope": "catalogue_titles_and_official_links_not_ai_teaching",
+            },
+            output,
+            ensure_ascii=False,
+            indent=2,
+        )
     print("Two live catalogue searches and their first official links: passed.")
 
 

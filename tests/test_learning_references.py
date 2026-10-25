@@ -22,13 +22,16 @@ def state(action, **kwargs):
         "conversation": LearningConversation(id=uuid4(), revision=0),
         "request": LearningTurn(request_id=uuid4(), revision=0, text="세계유산이 궁금해요"),
         "decision": LearningDecision(action=action, **kwargs),
-        "steps": 1, "seen": [], "deadline": time.monotonic() + 45,
+        "steps": 1,
+        "seen": [],
+        "deadline": time.monotonic() + 45,
     }
 
 
 def test_world_search_keeps_individual_results_on_feed_failure(monkeypatch):
-    hit = SimpleNamespace(id="official:dayanta", korean="대안탑", name="Giant Wild Goose Pagoda",
-                          country="China")
+    hit = SimpleNamespace(
+        id="official:dayanta", korean="대안탑", name="Giant Wild Goose Pagoda", country="China"
+    )
     monkeypatch.setattr(references, "search_individuals", lambda _: [hit])
     monkeypatch.setattr(
         references, "search_unesco", lambda *a, **k: (_ for _ in ()).throw(ValueError())
@@ -40,10 +43,15 @@ def test_world_search_keeps_individual_results_on_feed_failure(monkeypatch):
 
 def test_world_search_marks_feed_as_metadata_not_ai_evidence(monkeypatch):
     monkeypatch.setattr(references, "search_individuals", lambda _: [])
-    record = SimpleNamespace(id="660", name="Horyu-ji", countries="Japan",
-                             source_url="https://whc.unesco.org/en/list/660/")
-    monkeypatch.setattr(references, "search_unesco",
-                        lambda *a, **k: SimpleNamespace(records=[record], stale=False))
+    record = SimpleNamespace(
+        id="660",
+        name="Horyu-ji",
+        countries="Japan",
+        source_url="https://whc.unesco.org/en/list/660/",
+    )
+    monkeypatch.setattr(
+        references, "search_unesco", lambda *a, **k: SimpleNamespace(records=[record], stale=False)
+    )
     results, _ = references.world_learning_results("호류지")
     assert results[0]["metadata_only"] is True
     assert "description" not in results[0]
@@ -61,8 +69,11 @@ def test_reference_queries_cannot_be_urls_or_unbounded(query):
 
 
 def test_new_search_action_uses_existing_bounded_tool_loop(monkeypatch):
-    monkeypatch.setattr(references, "world_learning_results",
-                        lambda _: ([{"id": "official:dayanta", "name": "대안탑"}], ""))
+    monkeypatch.setattr(
+        references,
+        "world_learning_results",
+        lambda _: ([{"id": "official:dayanta", "name": "대안탑"}], ""),
+    )
     value = state("search_world", query="대안탑")
     assert learning.route(value) == "tool"
     result = learning.tool(value)
@@ -80,8 +91,11 @@ def test_reading_only_registered_result_never_uses_model_url(monkeypatch):
         references.individual_learning_record("official:not-registered")
     value = state("read", source_id="official:dayanta")
     value["conversation"].search_results = [{"id": "official:dayanta", "name": "대안탑"}]
-    monkeypatch.setattr(references, "individual_learning_record",
-                        lambda identity: {"id": identity, "name": "대안탑", "excerpts": []})
+    monkeypatch.setattr(
+        references,
+        "individual_learning_record",
+        lambda identity: {"id": identity, "name": "대안탑", "excerpts": []},
+    )
     learning.tool(value)
     assert value["conversation"].sources[0]["id"] == "official:dayanta"
 
@@ -93,5 +107,7 @@ def test_general_history_guidance_never_claims_a_retrieved_answer():
     assert "아직 원문을 수집하거나 답을 확인한 것은 아니에요" in message.text
     assert not message.citations
     assert {s["url"] for s in message.suggestions} == {
-        "/history-search", "https://db.history.go.kr/", "https://portal.nrich.go.kr/"
+        "/history-search",
+        "https://db.history.go.kr/",
+        "https://portal.nrich.go.kr/",
     }

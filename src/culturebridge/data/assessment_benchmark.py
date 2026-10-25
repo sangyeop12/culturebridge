@@ -155,3 +155,70 @@ CASES = [
         ],
     },
 ]
+
+# The inspected KHS Dabotap snapshot (2026-10-25) supports these exact concepts.
+# Provider-qualified IDs prevent treating a national API record as an overseas source.
+CASES += [
+    {
+        "id": "khs-estimated-year",
+        "source_id": "khs:11:0000200000000:37",
+        "concept": "시대",
+        "question": "다보탑의 751년은 확정된 연도인가요? 원문의 표현으로 설명해 주세요.",
+        "quote_pattern": r"751.*추측된다",
+        "answers": [
+            (
+                "추측된다고 하므로 약 751년에 세운 것으로 보지만 확정된 연도라고 할 수는 없어요.",
+                "tentative_support",
+            ),
+            (
+                "751년이라고 쓰였으니 확실히 그해 세웠다고 단정할 수 있어요.",
+                "possible_misconception",
+            ),
+        ],
+    },
+    {
+        "id": "khs-pagoda-structure",
+        "source_id": "khs:11:0000200000000:37",
+        "concept": "구조",
+        "question": "다보탑의 기단과 탑신은 각각 어떤 모양으로 설명되어 있나요?",
+        "quote_pattern": r"십.*기단.*8각형.*탑신",
+        "answers": [
+            (
+                "기단은 십자 모양이고 탑신은 8각형이에요. 원문이 두 부분을 따로 설명해요.",
+                "tentative_support",
+            ),
+            ("기단과 탑신은 구분 없이 모두 원형이라고 설명되어 있어요.", "possible_misconception"),
+            ("아직 잘 모르겠어요.", "none"),
+            ("이제 세종대왕의 업적을 찾아 주세요.", "none"),
+        ],
+    },
+    {
+        "id": "khs-stone-material",
+        "source_id": "khs:11:0000200000000:37",
+        "concept": "재료",
+        "question": "석탑이라는 표현으로 어떤 재료를 알 수 있나요?",
+        "quote_pattern": r"다보탑.*석탑",
+        "answers": [
+            ("돌로 만든 탑이라는 뜻이에요. 석탑이라는 원문 표현이 근거예요.", "tentative_support"),
+            ("석탑이라는 말은 나무로 만든 탑이라는 뜻이에요.", "possible_misconception"),
+        ],
+    },
+    {
+        "id": "khs-religious-context",
+        "source_id": "khs:11:0000200000000:37",
+        "concept": "종교적 배경",
+        "question": "두 탑의 배치는 어떤 경전의 이야기를 나타내려고 한 것인가요?",
+        "quote_pattern": r"법화경.*탑으로 구현",
+        "answers": [
+            (
+                "법화경의 이야기를 탑으로 나타내려고 했어요. "
+                "다보불이 석가여래의 설법을 증명한다는 내용이에요.",
+                "tentative_support",
+            ),
+            (
+                "원문은 불교 경전과는 관련 없는 군사 훈련을 표현한 것이라고 해요.",
+                "possible_misconception",
+            ),
+        ],
+    },
+]

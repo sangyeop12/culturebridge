@@ -28,21 +28,23 @@ class AnonymousSessionMiddleware:
             cookies.load(dict(scope.get("headers", [])).get(b"cookie", b"").decode())
         except Exception:
             pass
-        supplied = cookies.get("cb_session")
+        query = parse_qs(scope.get("query_string", b"").decode(errors="replace"))
+        kiosk = scope.get("path") == "/kiosk" or query.get("mode", [""])[0] == "kiosk"
+        cookie_name = "cb_kiosk_session" if kiosk else "cb_session"
+        supplied = cookies.get(cookie_name)
         raw = supplied.value if supplied else ""
         identity, _, signature = raw.partition(".")
         key = settings.storage_secret.encode()
         expected = hmac.new(key, identity.encode(), hashlib.sha256).hexdigest()
         valid = len(identity) == 32 and hmac.compare_digest(signature, expected)
-        if scope.get("path") == "/kiosk" and parse_qs(
-            scope.get("query_string", b"").decode(errors="replace")
-        ).get("reset", [""])[0] in {"manual", "timeout"}:
+        if scope.get("path") == "/kiosk" and query.get("reset", [""])[0] in {"manual", "timeout"}:
             valid = False
         if not valid:
             identity = secrets.token_hex(16)
         signed = identity + "." + hmac.new(key, identity.encode(), hashlib.sha256).hexdigest()
-        token = session_owner.set(identity)
-        scope.setdefault("state", {})["cb_owner"] = identity
+        owner = f"kiosk:{identity}" if kiosk else identity
+        token = session_owner.set(owner)
+        scope.setdefault("state", {})["cb_owner"] = owner
         try:
             if settings.public_mode and scope["type"] == "http" and scope.get("method") == "POST":
                 now = time.monotonic()
@@ -72,7 +74,7 @@ class AnonymousSessionMiddleware:
                         (
                             b"set-cookie",
                             (
-                                f"cb_session={signed}; Path=/; HttpOnly; SameSite=Lax{suffix}"
+                                f"{cookie_name}={signed}; Path=/; HttpOnly; SameSite=Lax{suffix}"
                             ).encode(),
                         )
                     )

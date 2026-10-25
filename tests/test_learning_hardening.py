@@ -231,16 +231,59 @@ def test_individual_candidate_connects_comparison_and_quiz(isolated, monkeypatch
     assert result["comparison"]["comparison_scope"] == "overseas"
 
 
-def test_kiosk_reset_rotates_anonymous_session(isolated, monkeypatch):
-    monkeypatch.setattr(get_settings(), "public_mode", True)
+@pytest.mark.parametrize("public", [False, True])
+@pytest.mark.parametrize("reset", ["manual", "timeout"])
+def test_kiosk_reset_preserves_personal_session_and_isolates_records(
+    isolated, monkeypatch, public, reset
+):
+    monkeypatch.setattr(get_settings(), "public_mode", public)
     with TestClient(app) as client:
         saved = client.post(
             "/api/comparisons", json={"left_id": "seokguram", "right_id": "horyuji"}
         ).json()
-        previous = client.cookies.get("cb_session")
-        assert client.get("/kiosk?reset=manual").status_code == 200
-        assert previous != client.cookies.get("cb_session")
-        assert client.get("/api/comparisons/" + saved["saved_id"]).status_code == 404
+        personal_cookie = client.cookies.get("cb_session")
+        assert client.get("/kiosk").status_code == 200
+        kiosk_cookie = client.cookies.get("cb_kiosk_session")
+        assert kiosk_cookie and kiosk_cookie != personal_cookie
+        payload = {"left_id": "seokguram", "right_id": "horyuji"}
+        kiosk_saved = client.post("/api/comparisons?mode=kiosk", json=payload).json()
+        kiosk_id = kiosk_saved["saved_id"]
+        assert kiosk_id != saved["saved_id"]
+        kiosk_quiz = client.post("/api/quizzes?mode=kiosk", json=payload).json()
+        assert (
+            client.post(
+                "/api/quiz-attempts?mode=kiosk",
+                json={"quiz_id": kiosk_quiz["quiz_id"], "answers": [0] * 5},
+            ).status_code
+            == 200
+        )
+        assert len(client.get("/api/learning-history?mode=kiosk").json()) == 1
+        assert client.get("/api/learning-history").json() == []
+        assert client.get(f"/api/comparisons/{kiosk_id}?mode=kiosk").status_code == 200
+        assert client.get(f"/api/comparisons/{kiosk_id}").status_code == 404
+        assert [r["id"] for r in client.get("/api/comparisons").json()] == [saved["saved_id"]]
+        assert client.get(f"/kiosk?reset={reset}").status_code == 200
+        assert client.cookies.get("cb_session") == personal_cookie
+        assert client.cookies.get("cb_kiosk_session") != kiosk_cookie
+        assert client.get("/api/comparisons/" + saved["saved_id"]).status_code == 200
+        assert client.get(f"/api/comparisons/{kiosk_id}?mode=kiosk").status_code == 404
+        assert client.get("/api/comparisons?mode=kiosk").json() == []
+        assert client.get("/api/learning-history?mode=kiosk").json() == []
+        assert (
+            client.post(
+                "/api/quiz-attempts?mode=kiosk",
+                json={"quiz_id": kiosk_quiz["quiz_id"], "answers": [0] * 5},
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post(
+                "/api/quiz-attempts", json={"quiz_id": kiosk_quiz["quiz_id"], "answers": [0] * 5}
+            ).status_code
+            == 404
+        )
+        with transaction() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM comparisons").fetchone()[0] == 2
 
 
 def test_ui_workers_keep_anonymous_owner(monkeypatch):

@@ -1,12 +1,11 @@
 import json
 
-from culturebridge.config import get_settings
 from culturebridge.database import transaction
-from culturebridge.services.operation_service import owner_key, session_owner
+from culturebridge.services.operation_service import owner_key, private_session
 
 
 def list_learning_reviews(limit=20, offset=0, level="all"):
-    private = get_settings().public_mode and session_owner.get()
+    private = private_session()
     with transaction() as connection:
         rows = connection.execute(
             """SELECT h.id,h.level,h.score,h.total,h.created_at,r.quiz_id,r.result_json,
@@ -16,8 +15,17 @@ def list_learning_reviews(limit=20, offset=0, level="all"):
             FROM learning_history h JOIN learning_reviews r ON r.history_id=h.id
             JOIN heritages c ON c.id=h.heritage_id
             WHERE (? IS NULL OR r.owner=?) AND (?='all' OR h.level=?)
+            AND (r.owner NOT LIKE 'kiosk:%' OR r.owner=?)
             ORDER BY h.id DESC LIMIT ? OFFSET ?""",
-            (owner_key() if private else None, owner_key(), level, level, limit, offset),
+            (
+                owner_key() if private else None,
+                owner_key(),
+                level,
+                level,
+                owner_key(),
+                limit,
+                offset,
+            ),
         ).fetchall()
     return [
         {

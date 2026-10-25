@@ -15,8 +15,11 @@ def counts(path):
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
         names = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-        return {name: db.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0]
-                for name in names if name.replace('_', '').isalnum()}
+        return {
+            name: db.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0]
+            for name in names
+            if name.replace("_", "").isalnum()
+        }
 
 
 def main():
@@ -36,12 +39,19 @@ def main():
     from culturebridge.main import app
 
     with TestClient(app) as client:
-        routes = {path: client.get(path).status_code for path in (
-            "/api/health", "/", "/learn", "/settings", "/courses", "/learning-history"
-        )}
+        routes = {
+            path: client.get(path).status_code
+            for path in ("/api/health", "/", "/learn", "/settings", "/courses", "/learning-history")
+        }
     assert all(value == 200 for value in routes.values()), routes
-    report = {"integrity": "ok", "foreign_keys": "ok", "table_counts_equal": True,
-              "tables_checked": len(before), "routes": routes, "production_replaced": False}
+    report = {
+        "integrity": "ok",
+        "foreign_keys": "ok",
+        "table_counts_equal": True,
+        "tables_checked": len(before),
+        "routes": routes,
+        "production_replaced": False,
+    }
     args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report))
 

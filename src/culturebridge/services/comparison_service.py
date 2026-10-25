@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from culturebridge.config import get_settings
 from culturebridge.database import transaction
 from culturebridge.domain.models import (
     CollectedSource,
@@ -22,7 +21,7 @@ from culturebridge.services.catalog_service import compare_heritages, get_source
 from culturebridge.services.curriculum_service import GOAL_LABELS, plan_learning
 from culturebridge.services.evidence_comparison_service import apply_extracted_comparison
 from culturebridge.services.heritage_identity_service import canonical_id
-from culturebridge.services.operation_service import owner_key, session_owner
+from culturebridge.services.operation_service import can_read_resource, owner_key, private_session
 
 
 class ComparisonNotFoundError(KeyError):
@@ -138,13 +137,12 @@ def get_saved_comparison(record_id: str, path: Path | None = None) -> SavedCompa
         ).fetchone()
     if row is None:
         raise ComparisonNotFoundError(record_id)
-    if get_settings().public_mode and session_owner.get():
-        with transaction(path) as connection:
-            owner = connection.execute(
-                "SELECT owner FROM resource_owners WHERE kind='comparison' AND id=?", (record_id,)
-            ).fetchone()
-        if not owner or owner["owner"] != owner_key():
-            raise ComparisonNotFoundError(record_id)
+    with transaction(path) as connection:
+        owner = connection.execute(
+            "SELECT owner FROM resource_owners WHERE kind='comparison' AND id=?", (record_id,)
+        ).fetchone()
+    if not can_read_resource(owner["owner"] if owner else None):
+        raise ComparisonNotFoundError(record_id)
     return SavedComparison.model_validate_json(row["content_json"])
 
 
@@ -161,11 +159,14 @@ def list_saved_comparisons(
             FROM comparisons
             WHERE (? IS NULL OR id IN (
                 SELECT id FROM resource_owners WHERE kind='comparison' AND owner=?))
+            AND id NOT IN (SELECT id FROM resource_owners
+                WHERE kind='comparison' AND owner LIKE 'kiosk:%' AND owner!=?)
             ORDER BY created_at DESC, id DESC
             LIMIT ? OFFSET ?
             """,
             (
-                owner_key() if get_settings().public_mode and session_owner.get() else None,
+                owner_key() if private_session() else None,
+                owner_key(),
                 owner_key(),
                 limit,
                 offset,

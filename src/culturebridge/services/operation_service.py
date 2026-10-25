@@ -29,6 +29,18 @@ def owner_key():
     return session_owner.get() or "local"
 
 
+def private_session():
+    return bool(
+        session_owner.get() and (get_settings().public_mode or owner_key().startswith("kiosk:"))
+    )
+
+
+def can_read_resource(resource_owner):
+    if private_session() or (resource_owner or "").startswith("kiosk:"):
+        return resource_owner == owner_key()
+    return True
+
+
 def clear_operation_cache(owner=None):
     """Do not resurrect deleted saved IDs from in-process result reuse."""
     with _lock:

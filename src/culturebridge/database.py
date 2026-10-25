@@ -6,7 +6,7 @@ from pathlib import Path
 
 from culturebridge.config import get_settings
 from culturebridge.data.catalog import HERITAGES, SOURCES
-from culturebridge.services.operation_service import owner_key, session_owner
+from culturebridge.services.operation_service import can_read_resource, owner_key
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -351,12 +351,11 @@ def save_quiz_items(
 
 def load_quiz_items(quiz_id: str, path: Path | None = None) -> list[sqlite3.Row]:
     with connect(path) as connection:
-        if get_settings().public_mode and session_owner.get():
-            owner = connection.execute(
-                "SELECT owner FROM resource_owners WHERE kind='quiz' AND id=?", (quiz_id,)
-            ).fetchone()
-            if not owner or owner["owner"] != owner_key():
-                return []
+        owner = connection.execute(
+            "SELECT owner FROM resource_owners WHERE kind='quiz' AND id=?", (quiz_id,)
+        ).fetchone()
+        if not can_read_resource(owner["owner"] if owner else None):
+            return []
         return list(
             connection.execute(
                 """

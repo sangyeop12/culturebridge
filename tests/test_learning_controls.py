@@ -161,5 +161,7 @@ def test_settings_move_keeps_preferences_and_conversation_controls(isolated):
         assert "자동 파악 끄고 기록 비우기" in profile.text
         assert "직접 수정한 내용과 설정 적용" in profile.text
         assert client.get("/api/learning/preferences").json() == {
-            "tone": "polite", "custom_style": "", "explanation_depth": "detailed"
+            "tone": "polite",
+            "custom_style": "",
+            "explanation_depth": "detailed",
         }

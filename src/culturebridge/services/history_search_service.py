@@ -72,8 +72,14 @@ def _request(params):
 
 def search_history(query):
     query = clean_query(query)
-    params = {"searchItemId": "nh", "pageIndex": 1, "pageUnit": 5,
-              "titleWord": query, "wordImages": query, "totalWord": query}
+    params = {
+        "searchItemId": "nh",
+        "pageIndex": 1,
+        "pageUnit": 5,
+        "titleWord": query,
+        "wordImages": query,
+        "totalWord": query,
+    }
     try:
         items = _request(params)
         title_only = True
@@ -85,14 +91,19 @@ def search_history(query):
         raise ValueError("역사 자료 검색에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.") from exc
     return [
         {
-            "id": "nikh:" + item["key"], "name": item["title"],
-            "region": "국사편찬위원회 · 신편 한국사", "city": "",
-            "metadata_only": True, "catalogue": "history",
+            "id": "nikh:" + item["key"],
+            "name": item["title"],
+            "region": "국사편찬위원회 · 신편 한국사",
+            "city": "",
+            "metadata_only": True,
+            "catalogue": "history",
             "reading_url": ORIGIN + "/diachronic/level.do?" + urlencode({"levelId": item["key"]}),
         }
         for item in items
     ], (
-        "제목이 일치하는 자료를 먼저 찾았어요." if title_only and items else
-        "본문에 검색어가 포함된 자료예요. 제목과 원문 맥락을 함께 확인해 주세요." if items else
-        "일치하는 자료를 찾지 못했어요. 짧은 인물·사건 이름으로 다시 찾아보세요."
+        "제목이 일치하는 자료를 먼저 찾았어요."
+        if title_only and items
+        else "본문에 검색어가 포함된 자료예요. 제목과 원문 맥락을 함께 확인해 주세요."
+        if items
+        else "일치하는 자료를 찾지 못했어요. 짧은 인물·사건 이름으로 다시 찾아보세요."
     )

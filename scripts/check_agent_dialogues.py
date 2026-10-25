@@ -182,6 +182,8 @@ def execute_turn(state, text, *, control="message", answers=None):
         "citation_sources": [c.get("url") for c in last.citations],
         "citations": last.citations,
         "checkpoint": bool(state.checkpoint),
+        "task_contract": state.task_contract,
+        "pending_request_retained": bool(state.pending_request),
         "comparison_count": sum(a.get("kind") == "comparison" for a in state.learning_artifacts),
         "quiz_prepared": bool(state.active_quiz),
         "quiz_submitted": bool(state.active_quiz.get("submitted")),

@@ -79,4 +79,5 @@ def test_theme_keeps_accessibility_and_kiosk_touch_targets():
     assert "prefers-reduced-motion: reduce" in THEME_HEAD
     assert "@media (max-width: 720px)" in THEME_HEAD
     assert ".cb-kiosk .q-radio, .cb-kiosk .q-btn { min-height: 72px; }" in THEME_HEAD
+    assert ".cb-shell.cb-kiosk .q-btn-toggle>.q-btn {min-height:72px}" in THEME_HEAD
     assert "@import" not in THEME_HEAD  # No external font/network dependency.

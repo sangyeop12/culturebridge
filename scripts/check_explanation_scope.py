@@ -1,4 +1,5 @@
 """Opt-in, four-call maximum review of dated and religious KHS excerpts."""
+
 import argparse
 import json
 import time
@@ -33,19 +34,50 @@ def main():
     for category in args.category or ("시대", "종교적 배경"):
         field = next(f for f in fields if f.category == category)
         text, metadata = explain(
-            category, field.evidence_quote, LearningPreferences(explanation_depth="easy"),
-            {"mode": "explain"}, time.monotonic() + 35,
+            category,
+            field.evidence_quote,
+            LearningPreferences(explanation_depth="easy"),
+            {"mode": "explain"},
+            time.monotonic() + 35,
         )
-        rows.append({"category": category, "original": field.evidence_quote,
-                     "explanation": text, "metadata": metadata,
-                     "check_passed": metadata["method"] == "gemini_grounded_rewrite"})
+        rows.append(
+            {
+                "category": category,
+                "original": field.evidence_quote,
+                "explanation": text,
+                "metadata": metadata,
+                "check_passed": metadata["method"] == "gemini_grounded_rewrite",
+            }
+        )
         if metadata.get("failure_kind") == "provider_rate_limit":
             break
-    args.output.write_text(json.dumps({"max_model_calls": 4, "cases": rows,
-        "source_url": str(doc.source_url), "expert_approval": False}, ensure_ascii=False, indent=2),
-        encoding="utf-8")
-    print(json.dumps({"cases": [{"category": r["category"], "passed": r["check_passed"],
-                                 "method": r["metadata"]["method"]} for r in rows]}))
+    args.output.write_text(
+        json.dumps(
+            {
+                "max_model_calls": 4,
+                "cases": rows,
+                "source_url": str(doc.source_url),
+                "expert_approval": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "category": r["category"],
+                        "passed": r["check_passed"],
+                        "method": r["metadata"]["method"],
+                    }
+                    for r in rows
+                ]
+            }
+        )
+    )
 
 
 if __name__ == "__main__":

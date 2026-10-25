@@ -98,14 +98,16 @@ def main():
             ("goal_change", "이전 목표는 취소하고 고분 구조를 배우고 싶어요.", None),
         ]
         known = {name for name, _, _ in cases + extras} | {
-            "explanation_friendly_easy", "explanation_polite_detailed"
+            "explanation_friendly_easy",
+            "explanation_polite_detailed",
         }
         if set(args.case) - known:
             parser.error("Unknown case name")
         if args.case:
             cases = [case for case in cases + extras if case[0] in args.case]
         report["max_model_calls"] = sum(2 if expected else 1 for _, _, expected in cases) + sum(
-            2 for name in ("explanation_friendly_easy", "explanation_polite_detailed")
+            2
+            for name in ("explanation_friendly_easy", "explanation_polite_detailed")
             if not args.case or name in args.case
         )
         rate_limited = False

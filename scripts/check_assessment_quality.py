@@ -12,8 +12,9 @@ from culturebridge.config import get_settings
 from culturebridge.data.assessment_benchmark import CASES
 from culturebridge.domain.learning import LearningConversation, LearningTurn
 from culturebridge.domain.models import CollectedSource
+from culturebridge.domain.official_models import OfficialDocument
 from culturebridge.services.conversation_source_policy import url_allowed
-from culturebridge.services.lesson_service import explain_source
+from culturebridge.services.lesson_service import explain_source, official_source
 from culturebridge.services.understanding_assessment_service import assessment_decision
 
 
@@ -23,6 +24,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--case", action="append", choices=[case["id"] for case in CASES])
+    parser.add_argument("--variant", type=int, action="append", choices=range(4))
     parser.add_argument("--max-calls", type=int, default=20, choices=range(1, 41))
     args = parser.parse_args()
     if (
@@ -48,11 +50,21 @@ def main():
     try:
         with sqlite3.connect(args.db.resolve().as_uri() + "?mode=ro", uri=True) as connection:
             cached = dict(connection.execute("SELECT id,source_json FROM agent_source_cache"))
+            documents = dict(connection.execute("SELECT id,document_json FROM official_documents"))
         for case in CASES:
             if args.case and case["id"] not in args.case:
                 continue
-            raw = cached.get("official:" + case["source"])
-            source = CollectedSource.model_validate_json(raw) if raw else None
+            identity = case.get("source_id") or "official:" + case["source"]
+            raw = cached.get(identity)
+            source = (
+                CollectedSource.model_validate_json(raw)
+                if raw
+                else (
+                    official_source(OfficialDocument.model_validate_json(documents[identity]))
+                    if identity in documents
+                    else None
+                )
+            )
             section = (
                 next(
                     (s for s in explain_source(source).sections if s.category == case["concept"]),
@@ -63,7 +75,10 @@ def main():
             )
             quote = section.evidence_quote if section else ""
             consistent = bool(re.search(case["quote_pattern"], quote, re.I | re.S))
+            permitted = bool(source and url_allowed(str(source.source_url)))
             for index, (answer, expected) in enumerate(case["answers"]):
+                if args.variant and index not in args.variant:
+                    continue
                 row = {
                     "case": case["id"],
                     "variant": index,
@@ -75,7 +90,14 @@ def main():
                     "source_url": str(source.source_url) if source else None,
                     "source_retrieved_at": source.retrieved_at.isoformat() if source else None,
                     "source_matches_case": consistent,
-                    "status": "ready_not_executed" if consistent else "source_review_needed",
+                    "source_ai_allowed": permitted,
+                    "status": (
+                        "source_review_needed"
+                        if not consistent
+                        else "ready_not_executed"
+                        if permitted
+                        else "not_run_source_policy"
+                    ),
                 }
                 report["rows"].append(row)
                 if not consistent or not args.live:
@@ -83,7 +105,7 @@ def main():
                 if report["rate_limited"] or report["calls"] >= args.max_calls:
                     row["status"] = "not_run_limit"
                     continue
-                if not url_allowed(str(source.source_url)):
+                if not permitted:
                     row["status"] = "not_run_source_policy"
                     continue
                 state = LearningConversation(id=uuid4(), revision=0)
@@ -111,6 +133,12 @@ def main():
                 row["seconds"] = round(time.monotonic() - started, 3)
         completed = [r for r in report["rows"] if r["status"] == "executed"]
         report["completed"] = len(completed)
+        report["ready_cases"] = sum(
+            row["source_matches_case"] and row["source_ai_allowed"] for row in report["rows"]
+        )
+        report["source_policy_blocked_cases"] = sum(
+            row["status"] == "not_run_source_policy" for row in report["rows"]
+        )
         report["matches_gold"] = sum(r["matches_gold"] for r in completed)
         report["gold_agreement_rate"] = (
             report["matches_gold"] / len(completed) if completed else None
@@ -126,6 +154,8 @@ def main():
                         "calls",
                         "rate_limited",
                         "completed",
+                        "ready_cases",
+                        "source_policy_blocked_cases",
                         "gold_agreement_rate",
                     )
                 },

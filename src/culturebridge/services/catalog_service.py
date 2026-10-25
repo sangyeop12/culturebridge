@@ -151,7 +151,8 @@ def compare_heritages(
         LearningLevel.BEGINNER: [
             "시대는 언제 만들어졌는지를 나타냅니다. 두 유산의 세기 표시를 찾아보세요.",
             "구조는 공간을 만드는 모양과 방식입니다. 두 유산의 구조 설명에서 다른 말을 찾아보세요.",
-            f"{left.name}의 {left.material}와 {right.name}의 {right.material}를 구분해 보세요.",
+            f"{left.name}: {left.material}. {right.name}: {right.material}. "
+            "두 재료를 구분해 보세요.",
             "두 유산 모두 불교와 관련됩니다. 불교는 공통점이고 지역은 차이점입니다.",
         ],
         LearningLevel.INTERMEDIATE: [
@@ -159,7 +160,7 @@ def compare_heritages(
             "같은 세기라는 사실만으로 교류를 입증할 수는 없습니다.",
             "재료와 공간 구성을 함께 비교하세요. 구조 설명에서 공간의 연결 방식 또는 "
             "건축 부재를 찾아 공통점과 차이점을 정리할 수 있습니다.",
-            f"{left.material}와 {right.material}라는 재료 정보는 구조 비교의 단서입니다. "
+            f"두 재료({left.material}, {right.material})의 정보는 구조 비교의 단서입니다. "
             "재료가 선택된 이유를 설명하려면 환경·시공에 관한 추가 자료가 필요합니다.",
             "불교라는 공통 맥락 안에서 예배 공간·사찰 배치·경전 전래 등 각 설명의 "
             "초점이 어떻게 다른지 비교하세요.",

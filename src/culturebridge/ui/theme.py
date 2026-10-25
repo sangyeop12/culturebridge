@@ -172,6 +172,9 @@ body {background:var(--cb-paper);color:var(--cb-ink);font-family:'Segoe UI','Mal
 .cb-kiosk-card {min-height:148px;border:2px solid #c4d4c3;border-radius:20px}
 .cb-kiosk-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
 .cb-kiosk .q-radio, .cb-kiosk .q-btn { min-height: 72px; }
+.cb-shell.cb-kiosk .q-btn-toggle>.q-btn {min-height:72px}
+.cb-kiosk-header {gap:12px;flex-wrap:wrap}
+.cb-kiosk-header .q-space {min-width:0}
 .cb-kiosk .q-radio {font-size:1.1rem}
 .cb-site-footer {order:100;margin-top:auto;padding:26px 0 32px;border-top:1px solid var(--cb-line);
  color:var(--cb-muted);font-size:12px}

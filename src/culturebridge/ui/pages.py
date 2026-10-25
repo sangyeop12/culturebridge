@@ -239,8 +239,8 @@ def _header() -> None:
             ),
         ).classes("cb-skip-link")
         with ui.row().classes("cb-header-inner"):
-            with ui.link(target="/").classes("cb-brand").props(
-                'aria-label="CultureBridge 처음으로"'
+            with (
+                ui.link(target="/").classes("cb-brand").props('aria-label="CultureBridge 처음으로"')
             ):
                 ui.icon("account_balance", size="22px").classes("cb-brand-mark").props(
                     "aria-hidden=true"
@@ -248,8 +248,12 @@ def _header() -> None:
                 ui.label("CultureBridge")
             ui.space()
             primary_navigation(path)
-            with ui.link(target="/settings").classes("cb-settings-link").props(
-                'aria-label="설정"' + (' aria-current="page"' if path == "/settings" else "")
+            with (
+                ui.link(target="/settings")
+                .classes("cb-settings-link")
+                .props(
+                    'aria-label="설정"' + (' aria-current="page"' if path == "/settings" else "")
+                )
             ):
                 ui.icon("settings", size="22px").props("aria-hidden=true")
                 ui.tooltip("설정")
@@ -261,7 +265,9 @@ def _header() -> None:
 
 
 def _kiosk_header() -> None:
-    with ui.header().style(f"background: {BRAND}").classes("items-center px-8 py-4"):
+    with (
+        ui.header().style(f"background: {BRAND}").classes("cb-kiosk-header items-center px-8 py-4")
+    ):
         with ui.column().classes("gap-0"):
             ui.label("CultureBridge").classes("text-2xl font-bold text-white")
             ui.label("박물관 터치 체험").classes("text-sm text-blue-100")
@@ -276,6 +282,9 @@ def _enable_kiosk_timeout() -> None:
         f"""
         <script>
             (() => {{
+                window.addEventListener('pageshow', event => {{
+                    if (event.persisted) window.location.reload();
+                }});
                 const timeoutMs = {KIOSK_TIMEOUT_SECONDS * 1000};
                 const restartTimer = () => {{
                     window.clearTimeout(window.cultureBridgeKioskTimer);
@@ -326,6 +335,21 @@ def _home_route(mode: str) -> str:
 
 def _return_button(return_to="", fallback="/", label="검색 결과로", mode="web"):
     destination = search_return(return_to, fallback)
+    if _is_kiosk(mode):
+        allowed = (
+            "/kiosk",
+            "/explore/",
+            "/compare/",
+            "/research/",
+            "/quiz/",
+            "/discover/",
+            "/official/",
+        )
+        destination = (
+            _route(destination, mode)
+            if urlsplit(destination).path.startswith(allowed)
+            else _home_route(mode)
+        )
     root = urlsplit(destination).path
     if root == "/comparisons":
         label = "비교 기록으로"
@@ -590,9 +614,9 @@ def home_page(
                 "role=heading aria-level=1"
             )
             ui.label(
-                '궁금한 이야기를 들려주세요. 관심에 맞춰 살펴'
-                    '보고, 문화유산의 유사점과 차이점도 함께 알아'
-                    '봐요.'
+                "궁금한 이야기를 들려주세요. 관심에 맞춰 살펴"
+                "보고, 문화유산의 유사점과 차이점도 함께 알아"
+                "봐요."
             ).classes("cb-hero-copy")
             with ui.row().classes("gap-2"):
                 ui.label("국가유산청 · UNESCO 공식 자료").classes("cb-badge")
@@ -602,11 +626,11 @@ def home_page(
                 ui.link("문화유산 찾아보기", "#heritage-search").classes("cb-link-secondary")
             ui.html(
                 '<div class="cb-study-step'
-                    's" aria-label="학습 과정"><sp'
-                    'an><b>1</b> 질문</span><spa'
-                    'n><b>2</b> 근거 살펴보기</span>'
-                    '<span><b>3</b> 내 말로 익히기</'
-                    'span></div>'
+                's" aria-label="학습 과정"><sp'
+                "an><b>1</b> 질문</span><spa"
+                "n><b>2</b> 근거 살펴보기</span>"
+                "<span><b>3</b> 내 말로 익히기</"
+                "span></div>"
             )
             ui.label("유산 유형을 표현한 창작 삽화 · 실제 모습이나 복원도가 아니에요.").classes(
                 "cb-art-caption"
@@ -781,17 +805,17 @@ def home_page(
                         for notice in response.notices:
                             ui.label(service_text(notice)).props("role=alert")
                         ui.label(
-                            '관심 있는 유산을 고르면 함께 살펴볼 유산과 '
-                                '설명을 찾아드려요. 자료가 부족하면 판단을 보'
-                                '류합니다.'
+                            "관심 있는 유산을 고르면 함께 살펴볼 유산과 "
+                            "설명을 찾아드려요. 자료가 부족하면 판단을 보"
+                            "류합니다."
                         )
                         if response.individual:
                             ui.label(f"해외 개별 문화유산 · {len(response.individual)}건").classes(
                                 "font-semibold"
                             )
                             ui.label(
-                                '공식 자료 연결 대상입니다. 선택한 뒤 원문 '
-                                    '연결과 학습 근거를 확인해요.'
+                                "공식 자료 연결 대상입니다. 선택한 뒤 원문 "
+                                "연결과 학습 근거를 확인해요."
                             ).classes("cb-muted")
                             for item in response.individual:
                                 with ui.card().classes("cb-card cb-result-card w-full p-4 gap-2"):
@@ -1057,9 +1081,11 @@ def history_search_page():
             "제목을 고르면 공식 사이트의 원문을 읽을 수 있어요. "
             "검색 결과만으로 역사적 사실을 판단하거나 AI 설명을 만들지는 않아요."
         )
-        query = ui.input(label="인물·사건 이름", placeholder="예: 세종, 임진왜란").props(
-            "outlined maxlength=80"
-        ).classes("w-full")
+        query = (
+            ui.input(label="인물·사건 이름", placeholder="예: 세종, 임진왜란")
+            .props("outlined maxlength=80")
+            .classes("w-full")
+        )
         status = ui.label("궁금한 이름을 입력해 보세요.").props("role=status aria-live=polite")
         results = ui.column().classes("w-full gap-3").props('aria-label="역사 자료 검색 결과"')
         busy = False
@@ -1162,17 +1188,19 @@ def kiosk_page(reset: str | None = None) -> None:
     _kiosk_header()
     _enable_kiosk_timeout()
     with ui.column().classes("cb-shell cb-kiosk gap-8 py-10"):
-        if reset == "timeout":
-            ui.label("이전 체험을 안전하게 종료하고 처음 화면으로 돌아왔습니다.").classes(
+        if reset in {"manual", "timeout"}:
+            ui.label("이전 체험을 종료했어요. 새로운 체험을 시작할 수 있어요.").classes(
                 "w-full rounded-xl bg-blue-50 p-4 text-center text-lg font-semibold text-blue-900"
-            )
+            ).props("role=status aria-live=polite")
 
         with ui.column().classes("w-full items-center gap-3 text-center"):
-            ui.label("문화유산 비교 체험").classes("cb-title text-5xl")
+            ui.label("문화유산 비교 체험").classes("cb-title text-5xl").props(
+                "role=heading aria-level=1"
+            )
             ui.label("학습 수준을 누른 뒤 문화유산을 선택해 주세요.").classes("cb-muted text-2xl")
 
         with ui.card().classes("cb-card w-full p-8 gap-6"):
-            ui.label("1. 학습 수준").classes("cb-title text-3xl").props("role=heading aria-level=1")
+            ui.label("1. 학습 수준").classes("cb-title text-3xl").props("role=heading aria-level=2")
             level = (
                 ui.toggle(
                     LEVEL_LABELS,
@@ -1226,8 +1254,11 @@ def explore_page(
             ui.link(
                 "함께 살펴볼 문화유산을 찾아요",
                 with_return(
-                    f"/discover/{provider}/{identity}?level={level}&"
-                    + _goal_query(goal, goal_text, amount, comparison_scope),
+                    _route(
+                        f"/discover/{provider}/{identity}?level={level}&"
+                        + _goal_query(goal, goal_text, amount, comparison_scope),
+                        mode,
+                    ),
                     return_to,
                 ),
             )
@@ -1261,10 +1292,13 @@ def explore_page(
                 ui.link(
                     "국내 문화유산 자료에서 찾아보기",
                     with_return(
-                        "/discover/khs/"
-                        + ":".join(SEOKGURAM_CODES)
-                        + f"?level={level}&"
-                        + _goal_query(learning_goal.value, goal_text, amount, comparison_scope),
+                        _route(
+                            "/discover/khs/"
+                            + ":".join(SEOKGURAM_CODES)
+                            + f"?level={level}&"
+                            + _goal_query(learning_goal.value, goal_text, amount, comparison_scope),
+                            mode,
+                        ),
                         return_to,
                     ),
                 )
@@ -1276,8 +1310,11 @@ def explore_page(
         ui.link(
             "이 유산의 공식 자료로 탐구하기",
             with_return(
-                f"/discover/{provider}/{identifier}?level={level}&"
-                + _goal_query(learning_goal.value, goal_text, amount, comparison_scope),
+                _route(
+                    f"/discover/{provider}/{identifier}?level={level}&"
+                    + _goal_query(learning_goal.value, goal_text, amount, comparison_scope),
+                    mode,
+                ),
                 return_to,
             ),
         )
@@ -1436,9 +1473,9 @@ def comparison_page(
                     ui.label(service_text(notice)).classes("cb-muted")
             if saved_id and result.learning_version < LEARNING_VERSION:
                 ui.label(
-                    '이전 방식의 설명이에요. 아래 학습 기록 관리'
-                        '에서 다시 탐구하면 개선된 설명으로 학습할 수'
-                        ' 있어요.'
+                    "이전 방식의 설명이에요. 아래 학습 기록 관리"
+                    "에서 다시 탐구하면 개선된 설명으로 학습할 수"
+                    " 있어요."
                 ).props("role=note").classes("cb-muted")
             with ui.expansion("학습 기록 관리 · 저장과 다시 탐구").classes("w-full"):
                 if saved_id:
@@ -1464,8 +1501,8 @@ def comparison_page(
                             sqlite3.Error,
                         ):
                             ui.notify(
-                                '다시 탐구하지 못했어요. 기존 기록은 그대로 '
-                                    '보존됩니다. 잠시 후 다시 시도해 주세요.',
+                                "다시 탐구하지 못했어요. 기존 기록은 그대로 "
+                                "보존됩니다. 잠시 후 다시 시도해 주세요.",
                                 color="warning",
                             )
                         finally:
@@ -1504,9 +1541,9 @@ def comparison_page(
 
         if result.collected_sources or result.extracted_fields:
             ui.label(
-                '설명의 뜻과 대상은 추가 확인이 필요합니다. '
-                    '핵심 비교 아래에서 공식 원문과 상세 설명을 '
-                    '확인할 수 있어요.'
+                "설명의 뜻과 대상은 추가 확인이 필요합니다. "
+                "핵심 비교 아래에서 공식 원문과 상세 설명을 "
+                "확인할 수 있어요."
             ).classes("cb-muted")
             with ui.expansion("자세한 설명과 공식 원문 읽기").classes("w-full"):
                 if result.collected_sources:
@@ -1553,7 +1590,7 @@ def comparison_page(
             if "seokguram" in (left_id, right_id):
                 ui.link(
                     "석굴암 원문 읽기",
-                    "/official/" + "/".join(SEOKGURAM_CODES),
+                    _route("/official/" + "/".join(SEOKGURAM_CODES), mode),
                     new_tab=True,
                 )
             status_label = {
@@ -1563,8 +1600,8 @@ def comparison_page(
             }[result.verification_status.value]
             ui.label(status_label).classes("font-bold")
             ui.label(
-                '연결된 원문을 바탕으로 정리했어요. 출처가 있'
-                    '다는 것과 해석이 확인됐다는 것은 달라요.'
+                "연결된 원문을 바탕으로 정리했어요. 출처가 있"
+                "다는 것과 해석이 확인됐다는 것은 달라요."
                 if result.basis == "extracted"
                 else result.verification_note
             ).classes("cb-muted")
@@ -1831,12 +1868,20 @@ async def quiz_page(
             quiz = load_quiz(quiz_id, left_id, right_id)
         elif loading:
             quiz = await _io_bound(
-                generate_quiz, left_id, right_id, learning_level,
-                comparison_id=comparison_id, reuse=True,
+                generate_quiz,
+                left_id,
+                right_id,
+                learning_level,
+                comparison_id=comparison_id,
+                reuse=True,
             )
         else:
             quiz = generate_quiz(
-                left_id, right_id, learning_level, comparison_id=comparison_id, reuse=True,
+                left_id,
+                right_id,
+                learning_level,
+                comparison_id=comparison_id,
+                reuse=True,
             )
         comparison_id, learning_level = quiz.comparison_id, quiz.level
     except (ComparisonNotFoundError, EvidenceQuizError) as exc:
@@ -1901,9 +1946,9 @@ async def quiz_page(
             ui.label("5개 문항에 모두 답한 뒤 채점하세요.").classes("cb-muted text-lg")
             if back_record_id and back_record.learning_version < LEARNING_VERSION:
                 ui.label(
-                    '이전 방식의 저장본에 연결된 퀴즈예요. 비교 '
-                        '화면에서 최신 근거로 다시 탐구하는 것을 권해'
-                        '요.'
+                    "이전 방식의 저장본에 연결된 퀴즈예요. 비교 "
+                    "화면에서 최신 근거로 다시 탐구하는 것을 권해"
+                    "요."
                 ).classes("cb-muted")
             if quiz.basis == "extracted":
                 ui.label(
@@ -2015,9 +2060,9 @@ def comparison_history_page(page: int = 1) -> None:
             "role=heading aria-level=1"
         )
         ui.label(
-            '이 브라우저에서 만든 비교 기록이에요. 브라우'
-                '저를 닫거나 쿠키를 지우면 접근이 종료될 수 '
-                '있어요.'
+            "이 브라우저에서 만든 비교 기록이에요. 브라우"
+            "저를 닫거나 쿠키를 지우면 접근이 종료될 수 "
+            "있어요."
             if get_settings().public_mode
             else "함께 사용하는 비교 기록이에요. 개인 대화 기록은 여기에 표시하지 않아요."
         ).classes("cb-muted")
@@ -2064,9 +2109,9 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
             "이 브라우저의 학습 기록" if get_settings().public_mode else "함께 사용하는 학습 기록"
         ).classes("cb-muted")
         ui.label(
-            '대화로 복습하기는 이 브라우저에서 채점한 기록'
-                '에서만 열려요. 예전 공유 기록은 해설을 읽거'
-                '나 퀴즈를 다시 풀어보세요.'
+            "대화로 복습하기는 이 브라우저에서 채점한 기록"
+            "에서만 열려요. 예전 공유 기록은 해설을 읽거"
+            "나 퀴즈를 다시 풀어보세요."
         ).classes("cb-muted")
         page = max(1, min(page, 100000))
         level = level if level in LEVEL_LABELS else "all"
@@ -2114,8 +2159,8 @@ def learning_history_page(page: int = 1, level: str = "all") -> None:
                         comparison = get_saved_comparison(review["comparison_id"]).comparison
                         if comparison.learning_version < LEARNING_VERSION:
                             ui.label(
-                                '이전 학습 기록입니다. 설명 다시 읽기에서 최'
-                                    '신 근거로 재탐구할 수 있어요.'
+                                "이전 학습 기록입니다. 설명 다시 읽기에서 최"
+                                "신 근거로 재탐구할 수 있어요."
                             ).classes("cb-muted")
                         ui.link(
                             "설명 다시 읽기",
@@ -2156,10 +2201,10 @@ def source_catalogue_page():
             "role=heading aria-level=1"
         )
         ui.label(
-            '기관 원문·연결 상태·한국어 이름과 이용 조건'
-                '의 검토 상태를 확인해요. 수집 성공이 역사적'
-                ' 의미 검증이나 재배포 허가를 뜻하지는 않아요'
-                '.'
+            "기관 원문·연결 상태·한국어 이름과 이용 조건"
+            "의 검토 상태를 확인해요. 수집 성공이 역사적"
+            " 의미 검증이나 재배포 허가를 뜻하지는 않아요"
+            "."
         ).classes("cb-muted")
         rows = source_overview()
         checklist = {row["id"]: row for row in material_review()}
@@ -2267,9 +2312,9 @@ def courses_page():
         )
         ui.label("목표를 정하고, 두 유산을 읽고, 퀴즈와 복습으로 마무리하는 대표 코스예요.")
         ui.label(
-            '5개 코스는 학습 예시입니다. 전체 25개 자'
-                '료는 홈 검색과 개별 탐구에서 계속 이용할 수'
-                ' 있어요.'
+            "5개 코스는 학습 예시입니다. 전체 25개 자"
+            "료는 홈 검색과 개별 탐구에서 계속 이용할 수"
+            " 있어요."
         ).classes("cb-muted")
         ui.label("삽화는 학습 주제를 표현한 것으로, 실제 유산의 모습과 다를 수 있어요.").classes(
             "cb-art-caption"
@@ -2332,9 +2377,9 @@ def course_detail_page(course_id: str, level: str = ""):
                 ui.label(f"{index}. {activity}")
             ui.label("마무리 질문: " + course["reflection"])
             ui.label(
-                '시작하면 양쪽 원문과 목표 근거를 확인해요. '
-                    '자료가 부족하면 비교를 보류해요. 원문 이용 '
-                    '조건과 한국어 풀이 검토는 별도로 필요합니다.'
+                "시작하면 양쪽 원문과 목표 근거를 확인해요. "
+                "자료가 부족하면 비교를 보류해요. 원문 이용 "
+                "조건과 한국어 풀이 검토는 별도로 필요합니다."
             ).classes("cb-muted")
             status = ui.column().classes("w-full").props("role=status aria-live=polite")
 
@@ -2358,9 +2403,9 @@ def course_detail_page(course_id: str, level: str = ""):
                     status.clear()
                     with status:
                         ui.label(
-                            '현재 양쪽 자료나 학습 근거를 준비하지 못했어'
-                                '요. 잠시 후 다시 시작하거나 홈에서 다른 유'
-                                '산을 선택해 주세요.'
+                            "현재 양쪽 자료나 학습 근거를 준비하지 못했어"
+                            "요. 잠시 후 다시 시작하거나 홈에서 다른 유"
+                            "산을 선택해 주세요."
                         )
                         ui.link("다른 유산 찾아보기", "/")
                 finally:
@@ -2424,26 +2469,26 @@ def data_policy_page():
             "role=heading aria-level=1"
         )
         ui.label(
-            '대화·관심사·학습 목표·자기 설명·말투 설정·'
-                '잠정 이해도·비교 결과·퀴즈 답안·오답 복습을'
-                ' 현재 브라우저에 연결해 저장해요. 계정 로그'
-                '인 방식이 아니므로 쿠키를 지우거나 다른 브라'
-                '우저를 쓰면 이전 기록에 접근하지 못할 수 있'
-                '어요.'
+            "대화·관심사·학습 목표·자기 설명·말투 설정·"
+            "잠정 이해도·비교 결과·퀴즈 답안·오답 복습을"
+            " 현재 브라우저에 연결해 저장해요. 계정 로그"
+            "인 방식이 아니므로 쿠키를 지우거나 다른 브라"
+            "우저를 쓰면 이전 기록에 접근하지 못할 수 있"
+            "어요."
         )
         if not settings.public_mode:
             ui.label(
-                '현재 환경에서는 비교·퀴즈 기록을 함께 열람할'
-                    ' 수 있어요. 개인 대화와 이해도 기록은 브라'
-                    '우저별로 분리해요. 파일 저장과 정리 수정·삭'
-                    '제는 기록을 만든 브라우저에서만 할 수 있어요'
-                    '.'
+                "현재 환경에서는 비교·퀴즈 기록을 함께 열람할"
+                " 수 있어요. 개인 대화와 이해도 기록은 브라"
+                "우저별로 분리해요. 파일 저장과 정리 수정·삭"
+                "제는 기록을 만든 브라우저에서만 할 수 있어요"
+                "."
             ).props("role=note")
         ui.label(
-            '자유 질문과 공식 원문 일부는 AI 기능을 사'
-                '용할 때 Gemini로 전달될 수 있어요. 이'
-                '름·연락처·민감한 개인정보는 질문에 입력하지 '
-                '마세요.'
+            "자유 질문과 공식 원문 일부는 AI 기능을 사"
+            "용할 때 Gemini로 전달될 수 있어요. 이"
+            "름·연락처·민감한 개인정보는 질문에 입력하지 "
+            "마세요."
         )
         ui.label(
             f"자동 보관 정책: {settings.record_retention_days}일 후 삭제 대상"
@@ -2457,12 +2502,12 @@ def data_policy_page():
             else "자동 백업은 현재 비활성 상태입니다."
         )
         ui.label(
-            '아래 삭제는 이 브라우저의 대화·이해도·저장 '
-                '비교·퀴즈·학습 결과에 적용돼요. 공용 공식 '
-                '자료와 다른 브라우저의 기록은 유지돼요. 삭제'
-                '한 기록은 되돌릴 수 없어요. 기존 백업 사본'
-                '은 관리자 보관 주기에 따라 별도로 만료됩니다'
-                '.'
+            "아래 삭제는 이 브라우저의 대화·이해도·저장 "
+            "비교·퀴즈·학습 결과에 적용돼요. 공용 공식 "
+            "자료와 다른 브라우저의 기록은 유지돼요. 삭제"
+            "한 기록은 되돌릴 수 없어요. 기존 백업 사본"
+            "은 관리자 보관 주기에 따라 별도로 만료됩니다"
+            "."
         ).classes("cb-muted")
         with ui.dialog() as dialog, ui.card():
             ui.label("이 브라우저의 학습 기록을 삭제할까요?")
@@ -2560,21 +2605,22 @@ async def official_detail_page(
     level: str = "beginner",
     return_to: str = "",
     comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
+    mode: str = "web",
 ) -> None:
     _base_styles()
-    _header()
+    _page_header(mode)
     learning_level = _learning_level(level)
     try:
         document = await _io_bound(get_official_document, kind, number, region)
     except (OfficialServiceError, OfficialDocumentNotFoundError, ValueError):
         _error_page(
-            "공식 자료를 불러올 수 없습니다. 조회 코드를 확인하거나 다시 시도해 주세요.", "web"
+            "공식 자료를 불러올 수 없습니다. 조회 코드를 확인하거나 다시 시도해 주세요.", mode
         )
         return
     except sqlite3.Error:
-        _error_page("공식 자료를 저장할 수 없습니다. 잠시 후 다시 시도해 주세요.", "web")
+        _error_page("공식 자료를 저장할 수 없습니다. 잠시 후 다시 시도해 주세요.", mode)
         return
-    with ui.column().classes("cb-shell gap-5 py-10"):
+    with ui.column().classes(f"cb-shell gap-5 py-10 {'cb-kiosk' if _is_kiosk(mode) else ''}"):
         back_search = search_return(
             return_to,
             "/official?"
@@ -2587,8 +2633,12 @@ async def official_detail_page(
                 }
             ),
         )
-        back_search = search_level(back_search, learning_level.value)
-        _return_button(back_search)
+        back_search = (
+            _home_route(mode)
+            if _is_kiosk(mode)
+            else search_level(back_search, learning_level.value)
+        )
+        _return_button(back_search, mode=mode)
         with ui.column().classes("w-full gap-2"):
             ui.label(document.name).classes("cb-title text-3xl").props(
                 "role=heading aria-level=1"
@@ -2599,7 +2649,10 @@ async def official_detail_page(
         ui.toggle(LEVEL_LABELS, value=learning_level.value).on_value_change(
             lambda e: ui.navigate.to(
                 with_return(
-                    f"/official/{kind}/{number}/{region}?level={e.value}&comparison_scope={comparison_scope.value}",
+                    _route(
+                        f"/official/{kind}/{number}/{region}?level={e.value}&comparison_scope={comparison_scope.value}",
+                        mode,
+                    ),
                     search_level(back_search, e.value),
                 )
             )
@@ -2611,8 +2664,11 @@ async def official_detail_page(
             "함께 살펴볼 문화유산을 찾아요",
             on_click=lambda: ui.navigate.to(
                 with_return(
-                    f"/discover/khs/{kind}:{number}:{region}?level={learning_level.value}&"
-                    + _goal_query(*_settings_from_return(return_to), comparison_scope),
+                    _route(
+                        f"/discover/khs/{kind}:{number}:{region}?level={learning_level.value}&"
+                        + _goal_query(*_settings_from_return(return_to), comparison_scope),
+                        mode,
+                    ),
                     back_search,
                 )
             ),
@@ -2763,8 +2819,8 @@ def unesco_page(
                 )
                 if not response.records:
                     ui.label(
-                        '이 이름으로 찾은 세계유산이 없어요. 다른 이'
-                            '름이나 국가명으로 검색해 보세요.'
+                        "이 이름으로 찾은 세계유산이 없어요. 다른 이"
+                        "름이나 국가명으로 검색해 보세요."
                     ).props("role=status")
                     ui.link(
                         "개별 문화유산까지 통합 검색하기",
@@ -2995,9 +3051,16 @@ async def autonomous_page(
     amount: str = "standard",
     return_to: str = "",
     comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
+    mode: str = "web",
 ):
     _base_styles()
-    _header()
+    _page_header(mode)
+
+    def discovery_link(label, destination):
+        if _is_kiosk(mode) and urlsplit(destination).path in {"/", "/domestic", "/official"}:
+            destination = _home_route(mode)
+        return ui.link(label, _route(destination, mode))
+
     try:
         if provider == "unesco":
             target = OfficialTarget(provider=provider, record_id=identity)
@@ -3015,18 +3078,21 @@ async def autonomous_page(
             comparison_scope=comparison_scope,
         )
     except ValueError:
-        _error_page("선택한 문화유산을 찾지 못했어요. 검색에서 다시 선택해 주세요.", "web")
+        _error_page("선택한 문화유산을 찾지 못했어요. 검색에서 다시 선택해 주세요.", mode)
         return
-    with ui.column().classes("cb-shell gap-5 py-10"):
+    with ui.column().classes(f"cb-shell gap-5 py-10 {'cb-kiosk' if _is_kiosk(mode) else ''}"):
         _return_button(
             return_to,
-            home_context(
+            _home_route(mode)
+            if _is_kiosk(mode)
+            else home_context(
                 level=level,
                 goal=goal,
                 goal_text=goal_text,
                 amount=amount,
                 comparison_scope=comparison_scope,
             ),
+            mode=mode,
         )
         title = (
             ui.label("함께 살펴볼 문화유산을 찾아요")
@@ -3037,14 +3103,17 @@ async def autonomous_page(
         _comparison_entry(
             level=level,
             comparison_scope=comparison_scope,
-            domestic_url=with_return(
-                f"/discover/{provider}/{identity}?level={level}&"
-                + _goal_query(goal, goal_text, amount, ComparisonScope.DOMESTIC),
-                scope_return(
-                    return_to
-                    or home_context(level=level, goal=goal, goal_text=goal_text, amount=amount),
-                    ComparisonScope.DOMESTIC,
+            domestic_url=_route(
+                with_return(
+                    f"/discover/{provider}/{identity}?level={level}&"
+                    + _goal_query(goal, goal_text, amount, ComparisonScope.DOMESTIC),
+                    scope_return(
+                        return_to
+                        or home_context(level=level, goal=goal, goal_text=goal_text, amount=amount),
+                        ComparisonScope.DOMESTIC,
+                    ),
                 ),
+                mode,
             ),
         )
         panel = ui.column().classes("w-full gap-3").props("role=status aria-live=polite")
@@ -3069,10 +3138,19 @@ async def autonomous_page(
                 ui.label(
                     "공식 자료를 확보하거나 탐구를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요."
                 )
-                ui.link("검색 결과로 돌아가기", search_return(return_to, home_context(
-                    level=level, goal=goal, goal_text=goal_text, amount=amount,
-                    comparison_scope=comparison_scope,
-                )))
+                discovery_link(
+                    "검색 결과로 돌아가기",
+                    search_return(
+                        return_to,
+                        home_context(
+                            level=level,
+                            goal=goal,
+                            goal_text=goal_text,
+                            amount=amount,
+                            comparison_scope=comparison_scope,
+                        ),
+                    ),
+                )
             return
         panel.clear()
         with panel:
@@ -3091,12 +3169,12 @@ async def autonomous_page(
             ui.label(learner_status(result, request.level is LearningLevel.BEGINNER))
             if not result["candidates"]:
                 ui.label(
-                    '선택한 범위에서 조건에 맞는 근거를 확보하지 '
-                        '못해 비교를 보류했어요. 범위를 자동 변경하지'
-                        ' 않아요.'
+                    "선택한 범위에서 조건에 맞는 근거를 확보하지 "
+                    "못해 비교를 보류했어요. 범위를 자동 변경하지"
+                    " 않아요."
                 ).classes("cb-muted")
                 if request.target.provider == "khs":
-                    ui.link(
+                    discovery_link(
                         "선택한 유산의 설명 먼저 읽기",
                         with_return(
                             f"/official/{request.target.kind}/{request.target.number}/{request.target.region}"
@@ -3104,7 +3182,7 @@ async def autonomous_page(
                             return_to,
                         ),
                     )
-                ui.link(
+                discovery_link(
                     "학습 목표를 바꾸어 다시 찾기",
                     search_return(
                         return_to,
@@ -3143,7 +3221,7 @@ async def autonomous_page(
                     )
                     with ui.expansion("추천 이유 자세히 보기"):
                         ui.label(candidate["reason"])
-                    ui.link(
+                    discovery_link(
                         "이 유산과 비교하기",
                         with_return(
                             f"/research/{result['target']['id']}/{candidate['heritage']['id']}"
@@ -3154,7 +3232,7 @@ async def autonomous_page(
                     )
             if result["comparison"]:
                 comparison = result["comparison"]
-                ui.link(
+                discovery_link(
                     "먼저 살펴본 비교 결과 보기",
                     with_return(
                         f"/compare/{comparison['left']['id']}/{comparison['right']['id']}?saved_id={comparison['saved_id']}",
@@ -3162,7 +3240,7 @@ async def autonomous_page(
                     ),
                 )
                 if result["quiz"]:
-                    ui.link(
+                    discovery_link(
                         "배운 내용 퀴즈 풀기",
                         with_return(
                             f"/quiz/{comparison['left']['id']}/{comparison['right']['id']}?quiz_id={result['quiz']['quiz_id']}",
@@ -3171,7 +3249,16 @@ async def autonomous_page(
                     )
                 else:
                     ui.label(result["quiz_notice"])
-            ui.link("검색 결과로 돌아가기", search_return(return_to, home_context(
-                level=level, goal=goal, goal_text=goal_text, amount=amount,
-                comparison_scope=comparison_scope,
-            )))
+            discovery_link(
+                "검색 결과로 돌아가기",
+                search_return(
+                    return_to,
+                    home_context(
+                        level=level,
+                        goal=goal,
+                        goal_text=goal_text,
+                        amount=amount,
+                        comparison_scope=comparison_scope,
+                    ),
+                ),
+            )

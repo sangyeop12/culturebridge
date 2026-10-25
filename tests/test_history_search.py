@@ -20,10 +20,10 @@ def isolated(tmp_path, monkeypatch):
 
 def test_catalogue_accepts_only_observed_fixed_collection_identifiers():
     parser = history.CatalogueParser()
-    parser.feed('''<div class="list-item"><a href="https://evil.invalid/"
+    parser.feed("""<div class="list-item"><a href="https://evil.invalid/"
       onclick="fnGoItemLevel('nh', 'nh_024_0070_0020', '0'); return false;">세종 <em>도량형</em></a>
       <a onclick="fnGoItemLevel('nh', 'https://evil.invalid', '1'); return false;">bad</a>
-      <a onclick="alert('execute')">bad</a></div>''')
+      <a onclick="alert('execute')">bad</a></div>""")
     assert parser.items == [{"key": "nh_024_0070_0020", "title": "세종 도량형"}]
 
 
@@ -62,7 +62,8 @@ def test_history_search_remains_in_bounded_agent_loop(monkeypatch):
     state = {
         "conversation": LearningConversation(id=uuid4(), revision=0),
         "decision": LearningDecision(action="search_history", query="세종"),
-        "steps": 0, "seen": [],
+        "steps": 0,
+        "seen": [],
     }
     result = learning.tool(state)
     assert result["steps"] == 1 and state["conversation"].search_results
@@ -82,7 +83,7 @@ def test_history_page_has_accessible_search_and_no_request_on_render(monkeypatch
         response = client.get("/history-search")
         assert response.status_code == 200
         assert "인물·사건 이름" in response.text
-        assert 'aria-live=polite' in response.text or 'aria-live' in response.text
+        assert "aria-live=polite" in response.text or "aria-live" in response.text
         assert "AI 설명을 만들지는" in response.text
 
 
