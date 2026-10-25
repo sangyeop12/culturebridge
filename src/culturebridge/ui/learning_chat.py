@@ -219,6 +219,11 @@ def learning_chat(worker, conversation_id=""):
                         "font-semibold"
                     )
                     ui.label(message_body(message, preferences)).classes("cb-message-body")
+                    glossary = explanation_glossary(message)
+                    if glossary:
+                        with ui.expansion("어려운 말 풀이"):
+                            for term, meaning in glossary.items():
+                                ui.label(term + ": " + meaning)
                     if message.kind == "dictionary" and message.citations:
                         ui.label("출처: 국립국어원 표준국어대사전 · 뜻풀이 원문 그대로")
                         ui.link(
@@ -421,6 +426,20 @@ def message_body(message, preferences):
 
 def display_notice(text):
     return service_text(text)
+
+
+def explanation_glossary(message):
+    """Reuse reading aids without modifying learner text, official quotes or stored replies."""
+    if (
+        message.role != "assistant"
+        or message.kind == "dictionary"
+        or message.teaching.get("mode") != "explain"
+    ):
+        return {}
+    from culturebridge.services.lesson_service import GLOSSARY
+
+    explanation = message.text.partition("\n\n공식 원문:")[0]
+    return dict([(term, meaning) for term, meaning in GLOSSARY.items() if term in explanation][:5])
 
 
 def control_text(control, draft):

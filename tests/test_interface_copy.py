@@ -8,7 +8,7 @@ from culturebridge.main import app
 from culturebridge.services.display_service import readable_trace
 from culturebridge.services.learning_preferences import LearningPreferences
 from culturebridge.ui.copy import service_text
-from culturebridge.ui.learning_chat import message_body
+from culturebridge.ui.learning_chat import explanation_glossary, message_body
 
 
 @pytest.mark.parametrize(
@@ -114,3 +114,40 @@ def test_activity_wording_keeps_search_terms_and_source_titles():
         "공식 자료 찾기: UNESCO 'Horyu-ji' → 3건"
     )
     assert readable_trace("출처 설명은 그대로") == "출처 설명은 그대로"
+
+
+def test_dabotap_explanation_offers_existing_terms_without_rewriting_reply():
+    message = ConversationMessage(
+        role="assistant",
+        text="기단 위에 탑신이 있고 난간으로 둘러싸여 있어요.\n\n공식 원문: 기단과 탑신",
+        teaching={"mode": "explain"},
+    )
+    original = message.model_dump_json()
+    assert explanation_glossary(message) == {
+        "기단": "건물을 받치는 아랫부분",
+        "탑신": "탑의 몸체",
+        "난간": "가장자리에 세운 안전 울타리",
+    }
+    assert message.model_dump_json() == original
+
+
+@pytest.mark.parametrize(
+    "role,kind,teaching",
+    [
+        ("user", "dialogue", {"mode": "explain"}),
+        ("assistant", "dictionary", {"mode": "explain"}),
+        ("assistant", "dialogue", {}),
+    ],
+)
+def test_reading_aids_only_apply_to_learning_explanations(role, kind, teaching):
+    message = ConversationMessage(role=role, kind=kind, text="기단과 탑신", teaching=teaching)
+    assert explanation_glossary(message) == {}
+
+
+def test_reading_aids_do_not_pick_up_terms_only_in_official_original():
+    message = ConversationMessage(
+        role="assistant",
+        text="건물의 모양을 살펴봐요.\n\n공식 원문: 기단과 탑신",
+        teaching={"mode": "explain"},
+    )
+    assert explanation_glossary(message) == {}
