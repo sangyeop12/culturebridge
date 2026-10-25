@@ -175,9 +175,39 @@ def readable_trace(step):
         "verification_agent": "근거 점검",
         "research_retry_tool": "자료 다시 찾기",
         "quiz_agent": "퀴즈 준비",
+        "scope_check": "비교 범위 확인",
+        "supplement_tool": "공식 설명 보충",
+        "individual_source_tool": "개별 유산 자료 확인",
     }
     prefix, sep, body = step.partition(":")
-    return labels.get(prefix, prefix) + sep + body
+    if not sep:
+        return step
+    wording = {
+        "선택한 공식 ID 확인·원문 수집": "선택한 유산의 공식 원문 확인",
+        "AI 연결/계획 실패·원문 키워드 계획으로 전환": (
+            "AI 검색 계획을 준비하지 못해 원문의 주요 표현으로 찾아봤어요."
+        ),
+        "AI 선택 실패·근거 유형/국가 적합성 순위로 전환": (
+            "AI가 후보를 고르지 못해 유산 종류와 국가 조건에 맞춰 살펴봤어요."
+        ),
+        "대상 유형·자료 단위 불일치로 자동 비교 제외": (
+            "유산 종류나 설명 대상의 범위가 맞지 않아 자동 비교에서 제외했어요."
+        ),
+        "4개 항목 추출": "시대·구조·재료·종교적 배경 찾기",
+    }
+    body = wording.get(body.strip(), body.strip())
+    statuses = {
+        "fresh": "새 자료 확인",
+        "cached": "보관 자료 확인",
+        "stale": "갱신 필요",
+        "unavailable": "연결 실패",
+    }
+    if prefix == "supplement_tool":
+        for status, label in statuses.items():
+            if body.endswith(" " + status):
+                body = body[: -len(status)] + label
+                break
+    return labels.get(prefix, "학습 과정") + ": " + body
 
 
 def learning_title(name):

@@ -90,12 +90,12 @@ def tone_controls(worker, on_saved=None, *, expanded=False):
                 "custom": "직접 선택",
             },
             value=preferences.tone,
-            label="설명 문체",
+            label="설명 표현",
         ).classes("w-full")
         depth = ui.select(
             {"auto": "대화에 맞춰 조절", "easy": "짧고 쉽게", "detailed": "근거까지 자세히"},
             value=preferences.explanation_depth,
-            label="설명 깊이",
+            label="설명의 자세함",
         ).classes("w-full")
         custom = (
             ui.input(label="원하는 안내 방식", value=preferences.custom_style)

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -88,3 +89,44 @@ def test_discovery_keeps_kiosk_header_without_running_remote_work(isolated, monk
         page = next(reversed(list(Client.instances.values())))
         links = [e._props["href"] for e in page.elements.values() if "href" in e._props]
         assert all("mode=kiosk" in href for href in links if href.startswith("/discover/"))
+
+
+@pytest.mark.parametrize("mode", ["web", "kiosk"])
+@pytest.mark.parametrize("level", ["beginner", "intermediate", "advanced"])
+@pytest.mark.parametrize("scope", ["overseas", "domestic"])
+def test_seokguram_original_comparison_link_preserves_context(
+    isolated, monkeypatch, mode, level, scope
+):
+    kind, number, region = pages.SEOKGURAM_CODES
+    document = OfficialDocument(
+        kind_code=kind,
+        asset_number=number,
+        region_code=region,
+        name="석굴암",
+        content="석굴암은 통일신라 시대의 석굴 사원이다.",
+        source_url="https://www.khs.go.kr/",
+        retrieved_at=datetime.now(UTC),
+    )
+    monkeypatch.setattr(pages, "get_official_document", lambda *a: document)
+    with TestClient(app) as client:
+        response = client.get(
+            f"/official/{kind}/{number}/{region}?level={level}&comparison_scope={scope}&mode={mode}"
+        )
+        assert response.status_code == 200
+        page = next(reversed(list(Client.instances.values())))
+        link = next(
+            e for e in page.elements.values() if getattr(e, "text", "") == "석굴암 비교 학습"
+        )
+        destination = urlsplit(link._props["href"])
+        params = parse_qs(destination.query)
+        assert destination.path == "/explore/seokguram"
+        assert params["level"] == [level]
+        assert params["comparison_scope"] == [scope]
+        if mode == "kiosk":
+            assert params.get("mode") == ["kiosk"]
+            assert urlsplit(params["return_to"][0]).path == "/kiosk"
+        else:
+            assert "mode" not in params
+        response = client.get(link._props["href"])
+        assert response.status_code == 200
+        assert ("박물관 터치 체험" in response.text) == (mode == "kiosk")

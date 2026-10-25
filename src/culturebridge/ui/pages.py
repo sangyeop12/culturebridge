@@ -1623,7 +1623,8 @@ def comparison_page(
                 "role=heading aria-level=2"
             )
             ui.label(
-                "시대·구조·재료·종교적 배경을 질문하면 근거 범위와 검증 상태를 함께 표시합니다."
+                "시대·구조·재료·종교적 배경을 질문하면 어떤 자료로 답했는지, "
+                "더 확인할 부분은 무엇인지 함께 알려드려요."
             ).classes("cb-muted")
             question_input = (
                 ui.textarea(
@@ -1636,7 +1637,7 @@ def comparison_page(
             chat_history = []
             chat_cards = []
             ui.label(
-                "이전 대화는 질문 맥락에만 사용하며, 역사적 근거로 취급하지 않습니다."
+                "이전 대화는 질문을 이해하는 데만 참고해요. 역사적 사실의 근거로 쓰지는 않아요."
             ).classes("cb-muted text-sm")
 
             async def submit_question() -> None:
@@ -1712,7 +1713,7 @@ def comparison_page(
                     "이 비교에 사용된 공식 원문과 대조합니다. AI 검토 결과는 확정 판정이 아닙니다."
                 )
             ui.label(
-                "확인할 사실을 입력하세요. 원문 비교에서는 복합 주장도 나누어 검토해요."
+                "확인할 사실을 입력해 주세요. 여러 사실이 섞인 문장은 나누어 살펴봐요."
                 if result.collected_sources
                 else "한 가지 사실을 입력해 주세요. 예: 석굴암의 재료는 화강암이다"
             ).classes("cb-muted")
@@ -1729,7 +1730,7 @@ def comparison_page(
             async def submit_claim() -> None:
                 claim = (claim_input.value or "").strip()
                 if not 2 <= len(claim) <= 500:
-                    ui.notify("주장을 2~500글자로 입력해 주세요.", color="warning")
+                    ui.notify("확인하고 싶은 설명을 2~500자로 입력해 주세요.", color="warning")
                     return
                 claim_button.disable()
                 claim_button.set_text("자료를 확인하고 있어요…")
@@ -1743,7 +1744,7 @@ def comparison_page(
                     )
                 except (ComparisonNotFoundError, ClaimTargetMismatchError, sqlite3.Error):
                     ui.notify(
-                        "주장 검증의 저장 자료를 확인하지 못했습니다. 다시 시도해 주세요.",
+                        "대조에 필요한 저장 자료를 불러오지 못했어요. 다시 시도해 주세요.",
                         color="negative",
                     )
                     return
@@ -1757,24 +1758,26 @@ def comparison_page(
                 }
                 claim_box.clear()
                 with claim_box:
-                    ui.label("입력한 주장: " + checked.claim)
+                    ui.label("확인할 설명: " + checked.claim)
                     ui.label(labels[checked.verification_status.value]).classes("cb-title text-xl")
                     ui.label(checked.explanation)
                     if checked.execution_trace:
-                        with ui.expansion(f"검증 과정 · 추가 자료 확인 {checked.retry_count}회"):
+                        with ui.expansion(
+                            f"근거를 확인한 과정 · 추가 자료 확인 {checked.retry_count}회"
+                        ):
                             for step in checked.execution_trace:
                                 ui.label(step)
                         with ui.expansion("대조에 사용한 공식 설명"):
                             _collected_source_cards(checked.collected_sources, learning_level)
                     if checked.unsupported_parts:
-                        ui.label("개별 근거가 없는 주장 부분").classes("font-semibold")
+                        ui.label("아직 근거를 찾지 못한 내용").classes("font-semibold")
                         for part in checked.unsupported_parts:
                             ui.label(part)
                     for entry in checked.evidence:
                         ui.label(
                             {
-                                "supports": "지지 후보",
-                                "contradicts": "반박 후보",
+                                "supports": "설명을 뒷받침할 수 있는 근거",
+                                "contradicts": "설명과 어긋날 수 있는 근거",
                                 "related": "관련 근거",
                             }[entry.relation]
                         ).classes("font-semibold")
@@ -2201,10 +2204,8 @@ def source_catalogue_page():
             "role=heading aria-level=1"
         )
         ui.label(
-            "기관 원문·연결 상태·한국어 이름과 이용 조건"
-            "의 검토 상태를 확인해요. 수집 성공이 역사적"
-            " 의미 검증이나 재배포 허가를 뜻하지는 않아요"
-            "."
+            "공식 원문과 연결 상태, 한국어 이름·이용 조건의 확인 상태를 살펴봐요. "
+            "자료를 불러왔다고 역사적 해석이 정확하거나 재배포가 허용된 것은 아니에요."
         ).classes("cb-muted")
         rows = source_overview()
         checklist = {row["id"]: row for row in material_review()}
@@ -2469,8 +2470,8 @@ def data_policy_page():
             "role=heading aria-level=1"
         )
         ui.label(
-            "대화·관심사·학습 목표·자기 설명·말투 설정·"
-            "잠정 이해도·비교 결과·퀴즈 답안·오답 복습을"
+            "대화·관심사·학습 목표·내가 적은 설명·설명 설정·"
+            "이해도 검토 기록·비교 결과·퀴즈 답안·오답 복습을"
             " 현재 브라우저에 연결해 저장해요. 계정 로그"
             "인 방식이 아니므로 쿠키를 지우거나 다른 브라"
             "우저를 쓰면 이전 기록에 접근하지 못할 수 있"
@@ -2491,15 +2492,15 @@ def data_policy_page():
             "마세요."
         )
         ui.label(
-            f"자동 보관 정책: {settings.record_retention_days}일 후 삭제 대상"
+            f"기록은 {settings.record_retention_days}일이 지나면 자동 삭제 대상이 돼요."
             if settings.retention_enabled
-            else "자동 기록 삭제는 현재 비활성 상태입니다."
+            else "현재는 기록이 자동으로 삭제되지 않아요."
         )
         ui.label(
             f"자동 백업: {settings.maintenance_interval_hours}시간 간격 · "
             f"최근 {settings.backup_keep}개 보관"
             if settings.maintenance_enabled
-            else "자동 백업은 현재 비활성 상태입니다."
+            else "현재는 백업 사본이 자동으로 만들어지지 않아요."
         )
         ui.label(
             "아래 삭제는 이 브라우저의 대화·이해도·저장 "
@@ -2722,13 +2723,16 @@ async def official_detail_page(
             )
         if (kind, number, region) == SEOKGURAM_CODES:
             ui.label(
-                "이 원문은 석굴암의 Gemini 자유 질문 근거에 포함됩니다. "
-                "AI 답변은 검토가 필요합니다."
+                "석굴암에 관해 질문하면 이 원문을 답변 근거로 참고해요. "
+                "AI 설명은 원문과 함께 확인해 주세요."
             )
             ui.link(
                 "석굴암 비교 학습",
                 with_return(
-                    f"/explore/seokguram?level={learning_level.value}&comparison_scope={comparison_scope.value}",
+                    _route(
+                        f"/explore/seokguram?level={learning_level.value}&comparison_scope={comparison_scope.value}",
+                        mode,
+                    ),
                     back_search,
                 ),
             )

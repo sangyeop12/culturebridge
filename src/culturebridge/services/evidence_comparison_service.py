@@ -129,7 +129,7 @@ def apply_extracted_comparison(comparison: ComparisonResult) -> ComparisonResult
         VerificationStatus.NEEDS_REVIEW if fields else VerificationStatus.INSUFFICIENT_EVIDENCE
     )
     comparison.verification_note = (
-        "저장된 공식 원문의 추출 후보로 구성한 비교입니다. 인용 일치는 의미 검증 완료가 아닙니다. "
-        "근거 없는 항목은 기존 요약으로 채우지 않았습니다."
+        "저장된 공식 원문에서 찾은 내용으로 비교했어요. 인용문이 원문과 같더라도 "
+        "그 해석이 맞는지는 따로 확인해야 해요. 근거가 없는 항목은 기존 요약으로 채우지 않았어요."
     )
     return comparison

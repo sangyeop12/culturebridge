@@ -203,7 +203,8 @@ def learning_chat(worker, conversation_id=""):
                     for index, action in enumerate(state.learning_plan, 1):
                         ui.label(f"{index}. {labels.get(action, action)}")
                     ui.label(
-                        "찾은 자료와 내 설명에 따라 계획을 조절해요. 숙달 완료 표시는 아니에요."
+                        "찾은 자료와 내가 설명한 내용에 따라 계획을 조절해요. "
+                        "계획을 마쳤다고 모두 이해한 것은 아니에요."
                     )
             if state.notice:
                 ui.label(display_notice(state.notice)).classes("cb-muted").props("role=status")
@@ -298,7 +299,7 @@ def learning_chat(worker, conversation_id=""):
                         if entry.get("reason"):
                             ui.label(entry["reason"])
                         ui.label(
-                            "AI가 선택한 실행"
+                            "AI가 선택한 학습 활동"
                             if entry.get("planner") == "ai"
                             else "직접 제출한 답안"
                             if entry.get("planner") == "learner"
@@ -344,13 +345,12 @@ def learning_chat(worker, conversation_id=""):
                         )
                     for item in outcomes["explanation_observations"]:
                         if item["explanation_improved_observation"]:
-                            ui.label(
-                                item["concept"] + ": 이전 설명보다 근거와 맞는 답변이 관찰됐어요."
-                            )
+                            ui.label(item["concept"] + ": 이전보다 자료의 근거에 맞게 설명했어요.")
             if state.concepts:
-                with ui.expansion("내 이해도에 대한 잠정 기록"):
+                with ui.expansion("지금까지의 이해도 살펴보기"):
                     ui.label(
-                        "점수나 확정 등급이 아니에요. 다르게 느끼면 정정할 내용을 입력해 주세요."
+                        "점수나 확정된 평가가 아니에요. "
+                        "다르게 느끼면 바로잡을 내용을 입력해 주세요."
                     )
                     labels = {
                         "tentative_support": "설명을 이해한 근거가 일부 있어요",
@@ -399,7 +399,7 @@ def learning_chat(worker, conversation_id=""):
                 ("건너뛰기", "skip"),
                 ("다른 주제로", "change_topic"),
                 ("이어서 학습", "resume"),
-                ("입력한 내용으로 정정 요청", "correct"),
+                ("입력한 내용으로 판단 수정 요청", "correct"),
             ):
                 controls.append(
                     ui.button(label, on_click=lambda _, action=control: submit(action)).props(

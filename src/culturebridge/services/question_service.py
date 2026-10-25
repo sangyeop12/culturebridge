@@ -46,7 +46,7 @@ def _grounded_answer(
                 ),
                 source_ids=comparison.source_ids,
                 verification_status=comparison.verification_status,
-                verification_note="연결된 공식 자료의 구조화된 항목으로 답변했습니다.",
+                verification_note="공식 자료에서 정리한 시대·구조·재료 등의 내용으로 답했어요.",
                 used_ai=False,
             )
 

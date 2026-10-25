@@ -22,7 +22,7 @@ def learning_intent_editor(worker, *, expanded=False):
         ui.label(
             "파악한 내용은 다음 대화에도 이어져요. "
             "추정이 틀릴 수 있고, 지금 하는 질문이 우선이에요. "
-            "관심사나 자기 설명을 이해도 점수로 판단하지 않아요."
+            "관심사나 스스로 적은 설명만으로 이해도 점수를 매기지 않아요."
         ).classes("cb-muted")
 
         @ui.refreshable
@@ -75,7 +75,7 @@ def learning_intent_editor(worker, *, expanded=False):
         ui.label(
             "이 선택은 직접 입력한 내용에만 적용돼요. 자동 파악은 위의 설정을 따라요. "
             "개인정보나 비밀은 적지 마세요. 해제 후 적용하면 다음 요청부터 추가 전달하지 않아요. "
-            "진행 중인 응답과 이전 대화에는 소급 적용되지 않아요."
+            "이미 진행 중인 응답과 이전 대화는 바뀌지 않아요."
         ).classes("cb-muted text-sm")
         status = ui.label().props("role=status aria-live=polite")
         buttons = []
@@ -119,7 +119,7 @@ def learning_intent_editor(worker, *, expanded=False):
                 )
             except ValidationError:
                 status.set_text(
-                    "관심사는 8개·각 40자, 목표와 자기 설명은 각각 300자까지 적어주세요."
+                    "관심사는 8개·각 40자, 목표와 내가 알고 있는 내용은 각각 300자까지 적어주세요."
                 )
             except ConversationConflictError:
                 status.set_text(
