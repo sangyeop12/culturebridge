@@ -225,6 +225,7 @@ def main():
     parser.add_argument("--scenario", action="append", choices=SCENARIOS)
     parser.add_argument("--max-calls", type=int, default=40, choices=range(1, 61))
     parser.add_argument("--repeat", type=int, default=1, choices=range(1, 11))
+    parser.add_argument("--turn-delay-seconds", type=int, default=0, choices=range(61))
     parser.add_argument("--input-usd-per-million", type=float)
     parser.add_argument("--output-usd-per-million", type=float)
     args = parser.parse_args()
@@ -252,8 +253,26 @@ def main():
         "started_at": datetime.now(UTC).isoformat(),
         "model": settings.gemini_model,
         "max_sdk_calls": args.max_calls,
+        "turn_delay_seconds": args.turn_delay_seconds,
         "runs": [],
     }
+    last_turn = None
+
+    def checked_turn(*positional, **keywords):
+        nonlocal last_turn
+        if last_turn is not None and args.turn_delay_seconds:
+            remaining = args.turn_delay_seconds - (time.monotonic() - last_turn)
+            if remaining > 0:
+                print(
+                    json.dumps({"waiting_before_next_turn_seconds": round(remaining)}), flush=True
+                )
+                while remaining > 0:
+                    time.sleep(min(remaining, 10))
+                    remaining = args.turn_delay_seconds - (time.monotonic() - last_turn)
+        result = execute_turn(*positional, **keywords)
+        last_turn = time.monotonic()
+        return result
+
     try:
         initialize_database()
         with patch.object(genai, "Client", budget.client):
@@ -281,12 +300,15 @@ def main():
                             if budget.rate_limited or len(budget.calls) >= budget.limit:
                                 run["remaining_not_run"] = "provider_rate_limit_or_call_budget"
                                 break
-                            state, result = execute_turn(state, text)
+                            state, result = checked_turn(state, text)
                             run["turns"].append(result)
                             if state.active_quiz and not state.active_quiz.get("submitted"):
+                                if budget.rate_limited or len(budget.calls) >= budget.limit:
+                                    run["remaining_not_run"] = "provider_rate_limit_or_call_budget"
+                                    break
                                 # Fixed tester answers; no model choice or answer-key lookup.
                                 answers = [i % 4 for i in range(len(state.active_quiz["items"]))]
-                                state, result = execute_turn(
+                                state, result = checked_turn(
                                     state, "", control="submit_quiz", answers=answers
                                 )
                                 result["tester_answers"] = (
@@ -294,7 +316,7 @@ def main():
                                 )
                                 run["turns"].append(result)
                                 if not budget.rate_limited and len(budget.calls) < budget.limit:
-                                    state, result = execute_turn(
+                                    state, result = checked_turn(
                                         state, "틀린 문항의 근거를 확인하고 다시 설명해 주세요."
                                     )
                                     run["turns"].append(result)
