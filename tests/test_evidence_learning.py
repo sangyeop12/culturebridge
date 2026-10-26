@@ -106,6 +106,7 @@ def test_no_evidence_cannot_generate_quiz(tmp_path, monkeypatch):
 def test_ui_quiz_link_and_return_keep_saved_snapshot(comparison):
     with TestClient(app) as client:
         page = client.get(f"/compare/seokguram/horyuji?saved_id={comparison.saved_id}")
-        assert page.status_code == 200 and "설명의 뜻과 대상은 추가 확인이 필요" in page.text
+        assert page.status_code == 200 and "공식 원문과 상세 설명" in page.text
+        assert "설명의 뜻과 대상은 추가 확인이 필요" not in page.text
         quiz_page = client.get(f"/quiz/seokguram/horyuji?comparison_id={comparison.saved_id}")
         assert quiz_page.status_code == 200 and "설명의 뜻은 원문과 함께 더 확인" in quiz_page.text

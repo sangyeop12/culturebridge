@@ -142,7 +142,9 @@ def test_learning_page_uses_bilingual_cards_and_simple_labels(tower, monkeypatch
         response = client.get("/discover/khs/11:20:37")
     assert response.status_code == 200
     assert "랑기리 담불라 석굴 사원" in response.text
-    assert "이 유산과 비교하기" in response.text and "자료를 찾고 비교한 과정" in response.text
+    assert "이 유산과 비교하기" in response.text
+    assert "자료를 찾고 비교한 과정" not in response.text
+    assert "technical" not in response.text
     assert "원문 키워드 기반 대체 검색 계획" not in response.text
 
 

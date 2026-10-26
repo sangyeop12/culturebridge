@@ -17,6 +17,7 @@ from culturebridge.services.learning_conversation_service import (
 from culturebridge.services.learning_preferences import get_preferences, present_message
 from culturebridge.services.operation_service import OperationBusyError
 from culturebridge.ui.copy import service_text
+from culturebridge.ui.learner_copy import error_notice
 from culturebridge.ui.learning_controls import voice_controls
 
 
@@ -172,7 +173,7 @@ def learning_chat(worker, conversation_id=""):
             render()
             status.set_text("대화가 바뀌었어요. 최신 내용을 불러왔으니 확인 후 다시 보내주세요.")
         except (ValueError, OperationBusyError) as exc:
-            status.set_text(service_text(str(exc)))
+            status.set_text(error_notice(exc))
         except Exception:
             status.set_text(
                 "처리 결과를 확인하지 못했어요. 같은 내용으로 다시 보내면 중복을 확인해요."
@@ -276,7 +277,7 @@ def learning_chat(worker, conversation_id=""):
                     )
                     ui.label("답안은 직접 골라요. 제출 후 결과에 맞춰 다음 활동을 계획해요.")
             if state.tool_observations:
-                with ui.expansion("자료를 찾고 학습을 이어간 과정").classes("w-full"):
+                with ui.expansion("살펴본 자료와 학습 활동").classes("w-full"):
                     status_names = {
                         "ok": "확인",
                         "empty": "결과 없음",
@@ -301,15 +302,6 @@ def learning_chat(worker, conversation_id=""):
                             "submit_quiz": "답안 채점",
                         }.get(entry["tool"], "학습 활동")
                         ui.label(name + " · " + status_names.get(entry["status"], "추가 확인"))
-                        if entry.get("reason"):
-                            ui.label(entry["reason"])
-                        ui.label(
-                            "AI가 선택한 학습 활동"
-                            if entry.get("planner") == "ai"
-                            else "직접 제출한 답안"
-                            if entry.get("planner") == "learner"
-                            else "기본 처리"
-                        )
             if state.search_results:
                 with ui.expansion("찾은 공식 자료 살펴보기").classes("w-full"):
                     for result in state.search_results:
@@ -374,9 +366,6 @@ def learning_chat(worker, conversation_id=""):
                                 )
                             ui.label("내 설명: " + observation["learner_text"])
                             ui.label("확인 근거: " + observation["quote"])
-            if state.plan_history:
-                with ui.expansion("다음 학습을 이렇게 제안했어요"):
-                    ui.label(state.plan_history[-1]["reason"])
         if send_button is not None:
             send_button.set_text("이어서 학습" if state.status == "paused" else "보내기")
             send_button.props("icon=play_arrow" if state.status == "paused" else "icon=send")
