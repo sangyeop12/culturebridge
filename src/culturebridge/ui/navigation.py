@@ -3,10 +3,9 @@
 from nicegui import ui
 
 PRIMARY = (
-    ("홈", "/", "home"),
     ("대화 학습", "/learn", "conversation"),
-    ("문화유산 탐구", "/official", "heritage"),
-    ("추천 학습 코스", "/courses", "courses"),
+    ("문화유산", "/official", "heritage"),
+    ("학습 코스", "/courses", "courses"),
     ("나의 학습", "/learning-history", "history"),
 )
 
@@ -74,7 +73,10 @@ def secondary_navigation(path):
             ui.link("홈", "/")
             ui.icon("chevron_right", size="16px").props("aria-hidden=true")
             ui.label(label)
-        with ui.element("nav").classes("cb-subnav").props('aria-label="관련 화면"'):
+        with (
+            ui.expansion("더 둘러보기", icon="explore").classes("cb-related-menu"),
+            ui.element("nav").classes("cb-subnav").props('aria-label="관련 화면"'),
+        ):
             for title, route in groups[section]:
                 if path == route:
                     continue  # The breadcrumb already identifies the current screen.

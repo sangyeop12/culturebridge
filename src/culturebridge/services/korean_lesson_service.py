@@ -102,9 +102,25 @@ def validate_korean_draft(draft, lesson):
     return draft
 
 
+def korean_lesson(source, level=LearningLevel.BEGINNER, *, lesson_override=None, cache_only=False):
+    if cache_only:
+        return _korean_lesson(source, level, lesson_override=lesson_override, cache_only=True)
+    return _requested_korean_lesson(source, level, lesson_override=lesson_override)
+
+
 @reused_operation("korean_lesson")
-def korean_lesson(source, level=LearningLevel.BEGINNER):
-    lesson = explain_source(source, level)
+def _requested_korean_lesson(source, level, *, lesson_override=None):
+    return _korean_lesson(source, level, lesson_override=lesson_override)
+
+
+def _korean_lesson(source, level, *, lesson_override=None, cache_only=False):
+    lesson = (
+        lesson_override.model_copy(deep=True) if lesson_override else explain_source(source, level)
+    )
+    if lesson_override and any(
+        not s.evidence_quote or s.evidence_quote not in source.content for s in lesson.sections
+    ):
+        raise ValueError("Comparison quotation must belong to the original source")
     from culturebridge.services.source_permission_service import external_ai_allowed
 
     if not external_ai_allowed([source], "translation") or not external_ai_allowed([source]):
@@ -116,9 +132,6 @@ def korean_lesson(source, level=LearningLevel.BEGINNER):
     evidence = {s.category: s.evidence_quote for s in lesson.sections if s.evidence_quote}
     if not evidence or re.search(r"[가-힣]", source.content):
         return lesson
-    if not settings.gemini_enabled or not settings.gemini_api_key:
-        lesson.notice += " AI 한국어 풀이를 사용할 수 없어 기본 읽기 도움말을 보여드립니다."
-        return lesson
     key = hashlib.sha256(
         json.dumps(
             [
@@ -128,6 +141,7 @@ def korean_lesson(source, level=LearningLevel.BEGINNER):
                 lesson.level.value,
                 settings.gemini_model,
                 "v1",
+                evidence,
             ],
             ensure_ascii=False,
         ).encode()
@@ -144,6 +158,8 @@ def korean_lesson(source, level=LearningLevel.BEGINNER):
         if row:
             draft = KoreanDraft.model_validate_json(row["draft_json"])
         else:
+            if cache_only or not settings.gemini_enabled or not settings.gemini_api_key:
+                return lesson
             with genai.Client(
                 api_key=settings.gemini_api_key,
                 http_options=types.HttpOptions(

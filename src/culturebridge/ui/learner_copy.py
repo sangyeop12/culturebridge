@@ -111,7 +111,26 @@ def common_points(comparison):
         labels = [label for axis, label in sorted(left & right) if axis != "건물 종류"]
         if labels:
             points.append("두 유산의 자료에서 ‘" + _join(labels) + "’를 함께 찾아볼 수 있어요.")
-    return list(dict.fromkeys(points)) or ["아직 공통점을 설명할 자료가 충분하지 않아요."]
+    return list(dict.fromkeys(points))
+
+
+def comparable_points(comparison):
+    """Hide incomplete categories without changing saved evidence or learning records."""
+    if comparison.collected_sources or comparison.extracted_fields:
+        fields = {(f.heritage_id, f.category) for f in supported_fields(comparison)}
+        return [
+            p
+            for p in comparison.differences
+            if all((h.id, p.category) in fields for h in (comparison.left, comparison.right))
+        ]
+    return [
+        p
+        for p in comparison.differences
+        if all(
+            text and text.strip() not in {"근거 부족", "정보 없음", "미확인"}
+            for text in (p.left, p.right)
+        )
+    ]
 
 
 def recommendation_note(criteria):

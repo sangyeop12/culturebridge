@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from nicegui import Client
 from nicegui.elements.button import Button
+from nicegui.elements.expansion import Expansion
 
 from culturebridge.config import get_settings
 from culturebridge.database import initialize_database
@@ -35,7 +36,7 @@ from culturebridge.ui.navigation import PRIMARY, section_for
 )
 def test_all_screen_families_share_navigation(path, section):
     assert section_for(path) == section
-    assert len(PRIMARY) == 5
+    assert len(PRIMARY) == 4  # The brand already links home; avoid a duplicate menu item.
 
 
 def test_quote_is_available_once_without_hiding_followup_or_mutating_record():
@@ -75,9 +76,58 @@ def test_home_keeps_both_workflows_and_progressive_controls(tmp_path, monkeypatc
             assert text in page
         assert "설명 스타일" not in page
         assert "내 관심사와 학습 목표" not in page
-        assert page.index("질문에서 시작하는") < page.index("궁금한 역사 이야기부터 시작해요")
+        assert page.index("궁금한 역사, 함께 알아봐요") < page.index("질문으로 시작해요")
         assert "현재 위치" in client.get("/official").text
         assert "관련 화면" in client.get("/learning-history").text
+
+
+def test_comparison_keeps_tools_collapsed_and_quiz_before_extra_activities(tmp_path, monkeypatch):
+    monkeypatch.setattr(get_settings(), "db_path", tmp_path / "simple-comparison.db")
+    initialize_database()
+    with TestClient(app) as client:
+        assert client.get("/compare/seokguram/horyuji").status_code == 200
+        page = next(reversed(list(Client.instances.values())))
+        elements = list(page.elements.values())
+        root = next(e for e in elements if "cb-shell" in e._classes)
+        actions = next(e for e in elements if "cb-next-actions" in e._classes)
+        assert any(
+            isinstance(e, Button) and e.text == "학습 확인 퀴즈"
+            for e in actions.default_slot.children
+        )
+        for label, button_text in (
+            ("궁금한 점 질문하기", "질문하기"),
+            ("이 설명은 근거가 있을까요?", "자료와 대조하기"),
+            ("내 생각 정리하기", "내 정리 저장"),
+        ):
+            expansion = next(
+                e for e in elements if isinstance(e, Expansion) and e._props.get("label") == label
+            )
+            assert expansion.value is False
+            assert root.default_slot.children.index(actions) < root.default_slot.children.index(
+                expansion
+            )
+            button = next(e for e in elements if isinstance(e, Button) and e.text == button_text)
+            assert button.parent_slot.parent == expansion
+
+
+def test_related_links_are_collapsed_but_remain_available(tmp_path, monkeypatch):
+    monkeypatch.setattr(get_settings(), "db_path", tmp_path / "simple-menu.db")
+    initialize_database()
+    with TestClient(app) as client:
+        assert client.get("/learn").status_code == 200
+        page = next(reversed(list(Client.instances.values())))
+        menu = next(
+            e
+            for e in page.elements.values()
+            if isinstance(e, Expansion) and e._props.get("label") == "더 둘러보기"
+        )
+        assert menu.value is False
+        nav = next(e for e in menu.default_slot.children if "cb-subnav" in e._classes)
+        assert {e._props.get("href") for e in nav.default_slot.children} == {
+            "/history-search",
+            "/learning-history",
+            "/settings",
+        }
 
 
 @pytest.mark.parametrize(

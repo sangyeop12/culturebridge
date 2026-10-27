@@ -11,6 +11,7 @@ from culturebridge.domain.models import CollectedSource, ExtractedField, Learnin
 from culturebridge.main import app
 from culturebridge.services.comparison_service import create_saved_comparison, get_saved_comparison
 from culturebridge.ui.learner_copy import (
+    comparable_points,
     comparison_note,
     error_notice,
     recommendation_note,
@@ -18,6 +19,22 @@ from culturebridge.ui.learner_copy import (
 )
 
 INTERNAL = "INTERNAL_DIAGNOSTIC_target_tool_검사전용"
+
+
+def test_incomplete_categories_are_hidden_without_mutating_saved_result(saved):
+    result = saved.comparison
+    before = result.model_dump_json()
+    assert [p.category for p in comparable_points(result)] == ["재료"]
+    assert result.model_dump_json() == before
+    result.extracted_fields = []
+    assert comparable_points(result) == []
+
+
+def test_generic_comparison_has_no_missing_category_notice(saved):
+    with TestClient(app) as client:
+        response = client.get(f"/compare/seokguram/horyuji?saved_id={saved.id}")
+    assert "이 항목은 자료가 더 필요해요" not in response.text
+    assert "요청한 시대" not in response.text
 
 
 @pytest.fixture

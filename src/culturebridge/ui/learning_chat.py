@@ -23,22 +23,10 @@ from culturebridge.ui.learning_controls import voice_controls
 
 def learning_entry(worker, *, embedded=False):
     with ui.card().classes("cb-card cb-learning-start w-full p-6 gap-4").props("id=history-start"):
-        ui.label("궁금한 역사 이야기부터 시작해요").classes(
+        ui.label("질문으로 시작해요").classes(
             "cb-title " + ("text-2xl" if embedded else "text-3xl")
         ).props(f"role=heading aria-level={2 if embedded else 1}")
-        ui.label("수준이나 문화유산을 먼저 고르지 않아도 괜찮아요.").classes("cb-muted")
-        with ui.expansion("어떤 자료로 배우나요?").classes("w-full"):
-            ui.label(
-                "한국 문화유산은 국가유산청 자료, 세계유산 검색은 UNESCO 등재 목록을 이용해요."
-            )
-            ui.label(
-                "해외 상세 학습은 연결된 개별 유산 자료를 사용해요. "
-                "모든 해외 유산을 지원하는 것은 아니에요."
-            )
-            ui.label(
-                "인물·사건은 ‘신편 한국사’ 검색 결과에서 공식 원문으로 이동해 읽어요. "
-                "해당 본문을 AI가 읽거나 요약하지는 않아요."
-            )
+        ui.label("수준과 주제는 대화하며 맞춰가요.").classes("cb-muted")
         prompt = (
             ui.textarea(
                 label="어떤 이야기가 궁금한가요?",
@@ -47,6 +35,14 @@ def learning_entry(worker, *, embedded=False):
             .props("outlined autogrow maxlength=1000")
             .classes("w-full")
         )
+        with ui.row().classes("cb-prompt-examples gap-2").props('aria-label="질문 예시"'):
+            for label, question in (
+                ("어디부터 배울까요?", "역사를 처음 배우는데 어디부터 시작하면 좋을까요?"),
+                ("유산 비교하기", "다보탑과 다른 나라의 탑은 무엇이 다른가요?"),
+            ):
+                ui.button(label, on_click=lambda _, text=question: prompt.set_value(text)).props(
+                    "outline no-caps"
+                )
         with ui.expansion("말로 질문하기", icon="mic").classes("w-full"):
             mic = voice_controls(prompt)
 
@@ -77,7 +73,19 @@ def learning_entry(worker, *, embedded=False):
             )
             if embedded:
                 ui.link("이전 대화 이어가기", "/learn#conversation-list")
-            ui.link("홈 화면에 추가하기", "/install")
+                ui.link("직접 유산 찾아보기", "#heritage-search")
+        with ui.expansion("어떤 자료로 배우나요?").classes("w-full"):
+            ui.label(
+                "한국 문화유산은 국가유산청 자료, 세계유산 검색은 UNESCO 등재 목록을 이용해요."
+            )
+            ui.label(
+                "해외 상세 학습은 연결된 개별 유산 자료를 사용해요. "
+                "모든 해외 유산을 지원하는 것은 아니에요."
+            )
+            ui.label(
+                "인물·사건은 ‘신편 한국사’ 검색 결과에서 공식 원문으로 이동해 읽어요. "
+                "해당 본문을 AI가 읽거나 요약하지는 않아요."
+            )
 
 
 def learning_chat(worker, conversation_id=""):
@@ -232,17 +240,22 @@ def learning_chat(worker, conversation_id=""):
                             message.citations[0]["license_url"],
                             new_tab=True,
                         )
-                    for citation in message.citations:
-                        with ui.expansion("설명의 공식 근거 · 원문 보기"):
-                            ui.label(citation["quote"]).style("white-space:pre-wrap")
-                            ui.link(citation["title"], citation["url"], new_tab=True)
-                            if citation.get("license_url"):
-                                ui.link(
-                                    citation["license_name"], citation["license_url"], new_tab=True
-                                )
-                                ui.label(
-                                    "뜻풀이 원문 그대로 · 용례와 멀티미디어는 수집하지 않아요."
-                                )
+                    if message.citations:
+                        with ui.expansion("설명의 공식 근거 · 원문 보기").classes("w-full"):
+                            for citation in message.citations:
+                                with ui.column().classes("cb-citation w-full gap-1"):
+                                    ui.label(citation["quote"]).style("white-space:pre-wrap")
+                                    ui.link(citation["title"], citation["url"], new_tab=True)
+                                    if citation.get("license_url"):
+                                        ui.link(
+                                            citation["license_name"],
+                                            citation["license_url"],
+                                            new_tab=True,
+                                        )
+                                        ui.label(
+                                            "뜻풀이 원문 그대로 · "
+                                            "용례와 멀티미디어는 수집하지 않아요."
+                                        )
                     for suggestion in message.suggestions:
                         ui.link(
                             suggestion["label"],

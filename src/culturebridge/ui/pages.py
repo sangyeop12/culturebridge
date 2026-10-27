@@ -93,6 +93,7 @@ from culturebridge.services.unesco_service import (
 from culturebridge.ui.copy import service_text
 from culturebridge.ui.learner_copy import (
     common_points,
+    comparable_points,
     comparison_note,
     error_notice,
     recommendation_note,
@@ -179,7 +180,7 @@ def _learning_journal(identity):
     if not identity or not owns_comparison(identity):
         return
     activity = lesson_activity(identity)
-    with ui.card().classes("cb-card w-full p-6 gap-3"):
+    with ui.expansion("내 생각 정리하기", icon="edit_note").classes("cb-card cb-details w-full"):
         ui.label(activity["title"]).classes("cb-title text-2xl").props(
             "role=heading aria-level=2"
         ).props("role=heading aria-level=2")
@@ -501,6 +502,79 @@ def _extracted_field_cards(fields: list[ExtractedField], level=LearningLevel.BEG
                 ui.link("근거 출처", str(field.source_url), new_tab=True)
 
 
+def _comparison_reading(result, heritage_id, category, text, level):
+    """Korean first, with untouched quotations kept behind a disclosure."""
+    if re.search(r"[가-힣]", text):
+        ui.label(beginner_text(category, text) if level is LearningLevel.BEGINNER else text)
+        return
+    from culturebridge.services.evidence_comparison_service import supported_fields
+    from culturebridge.services.korean_lesson_service import korean_lesson
+    from culturebridge.services.lesson_service import HeritageLesson, LessonSection
+
+    field = next(
+        (
+            f
+            for f in supported_fields(result)
+            if f.heritage_id == heritage_id and f.category == category
+        ),
+        None,
+    )
+    source = next((s for s in result.collected_sources if field and s.id == field.source_id), None)
+    quote = field.evidence_quote if field else text
+    reading_level = LearningLevel.INTERMEDIATE if level is LearningLevel.ADVANCED else level
+    base = None
+    if source:
+        base = HeritageLesson(
+            level=reading_level,
+            title=source.title,
+            intro="",
+            original_text=source.content,
+            source_url=source.source_url,
+            notice="원문을 읽는 데 도움이 되는 안내예요. 전체 번역은 아니에요.",
+            sections=[
+                LessonSection(
+                    category=category,
+                    heading=category,
+                    text=beginner_text(category, quote),
+                    evidence_quote=quote,
+                )
+            ],
+        )
+    cached = (
+        korean_lesson(source, reading_level, lesson_override=base, cache_only=True)
+        if base
+        else None
+    )
+    label = ui.label(cached.sections[0].text if cached else beginner_text(category, quote))
+    notice = ui.label(
+        "학습용 한국어 풀이 · 공식 번역은 아니에요."
+        if cached and cached.sections[0].text != base.sections[0].text
+        else "한국어 읽기 도움말 · 전체 번역은 아니에요."
+    ).classes("cb-muted text-sm")
+    if base:
+
+        async def translate():
+            button.disable()
+            try:
+                draft = await _io_bound(korean_lesson, source, reading_level, lesson_override=base)
+                label.set_text(draft.sections[0].text)
+                notice.set_text(
+                    "학습용 한국어 풀이 · 공식 번역은 아니에요."
+                    if draft.sections[0].text != base.sections[0].text
+                    else "지금은 한국어 풀이를 제공하기 어려워 읽기 도움말을 보여드려요."
+                )
+            except OperationBusyError:
+                ui.notify("다른 학습 작업이 끝난 뒤 다시 시도해 주세요.")
+            finally:
+                button.enable()
+
+        button = ui.button("한국어 풀이 읽기", on_click=translate).props("flat dense")
+    with ui.expansion("공식 원문 보기").classes("w-full"):
+        ui.label(quote)
+        if source:
+            ui.link("출처", str(source.source_url), new_tab=True)
+
+
 def _lesson_content(source, level):
     lesson = explain_source(source, level)
     if level is not LearningLevel.ADVANCED and not re.search(r"[가-힣]", source.content):
@@ -612,29 +686,13 @@ def home_page(
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-7 py-10"):
-        with ui.column().classes("cb-hero cb-illustrated"):
+        with ui.column().classes("cb-hero cb-illustrated cb-home-intro"):
             ui.label("공식 자료와 함께하는 역사 배움").classes("cb-eyebrow")
-            ui.label("질문에서 시작하는\n나만의 역사 수업").classes("cb-hero-title").props(
+            ui.label("궁금한 역사, 함께 알아봐요").classes("cb-hero-title").props(
                 "role=heading aria-level=1"
             )
-            ui.label(
-                "궁금한 이야기를 들려주세요. 관심에 맞춰 살펴"
-                "보고, 문화유산의 유사점과 차이점도 함께 알아"
-                "봐요."
-            ).classes("cb-hero-copy")
-            with ui.row().classes("gap-2"):
-                ui.label("국가유산청 · UNESCO 공식 자료").classes("cb-badge")
-                ui.label("나에게 맞는 설명과 복습").classes("cb-badge")
-            with ui.row().classes("cb-hero-actions gap-3 flex-wrap"):
-                ui.link("역사 이야기 시작하기", "#history-start").classes("cb-link-primary")
-                ui.link("문화유산 찾아보기", "#heritage-search").classes("cb-link-secondary")
-            ui.html(
-                '<div class="cb-study-step'
-                's" aria-label="학습 과정"><sp'
-                "an><b>1</b> 질문</span><spa"
-                "n><b>2</b> 근거 살펴보기</span>"
-                "<span><b>3</b> 내 말로 익히기</"
-                "span></div>"
+            ui.label("질문 하나면 시작할 수 있어요. 공식 자료로 배우고, 퀴즈로 확인해요.").classes(
+                "cb-hero-copy"
             )
             ui.label("유산 유형을 표현한 창작 삽화 · 실제 모습이나 복원도가 아니에요.").classes(
                 "cb-art-caption"
@@ -1473,13 +1531,13 @@ def comparison_page(
                     "text-lg font-semibold"
                 )
             if result.curriculum:
-                ui.label("선택 목표: " + GOAL_LABELS[result.goal.value])
-                if result.goal_text:
-                    ui.label("세부 목표: " + result.goal_text)
-                learning_steps(1, result.curriculum)
-                ui.label("학습 분량: " + AMOUNT_LABELS[result.amount.value])
-                if result.learning_notices:
-                    ui.label("선택한 학습 내용을 설명할 자료가 더 필요해요.").classes("cb-muted")
+                with ui.expansion("학습 목표와 순서").classes("w-full"):
+                    if not result.learning_goal:
+                        ui.label("학습 목표: " + GOAL_LABELS[result.goal.value])
+                    if result.goal_text:
+                        ui.label("세부 목표: " + result.goal_text)
+                    learning_steps(1, result.curriculum)
+                    ui.label("학습 분량: " + AMOUNT_LABELS[result.amount.value])
             if saved_id and result.learning_version < LEARNING_VERSION:
                 ui.label(
                     "이전 방식의 설명이에요. 아래 학습 기록 관리"
@@ -1535,15 +1593,12 @@ def comparison_page(
                 if result.saved_id and not _is_kiosk(mode):
                     _report_links(result.saved_id)
 
-        with ui.card().classes("cb-card w-full p-6 gap-3"):
-            ui.label("함께 살펴볼 공통점").classes("cb-title text-2xl")
-            for point in common_points(result):
-                ui.label(f"• {point}").classes("text-base")
-            for common in result.common_evidence:
-                with ui.expansion("함께 살펴본 특징의 양쪽 근거").classes("w-full"):
-                    _extracted_field_cards(
-                        [common.left_evidence, common.right_evidence], learning_level
-                    )
+        shared_points = common_points(result)
+        if shared_points:
+            with ui.card().classes("cb-card w-full p-6 gap-3"):
+                ui.label("함께 살펴볼 공통점").classes("cb-title text-2xl")
+                for point in shared_points:
+                    ui.label(f"• {point}").classes("text-base")
 
         if result.collected_sources or result.extracted_fields:
             ui.label("핵심 비교 아래에서 공식 원문과 상세 설명을 확인할 수 있어요.").classes(
@@ -1560,7 +1615,19 @@ def comparison_page(
             if learning_level is LearningLevel.ADVANCED
             else "항목별 비교"
         ).classes("cb-title text-2xl").props("role=heading aria-level=2")
-        for point in result.differences:
+        visible_points = comparable_points(result)
+        from culturebridge.services.curriculum_service import required_categories
+
+        requested = required_categories(result.goal.value + " " + result.goal_text)
+        missing_requested = requested - {p.category for p in visible_points}
+        if missing_requested:
+            ui.label(
+                "요청한 " + "·".join(sorted(missing_requested)) + " 비교는 자료를 더 찾아야 해요."
+            ).classes("cb-muted")
+        if not visible_points:
+            ui.label("이 두 유산을 함께 비교할 자료가 아직 충분하지 않아요.")
+            ui.link("다른 문화유산 찾아보기", _route("/", mode))
+        for point in visible_points:
             with ui.card().classes("cb-card w-full p-6 gap-3"):
                 ui.label(point.category).classes("cb-title text-xl")
                 with ui.element("div").classes("cb-compare-grid w-full gap-4"):
@@ -1568,31 +1635,28 @@ def comparison_page(
                         ui.label(display_name(result.left.id, result.left.name)).classes(
                             "font-bold"
                         )
-                        ui.label(
-                            beginner_text(point.category, point.left)
-                            if learning_level is LearningLevel.BEGINNER
-                            else point.left
+                        _comparison_reading(
+                            result, result.left.id, point.category, point.left, learning_level
                         )
                     with ui.column().classes("gap-1 rounded-lg p-4").style(f"background: {PALE}"):
                         ui.label(display_name(result.right.id, result.right.name)).classes(
                             "font-bold"
                         )
-                        ui.label(
-                            beginner_text(point.category, point.right)
-                            if learning_level is LearningLevel.BEGINNER
-                            else point.right
+                        _comparison_reading(
+                            result, result.right.id, point.category, point.right, learning_level
                         )
                 note = comparison_note(result, point)
                 if note:
                     ui.label(note).classes("cb-muted")
 
+        next_actions = ui.row().classes("cb-next-actions w-full gap-3")
+
         if not _is_kiosk(mode):
             _learning_journal(result.saved_id)
 
-        with ui.card().classes("cb-card w-full p-6 gap-3"):
-            ui.label("설명의 근거 확인하기").classes("cb-title text-2xl").props(
-                "role=heading aria-level=2"
-            )
+        with ui.expansion("설명의 근거 확인하기", icon="menu_book").classes(
+            "cb-card cb-details w-full"
+        ):
             if "seokguram" in (left_id, right_id):
                 ui.link(
                     "석굴암 원문 읽기",
@@ -1613,10 +1677,9 @@ def comparison_page(
                 if source.summary:
                     ui.label(source.summary).classes("text-sm")
 
-        with ui.card().classes("cb-card w-full p-6 gap-4"):
-            ui.label("궁금한 점 질문하기").classes("cb-title text-2xl").props(
-                "role=heading aria-level=2"
-            )
+        with ui.expansion("궁금한 점 질문하기", icon="chat_bubble_outline").classes(
+            "cb-card cb-details w-full"
+        ):
             ui.label(
                 "시대·구조·재료·종교적 배경을 질문하면 어떤 자료로 답했는지, "
                 "더 확인할 부분은 무엇인지 함께 알려드려요."
@@ -1698,10 +1761,9 @@ def comparison_page(
                 .classes(_action_classes(mode))
             )
 
-        with ui.card().classes("cb-card w-full p-6 gap-4"):
-            ui.label("이 설명은 근거가 있을까요?").classes("cb-title text-2xl").props(
-                "role=heading aria-level=2"
-            )
+        with ui.expansion("이 설명은 근거가 있을까요?", icon="fact_check").classes(
+            "cb-card cb-details w-full"
+        ):
             if result.collected_sources:
                 ui.label(
                     "이 비교에 사용된 공식 원문과 대조합니다. AI 검토 결과는 확정 판정이 아닙니다."
@@ -1797,7 +1859,7 @@ def comparison_page(
                 .classes(_action_classes(mode))
             )
 
-        with ui.row().classes("gap-3"):
+        with next_actions:
             ui.button(
                 "학습 확인 퀴즈",
                 on_click=lambda: ui.navigate.to(

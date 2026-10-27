@@ -144,10 +144,17 @@ def test_korean_draft_cache_and_advanced_bypass(monkeypatch):
     monkeypatch.setattr(korean.genai, "Client", Client)
     monkeypatch.setattr(get_settings(), "gemini_enabled", True)
     monkeypatch.setattr(get_settings(), "gemini_api_key", "offline-fixture")
+    korean.korean_lesson(original, cache_only=True)
+    assert not calls
     result = korean.korean_lesson(original)
     assert "풀이 초안" in result.notice
     assert result.original_text == original.content
     korean.korean_lesson(original)
+    assert len(calls) == 1
+    monkeypatch.setattr(get_settings(), "gemini_enabled", False)
+    cached = korean.korean_lesson(original, cache_only=True)
+    assert "풀이 초안" in cached.notice
+    assert cached.sections == result.sections
     assert len(calls) == 1
     assert korean.korean_lesson(original, "advanced").original_text == original.content
     assert len(calls) == 1
