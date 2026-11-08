@@ -94,3 +94,34 @@ def heritage_art(kind="hall", *, panoramic=False):
 
 def course_art(identity):
     return heritage_art(COURSE_ART.get(identity, "hall"))
+
+
+def museum_scene():
+    """A locally authored illustrated exhibition, not a reconstruction of a real place."""
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 470" '
+        'role="img" aria-label="탑과 궁전, 성당을 둘러보는 상상의 역사 전시관">'
+        '<rect width="720" height="470" rx="36" fill="#e6f2ef"/>'
+        '<circle cx="590" cy="92" r="61" fill="#ffcd78"/>'
+        '<path d="M0 344Q180 226 358 337T720 292V470H0Z" fill="#c5e0d7"/>'
+        '<path d="M0 438Q350 265 720 409" fill="none" stroke="#fff6e8" stroke-width="50"/>'
+        '<rect x="40" y="99" width="190" height="240" rx="90" fill="#fff5e3"/>'
+        '<rect x="265" y="50" width="190" height="240" rx="90" fill="#eee6fb"/>'
+        '<rect x="490" y="126" width="190" height="240" rx="90" fill="#ffe3d1"/>'
+        '<g transform="translate(15 143) scale(.67)">' + MOTIFS["pagoda"][1] + "</g>"
+        '<g transform="translate(240 93) scale(.67)">' + MOTIFS["palace"][1] + "</g>"
+        '<g transform="translate(465 169) scale(.67)">' + MOTIFS["church"][1] + "</g>"
+        '<g fill="#fff" stroke="#2a685d" stroke-width="3">'
+        '<circle cx="135" cy="341" r="18"/><circle cx="360" cy="292" r="18"/>'
+        '<circle cx="585" cy="368" r="18"/></g>'
+        '<g fill="#2a685d" font-family="sans-serif" font-size="18" text-anchor="middle">'
+        '<text x="135" y="347">1</text><text x="360" y="298">2</text>'
+        '<text x="585" y="374">3</text></g>'
+        '<path d="m54 59 4 12 12 4-12 4-4 12-4-12-12-4 12-4Z" fill="#447a6d"/>'
+        '<path d="m481 48 4 12 12 4-12 4-4 12-4-12-12-4 12-4Z" fill="#9076b6"/>'
+        '<circle cx="326" cy="401" r="21" fill="#efae86"/>'
+        '<path d="M301 445v-16a25 25 0 0 1 50 0v16" fill="#356d67"/>'
+        '<circle cx="379" cy="408" r="17" fill="#e9b88f"/>'
+        '<path d="M359 449v-15a20 20 0 0 1 40 0v15" fill="#a58bc5"/>'
+        "</svg>"
+    )

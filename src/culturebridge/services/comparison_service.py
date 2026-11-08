@@ -127,6 +127,17 @@ def create_saved_comparison(
         connection.execute(
             "INSERT INTO resource_owners VALUES('comparison',?,?)", (saved.id, owner_key())
         )
+    # Prepare outside the database write transaction. Failure must not lose the comparison.
+    from culturebridge.services.korean_lesson_service import (
+        KoreanQuotaError,
+        prepare_comparison_readings,
+    )
+    from culturebridge.services.operation_service import OperationBusyError
+
+    try:
+        prepare_comparison_readings(result)
+    except (KoreanQuotaError, OperationBusyError):
+        pass
     return result
 
 

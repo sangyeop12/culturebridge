@@ -16,6 +16,10 @@ from culturebridge.services.lesson_service import explain_source
 from culturebridge.services.operation_service import reused_operation
 
 
+class KoreanQuotaError(RuntimeError):
+    """Stop a preparation batch after the provider refuses further requests."""
+
+
 class KoreanSection(BaseModel):
     category: str = Field(max_length=20)
     text: str = Field(min_length=10, max_length=600)
@@ -206,11 +210,46 @@ def _korean_lesson(source, level, *, lesson_override=None, cache_only=False):
             "각 항목의 원문 근거와 함께 읽으세요. 원문 전체는 수정하지 않았습니다."
         )
     except errors.APIError as exc:
-        lesson.notice += (
-            " AI 사용량 제한으로 기본 도움말을 보여드립니다."
-            if exc.code == 429
-            else " AI 연결 실패로 기본 도움말을 보여드립니다."
-        )
+        if exc.code == 429:
+            raise KoreanQuotaError("한국어 풀이 사용량 제한") from None
+        lesson.notice += " AI 연결 실패로 기본 도움말을 보여드립니다."
     except Exception:
         lesson.notice += " 한국어 초안 검사에 실패해 기본 도움말을 보여드립니다."
     return lesson
+
+
+def prepare_comparison_readings(comparison):
+    """Prepare only visible, supported categories; cache keys also match old saved UI."""
+    from culturebridge.services.evidence_comparison_service import shared_fields
+    from culturebridge.services.lesson_service import HeritageLesson, LessonSection, beginner_text
+
+    level = (
+        LearningLevel.INTERMEDIATE
+        if comparison.level is LearningLevel.ADVANCED
+        else comparison.level
+    )
+    sources = {s.id: s for s in comparison.collected_sources}
+    prepared = 0
+    for field in shared_fields(comparison):
+        if re.search(r"[가-힣]", field.evidence_quote):
+            continue
+        source = sources[field.source_id]
+        lesson = HeritageLesson(
+            level=level,
+            title=source.title,
+            intro="",
+            original_text=source.content,
+            source_url=source.source_url,
+            notice="한국어 읽기 도움말",
+            sections=[
+                LessonSection(
+                    category=field.category,
+                    heading=field.category,
+                    text=beginner_text(field.category, field.evidence_quote),
+                    evidence_quote=field.evidence_quote,
+                )
+            ],
+        )
+        result = korean_lesson(source, level, lesson_override=lesson)
+        prepared += result.sections[0].text != lesson.sections[0].text
+    return prepared

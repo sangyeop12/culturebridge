@@ -175,6 +175,12 @@ def validate_draft(draft, comparison, level, fields, focus, *, partial=False):
         if item.evidence_index >= len(fields):
             raise ValueError("Unknown evidence")
         field = fields[item.evidence_index]
+        # Each generated item cites one heritage only; it cannot establish a shared fact.
+        other_ids = set(names) - {field.heritage_id}
+        if any(name in item.question for identity in other_ids for name in names[identity]) or any(
+            phrase in item.question for phrase in ("두 유산", "두 문화유산", "공통점", "둘 다")
+        ):
+            raise ValueError("A single-source question cannot assert a comparison")
         choices = [choice.strip() for choice in item.choices]
         if len(set(choices)) != 4 or any(not c or len(c) > 1000 for c in choices):
             raise ValueError("Invalid choices")

@@ -26,7 +26,7 @@ def learning_entry(worker, *, embedded=False):
         ui.label("질문으로 시작해요").classes(
             "cb-title " + ("text-2xl" if embedded else "text-3xl")
         ).props(f"role=heading aria-level={2 if embedded else 1}")
-        ui.label("수준과 주제는 대화하며 맞춰가요.").classes("cb-muted")
+        ui.label("궁금한 것을 적어 주세요. 무엇부터 배울지 몰라도 괜찮아요.").classes("cb-muted")
         prompt = (
             ui.textarea(
                 label="어떤 이야기가 궁금한가요?",
@@ -73,7 +73,6 @@ def learning_entry(worker, *, embedded=False):
             )
             if embedded:
                 ui.link("이전 대화 이어가기", "/learn#conversation-list")
-                ui.link("직접 유산 찾아보기", "#heritage-search")
         with ui.expansion("어떤 자료로 배우나요?").classes("w-full"):
             ui.label(
                 "한국 문화유산은 국가유산청 자료, 세계유산 검색은 UNESCO 등재 목록을 이용해요."

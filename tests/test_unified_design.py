@@ -39,6 +39,37 @@ def test_all_screen_families_share_navigation(path, section):
     assert len(PRIMARY) == 4  # The brand already links home; avoid a duplicate menu item.
 
 
+def test_museum_illustration_is_local_and_labelled():
+    from culturebridge.ui.heritage_art import museum_scene
+
+    drawing = museum_scene()
+    assert 'role="img"' in drawing
+    assert "상상의 역사 전시관" in drawing
+    assert "<script" not in drawing and "href=" not in drawing
+
+
+def test_quiz_selection_progress_does_not_count_answer_changes_twice(tmp_path, monkeypatch):
+    from nicegui.elements.radio import Radio
+
+    monkeypatch.setattr(get_settings(), "db_path", tmp_path / "quiz-progress.db")
+    monkeypatch.setattr(get_settings(), "gemini_enabled", False)
+    initialize_database()
+    with TestClient(app) as client:
+        assert client.get("/quiz/seokguram/horyuji").status_code == 200
+        page = next(reversed(list(Client.instances.values())))
+        progress = next(e for e in page.elements.values() if "cb-quiz-progress" in e._classes)
+        radios = [e for e in page.elements.values() if isinstance(e, Radio)]
+        assert progress.text == "0 / 5문제 선택했어요"
+        with page:
+            radios[0].set_value(next(iter(radios[0].options)))
+            assert progress.text == "1 / 5문제 선택했어요"
+            radios[0].set_value(list(radios[0].options)[1])
+            assert progress.text == "1 / 5문제 선택했어요"
+            for radio in radios[1:]:
+                radio.set_value(next(iter(radio.options)))
+            assert progress.text == "5 / 5문제 선택했어요"
+
+
 def test_quote_is_available_once_without_hiding_followup_or_mutating_record():
     quote = "화강암으로 만든 석탑이다."
     message = ConversationMessage(
@@ -76,7 +107,7 @@ def test_home_keeps_both_workflows_and_progressive_controls(tmp_path, monkeypatc
             assert text in page
         assert "설명 스타일" not in page
         assert "내 관심사와 학습 목표" not in page
-        assert page.index("궁금한 역사, 함께 알아봐요") < page.index("질문으로 시작해요")
+        assert page.index("역사 속으로,") < page.index("질문으로 시작해요")
         assert "현재 위치" in client.get("/official").text
         assert "관련 화면" in client.get("/learning-history").text
 

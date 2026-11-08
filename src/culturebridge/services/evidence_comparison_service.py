@@ -15,6 +15,14 @@ from culturebridge.services.extraction_service import DraftField, usable_source,
 from culturebridge.services.learning_analysis_service import comparison_explanation
 
 
+def shared_fields(comparison: ComparisonResult):
+    fields = supported_fields(comparison)
+    categories = {f.category for f in fields if f.heritage_id == comparison.left.id} & {
+        f.category for f in fields if f.heritage_id == comparison.right.id
+    }
+    return [f for f in fields if f.category in categories]
+
+
 def supported_fields(comparison: ComparisonResult):
     sources = {(s.heritage_id, s.id): s for s in comparison.collected_sources}
     fields = []

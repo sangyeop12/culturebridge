@@ -49,6 +49,7 @@ from culturebridge.services.display_service import (
 from culturebridge.services.dynamic_heritage_service import OfficialTarget
 from culturebridge.services.evidence_quiz_service import EvidenceQuizError
 from culturebridge.services.home_search_service import get_home_suggestions, search_home
+from culturebridge.services.korean_lesson_service import KoreanQuotaError
 from culturebridge.services.learner_presentation_service import (
     learning_day,
     lesson_activity,
@@ -504,6 +505,21 @@ def _extracted_field_cards(fields: list[ExtractedField], level=LearningLevel.BEG
 
 def _comparison_reading(result, heritage_id, category, text, level):
     """Korean first, with untouched quotations kept behind a disclosure."""
+    if category == "구조":
+        from culturebridge.services.evidence_comparison_service import supported_fields
+        from culturebridge.services.learning_diagram_service import shape_diagram
+
+        evidence = next(
+            (
+                f.evidence_quote
+                for f in supported_fields(result)
+                if f.heritage_id == heritage_id and f.category == category
+            ),
+            "",
+        )
+        diagram = shape_diagram(evidence)
+        if diagram:
+            ui.html(diagram)
     if re.search(r"[가-힣]", text):
         ui.label(beginner_text(category, text) if level is LearningLevel.BEGINNER else text)
         return
@@ -563,6 +579,8 @@ def _comparison_reading(result, heritage_id, category, text, level):
                     if draft.sections[0].text != base.sections[0].text
                     else "지금은 한국어 풀이를 제공하기 어려워 읽기 도움말을 보여드려요."
                 )
+            except KoreanQuotaError:
+                notice.set_text("사용량 제한으로 지금은 읽기 도움말을 보여드려요.")
             except OperationBusyError:
                 ui.notify("다른 학습 작업이 끝난 뒤 다시 시도해 주세요.")
             finally:
@@ -588,6 +606,8 @@ def _lesson_content(source, level):
                 with translated:
                     translated.clear()
                     _render_lesson(draft, level)
+            except KoreanQuotaError:
+                ui.notify("사용량 제한으로 지금은 읽기 도움말을 보여드려요.", type="warning")
             except OperationBusyError:
                 ui.notify(
                     "다른 학습 작업을 처리 중입니다. 잠시 후 다시 시도해 주세요.", type="warning"
@@ -681,14 +701,14 @@ def home_page(
     auto: bool = False,
     comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ) -> None:
-    from culturebridge.ui.heritage_art import heritage_art
+    from culturebridge.ui.heritage_art import museum_scene
 
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-7 py-10"):
         with ui.column().classes("cb-hero cb-illustrated cb-home-intro"):
             ui.label("공식 자료와 함께하는 역사 배움").classes("cb-eyebrow")
-            ui.label("궁금한 역사, 함께 알아봐요").classes("cb-hero-title").props(
+            ui.label("역사 속으로,\n나만의 발견을 시작해요").classes("cb-hero-title").props(
                 "role=heading aria-level=1"
             )
             ui.label("질문 하나면 시작할 수 있어요. 공식 자료로 배우고, 퀴즈로 확인해요.").classes(
@@ -697,9 +717,13 @@ def home_page(
             ui.label("유산 유형을 표현한 창작 삽화 · 실제 모습이나 복원도가 아니에요.").classes(
                 "cb-art-caption"
             )
-            ui.html(heritage_art(panoramic=True)).classes("cb-hero-art")
+            ui.html(museum_scene()).classes("cb-hero-art")
 
         learning_entry(_io_bound, embedded=True)
+        with ui.row().classes("cb-other-start w-full gap-3"):
+            ui.label("직접 골라보고 싶다면").classes("cb-muted")
+            ui.link("문화유산 찾기 ↓", "#heritage-search")
+            ui.link("주제별 코스 둘러보기 →", "/courses")
         with ui.column().classes("cb-section-heading gap-1 w-full"):
             ui.label("하나의 문화유산에서 세계로").classes("cb-title text-2xl").props(
                 "role=heading aria-level=2"
@@ -770,10 +794,15 @@ def home_page(
                     .props("outlined clearable maxlength=100")
                     .classes("w-full")
                 )
-            ui.label(
-                "한국은 국가유산청, 세계는 UNESCO 등재 목록에서 찾습니다. "
-                "해외 문화유산은 등록된 한국어 명칭·공식 영문 이름·국가명으로 검색할 수 있습니다."
-            ).classes("cb-muted text-sm")
+            with ui.expansion("어떤 이름으로 찾을 수 있나요?").classes("w-full"):
+                ui.label(
+                    "문화유산 이름이나 나라 이름을 입력해 보세요. "
+                    "한국어로 찾기 어렵다면 영어 이름으로도 찾아볼 수 있어요."
+                )
+                ui.label(
+                    "한국은 국가유산청, 세계는 UNESCO 등재 목록에서 찾아요. "
+                    "모든 해외 유산이 검색되는 것은 아니에요."
+                ).classes("cb-muted text-sm")
             search_submit = ui.row().classes("cb-search-submit")
             suggestions = (
                 ui.column().classes("w-full gap-1").props('role=group aria-label="홈 검색어 제안"')
@@ -1610,6 +1639,8 @@ def comparison_page(
                 if result.extracted_fields:
                     _extracted_field_cards(result.extracted_fields, learning_level)
 
+        learning_steps(1)
+        ui.label("두 유산을 나란히 읽고, 어떤 점이 다른지 찾아보세요.").classes("cb-reading")
         ui.label(
             "원문과 별도로 보는 항목별 비교"
             if learning_level is LearningLevel.ADVANCED
@@ -2002,7 +2033,9 @@ async def quiz_page(
             ui.label(f"{LEVEL_LABELS[quiz.level.value]} · {quiz.learning_goal}").classes(
                 "text-lg font-semibold"
             )
-            ui.label("5개 문항에 모두 답한 뒤 채점하세요.").classes("cb-muted text-lg")
+            ui.label("답을 하나씩 골라 주세요. 다 풀면 아래에서 확인할 수 있어요.").classes(
+                "cb-muted text-lg"
+            )
             if back_record_id and back_record.learning_version < LEARNING_VERSION:
                 ui.label(
                     "이전 방식의 저장본에 연결된 퀴즈예요. 비교 "
@@ -2017,13 +2050,23 @@ async def quiz_page(
         stage_box = ui.column().classes("w-full")
         with stage_box:
             learning_steps(2)
+        progress = (
+            ui.label(f"0 / {len(quiz.items)}문제 선택했어요")
+            .props("role=status aria-live=polite")
+            .classes("cb-quiz-progress")
+        )
+
+        def update_progress():
+            answered = sum(radio.value is not None for radio in radios)
+            progress.set_text(f"{answered} / {len(quiz.items)}문제 선택했어요")
+
         for number, item in enumerate(quiz.items, start=1):
             with ui.card().classes("cb-card w-full p-6 gap-4"):
                 ui.label(f"문제 {number} / 5").classes("cb-muted font-semibold")
                 ui.label(item.question).classes("cb-title text-xl")
                 options = {choice.id: choice.text for choice in item.choices}
                 radios.append(
-                    ui.radio(options)
+                    ui.radio(options, on_change=lambda _: update_progress())
                     .props(f'inline=false aria-label="문제 {number} 선택지"')
                     .classes("w-full")
                 )

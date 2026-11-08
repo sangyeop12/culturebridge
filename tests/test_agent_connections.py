@@ -72,6 +72,21 @@ def valid_draft(comparison):
     )
 
 
+def test_single_source_question_cannot_claim_shared_fact(comparison):
+    from culturebridge.services.evidence_comparison_service import supported_fields
+
+    draft = valid_draft(comparison)
+    draft.items[0].question += " 두 유산의 공통점인가요?"
+    with pytest.raises(ValueError, match="single-source"):
+        draft_service.validate_draft(
+            draft,
+            comparison,
+            LearningLevel.BEGINNER,
+            supported_fields(comparison),
+            ["종교적 배경"],
+        )
+
+
 def test_validated_gemini_questions_are_saved_and_graded(comparison, monkeypatch):
     monkeypatch.setattr(get_settings(), "gemini_api_key", "test-key")
     monkeypatch.setattr(get_settings(), "gemini_enabled", True)

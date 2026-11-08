@@ -103,6 +103,8 @@ def learning_report(record_id, history_id=None):
                 "analysis": point.explanation,
             }
             for point in comparison.differences
+            if (comparison.left.id, point.category) in fields
+            and (comparison.right.id, point.category) in fields
         ],
         "sources": [
             {

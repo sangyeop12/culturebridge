@@ -37,6 +37,57 @@ def test_generic_comparison_has_no_missing_category_notice(saved):
     assert "요청한 시대" not in response.text
 
 
+def test_report_uses_same_complete_categories_as_comparison(saved):
+    from culturebridge.services.learning_report_service import learning_report
+
+    report = learning_report(saved.id)
+    assert [row["category"] for row in report["comparison"]] == ["재료"]
+
+
+def test_readings_prepare_only_shared_evidence_and_stop_on_quota(saved, monkeypatch):
+    from culturebridge.services import korean_lesson_service as korean
+    from culturebridge.services.evidence_comparison_service import shared_fields
+
+    comparison = saved.comparison
+    for source in comparison.collected_sources:
+        source.content = "The building is made of wood."
+    for field in comparison.extracted_fields:
+        field.value = field.evidence_quote = "The building is made of wood."
+    assert len(shared_fields(comparison)) == 2
+    calls = []
+
+    def translate(source, level, **kwargs):
+        calls.append(source.id)
+        raise korean.KoreanQuotaError("quota")
+
+    monkeypatch.setattr(korean, "korean_lesson", translate)
+    with pytest.raises(korean.KoreanQuotaError):
+        korean.prepare_comparison_readings(comparison)
+    assert len(calls) == 1
+
+
+def test_comparison_prepares_readings_after_saving_and_survives_quota(saved, monkeypatch):
+    from culturebridge.services import korean_lesson_service as korean
+
+    prepared = []
+
+    def prepare(result):
+        assert get_saved_comparison(result.saved_id).comparison.saved_id == result.saved_id
+        prepared.append(result.saved_id)
+        raise korean.KoreanQuotaError("quota")
+
+    monkeypatch.setattr(korean, "prepare_comparison_readings", prepare)
+    result = create_saved_comparison(
+        "seokguram",
+        "horyuji",
+        LearningLevel.BEGINNER,
+        collected_sources=saved.comparison.collected_sources,
+        extracted_fields=saved.comparison.extracted_fields,
+    )
+    assert prepared == [result.saved_id]
+    assert get_saved_comparison(result.saved_id).comparison.saved_id == result.saved_id
+
+
 @pytest.fixture
 def saved(tmp_path, monkeypatch):
     monkeypatch.setattr(get_settings(), "db_path", tmp_path / "presentation.db")

@@ -30,6 +30,8 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
     comparison = saved.comparison
     if (comparison.left.id, comparison.right.id) != (left_id, right_id):
         raise EvidenceQuizError("저장된 비교의 대상과 퀴즈 대상이 다릅니다.")
+    # An individual-source question may use a supported fact from either heritage.
+    # Comparative questions are separately gated by both sides' goal evidence below.
     fields = supported_fields(comparison)
     if left_id.startswith(("khs:", "unesco:", "official:")) or right_id.startswith(
         ("khs:", "unesco:", "official:")
