@@ -81,7 +81,9 @@ def test_missing_dictionary_uses_ai_without_inventing_official_evidence(
     result = ask()
     message = result.messages[-1]
     assert len(calls) == 1 and json.loads(calls[0]["contents"]) == {"term": "기단"}
-    assert "몸체를 받치는 부분" in message.text and "공식 사전 뜻풀이는 아니에요" in message.text
+    assert "몸체를 받치는 부분" in message.text
+    assert message.text.startswith("컬처브릿지가 쉽게 풀어드릴게요.")
+    assert "Gemini가 설명한 일반적인 뜻" not in message.text
     assert message.kind == "dictionary" and message.citations == []
     assert message.teaching["method"] == "gemini_term_help"
     assert not result.pending_request and not result.concepts and not result.sources

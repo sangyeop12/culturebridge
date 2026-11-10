@@ -419,6 +419,12 @@ def learning_chat(worker, conversation_id=""):
 def message_body(message, preferences):
     """Avoid repeating the same quote in prose and its source panel; keep stored text intact."""
     text = present_message(message, preferences)
+    if message.role == "assistant" and message.teaching.get("method") == "gemini_term_help":
+        if text.startswith("AI가 쉽게 풀어드릴게요."):
+            text = "컬처브릿지가 쉽게 풀어드릴게요." + text.removeprefix("AI가 쉽게 풀어드릴게요.")
+        text = text.replace(
+            "\n\nGemini가 설명한 일반적인 뜻이에요. 공식 사전 뜻풀이는 아니에요.", "", 1
+        )
     if message.role == "assistant" and message.kind != "dictionary":
         for citation in message.citations:
             quote = citation.get("quote", "")

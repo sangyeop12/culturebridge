@@ -827,8 +827,7 @@ def respond(state):
             )
         ai_explanation = result.get("ai_explanation", {})
         if not result.get("meanings") and ai_explanation.get("status") == "generated":
-            output = "AI가 쉽게 풀어드릴게요.\n\n" + ai_explanation["text"]
-            output += "\n\nGemini가 설명한 일반적인 뜻이에요. 공식 사전 뜻풀이는 아니에요."
+            output = "컬처브릿지가 쉽게 풀어드릴게요.\n\n" + ai_explanation["text"]
             teaching = {
                 "method": "gemini_term_help",
                 "grounding": "general_knowledge",
