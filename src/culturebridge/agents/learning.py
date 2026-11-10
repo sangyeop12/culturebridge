@@ -294,6 +294,16 @@ def _is_continuation(text):
     ) and not bool(re.search(r"그만|말고|대신|다른\s*주제", text))
 
 
+def _term_query(text):
+    match = re.fullmatch(
+        r"(.{1,40}?)(?:의\s*뜻|\s*뜻|(?:이|가|은|는)?\s*"
+        r"(?:뭐야|뭐냐고|뭔데|뭔가요|무엇인가요|무엇이야|무슨\s*뜻(?:이야|인가요|이냐고)?))"
+        r"(?:요)?[?？.!\s]*",
+        text.strip(),
+    )
+    return match[1].strip("'\"‘’“” ") if match else ""
+
+
 def _fallback(state):
     """Limited deterministic alternative; never infer mastery or fabricate search results."""
     conversation = state["conversation"]
@@ -310,13 +320,9 @@ def _fallback(state):
     topics = confirmed_topics or [
         i["topic"] for i in state.get("automatic_intent", {}).get("interests", [])
     ]
-    term = re.fullmatch(
-        r"(.{1,40}?)(?:의\s*뜻|\s*뜻|(?:이|가|은|는)?\s*"
-        r"(?:뭐야|무엇인가요|무슨\s*뜻(?:이야|인가요)?))[?？.!\s]*",
-        text.strip(),
-    )
+    term = _term_query(text)
     if term:
-        return LearningDecision(action="define", query=term[1].strip("'\"‘’“” "))
+        return LearningDecision(action="define", query=term)
     if getattr(state["request"], "control", "message") == "read_source":
         selected = getattr(state["request"], "source_id", "")
         if any(source["id"] == selected for source in conversation.sources):
@@ -800,6 +806,7 @@ def respond(state):
         suggestions += [{"label": label, "url": url} for label, url in HISTORY_REFERENCES]
     elif decision.action == "define":
         result = state.get("dictionary_result", {})
+        state["notice"] = ""
         output = result.get("notice", "사전의 뜻을 확인하지 못했어요.")
         for meaning in result.get("meanings", []):
             output += f"\n\n{meaning['word']} · {meaning['part_of_speech']}"
@@ -822,7 +829,11 @@ def respond(state):
         if not result.get("meanings") and ai_explanation.get("status") == "generated":
             output = "AI가 쉽게 풀어드릴게요.\n\n" + ai_explanation["text"]
             output += "\n\nGemini가 설명한 일반적인 뜻이에요. 공식 사전 뜻풀이는 아니에요."
-            teaching = {"method": "gemini_term_help", "grounding": "general_knowledge"}
+            teaching = {
+                "method": "gemini_term_help",
+                "grounding": "general_knowledge",
+                "model": ai_explanation.get("model", ""),
+            }
             state["notice"] = ""
         elif not result.get("meanings") and ai_explanation.get("status") == "uncertain":
             output = "어떤 뜻으로 쓰였는지 조금 더 알아야 해요. 이 단어가 나온 문장을 알려주세요."
@@ -832,7 +843,14 @@ def respond(state):
             )
         elif not result.get("meanings") and ai_explanation.get("status") == "unavailable":
             output = (
-                "AI 풀이에 잠시 연결하지 못했어요. 다시 물어보거나 공식 사전에서 확인할 수 있어요."
+                "지금 AI 요청이 몰려 답변이 늦어지고 있어요. 질문은 남겨 두었어요. "
+                "잠시 후 같은 질문을 다시 보내 주세요."
+                if ai_explanation.get("failure_kind") == "provider_busy"
+                else "AI 응답을 기다렸지만 시간이 오래 걸려 멈췄어요. "
+                "질문은 남겨 두었으니 잠시 후 다시 보내 주세요."
+                if ai_explanation.get("failure_kind") == "provider_timeout"
+                else "AI 풀이에 잠시 연결하지 못했어요. "
+                "다시 물어보거나 공식 사전에서 확인할 수 있어요."
             )
         if result.get("meanings"):
             output += "\n\n사전의 뜻과 특정 유산의 역사적 맥락은 구분해서 살펴봐요."
@@ -991,11 +1009,15 @@ def respond(state):
                 for r in conversation.search_results
                 if r.get("catalogue") == "history" and r.get("reading_url")
             ]
-    if decision.action == "define" and teaching.get("method") == "gemini_term_help":
+    if decision.action == "define" and (
+        result.get("meanings") or teaching.get("method") == "gemini_term_help"
+    ):
         conversation.pending_request = ""
     elif (
-        state.get("planner_failed") or teaching.get("partial_failure")
-    ) and conversation.pending_request:
+        (state.get("planner_failed") or teaching.get("partial_failure"))
+        and conversation.pending_request
+        and decision.action != "define"
+    ):
         output += (
             "\n\n현재 자료와 요청은 유지했어요. "
             "AI 연결이 복구되면 ‘이어서 진행해 주세요’로 계속할 수 있어요."
@@ -1179,5 +1201,12 @@ def run_learning_turn(conversation, request):
     }
     if control == "read_source":
         initial["decision"] = LearningDecision(action="read", source_id=request.source_id)
+    elif control == "message":
+        term = _term_query(request.text)
+        if not term and _is_continuation(request.text):
+            term = _term_query(state.pending_request)
+        if term:
+            # An explicit definition request needs no separate model call to choose a tool.
+            initial["decision"] = LearningDecision(action="define", query=term)
     result = learning_graph.invoke(initial, config={"recursion_limit": 20})
     return result["conversation"]

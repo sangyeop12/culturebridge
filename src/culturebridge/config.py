@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     storage_secret: str = "culturebridge-local-development"
     gemini_api_key: str | None = Field(default=None, validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-2.5-flash", validation_alias="GEMINI_MODEL")
+    gemini_term_model: str = "gemini-2.5-flash-lite"
+    gemini_term_fallback_model: str = ""
     gemini_timeout_ms: int = Field(default=15000, ge=1000, le=60000)
     quiz_timeout_ms: int = Field(default=30000, ge=1000, le=60000)
     quiz_repair_attempts: int = Field(default=1, ge=0, le=1)

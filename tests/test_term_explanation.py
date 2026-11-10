@@ -23,6 +23,8 @@ def term_client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "term.db")
     monkeypatch.setattr(settings, "gemini_enabled", True)
     monkeypatch.setattr(settings, "gemini_api_key", "test-only")
+    monkeypatch.setattr(settings, "gemini_term_model", "gemini-2.5-flash-lite")
+    monkeypatch.setattr(settings, "gemini_term_fallback_model", "")
     initialize_database()
     monkeypatch.setattr(
         learning, "_model_decision", lambda _: LearningDecision(action="define", query="기단")
@@ -46,6 +48,8 @@ def term_client(tmp_path, monkeypatch):
 
         def generate_content(self, **kwargs):
             calls.append(kwargs)
+            if answer.get("errors"):
+                raise answer["errors"].pop(0)
             if isinstance(answer.get("error"), Exception):
                 raise answer["error"]
             return SimpleNamespace(text=json.dumps(answer, ensure_ascii=False))
@@ -128,23 +132,32 @@ def test_ai_term_quota_stops_without_retry(term_client):
     assert result.pending_request == "기단이 뭐야?"
 
 
-def test_planner_quota_prevents_another_ai_call(term_client, monkeypatch):
+def term_state(**extra):
+    conversation = create_conversation()
+    conversation.pending_request = "기단이 뭐야?"
+    return {
+        "conversation": conversation,
+        "request": LearningTurn(request_id=uuid4(), revision=0, text="기단이 뭐야?"),
+        "decision": LearningDecision(action="define", query="기단"),
+        "steps": 0,
+        "seen": [],
+        "deadline": time.monotonic() + 30,
+        "used_ai": False,
+        "assessed": False,
+        **extra,
+    }
+
+
+def test_planner_quota_prevents_another_ai_call(term_client):
     calls, _ = term_client
-
-    def limited(_):
-        raise RateLimit("private provider details")
-
-    monkeypatch.setattr(learning, "_model_decision", limited)
-    result = ask()
+    state = term_state(ai_rate_limited=True, planner_failed=True)
+    result = learning.learning_graph.invoke(state)["conversation"]
     assert not calls and "사용량 한도" in result.messages[-1].text
 
 
-def test_successful_term_help_removes_stale_planner_failure_notice(term_client, monkeypatch):
-    def planner_failure(_):
-        raise ValueError("bad planner output")
-
-    monkeypatch.setattr(learning, "_model_decision", planner_failure)
-    result = ask()
+def test_successful_term_help_removes_stale_planner_failure_notice(term_client):
+    state = term_state(planner_failed=True, notice="계획 연결 실패")
+    result = learning.learning_graph.invoke(state)["conversation"]
     assert "몸체를 받치는 부분" in result.messages[-1].text
     assert "AI 연결이 복구되면" not in result.messages[-1].text
     assert not result.notice and not result.pending_request
@@ -166,3 +179,100 @@ def test_ai_term_transport_failure_keeps_friendly_notice(term_client):
     result = ask()
     assert len(calls) == 1 and "잠시 연결하지 못했어요" in result.messages[-1].text
     assert "private provider" not in result.messages[-1].text
+
+
+class Busy(Exception):
+    code = 503
+
+
+def test_busy_model_is_retried_once_and_can_recover(term_client):
+    calls, answer = term_client
+    answer["errors"] = [Busy("private provider details")]
+    result = ask()
+    assert len(calls) == 2 and "몸체를 받치는 부분" in result.messages[-1].text
+    assert not result.pending_request and not result.notice
+
+
+def test_busy_model_stops_after_second_failure_and_keeps_question(term_client):
+    calls, answer = term_client
+    answer["error"] = Busy("private provider details")
+    result = ask()
+    assert len(calls) == 2 and "AI 요청이 몰려" in result.messages[-1].text
+    assert "private provider" not in result.messages[-1].text
+    assert "AI 연결이 복구되면" not in result.messages[-1].text
+    assert result.pending_request == "기단이 뭐야?"
+
+
+def test_provider_timeout_does_not_retry_or_lose_question(term_client):
+    calls, answer = term_client
+
+    class Timeout(Exception):
+        code = 504
+
+    answer["error"] = Timeout("private provider details")
+    result = ask()
+    assert len(calls) == 1 and "시간이 오래 걸려" in result.messages[-1].text
+    assert "AI 연결이 복구되면" not in result.messages[-1].text
+    assert result.pending_request == "기단이 뭐야?"
+
+
+def test_timeout_can_use_an_explicit_alternate_model(term_client, monkeypatch):
+    calls, answer = term_client
+
+    class Timeout(Exception):
+        code = 504
+
+    monkeypatch.setattr(get_settings(), "gemini_term_fallback_model", "alternate-test-model")
+    answer["errors"] = [Timeout("private provider details")]
+    result = ask()
+    assert [call["model"] for call in calls] == ["gemini-2.5-flash-lite", "alternate-test-model"]
+    assert "몸체를 받치는 부분" in result.messages[-1].text
+    assert result.messages[-1].teaching["model"] == "alternate-test-model"
+
+
+def test_explicit_term_question_does_not_call_the_general_planner(term_client, monkeypatch):
+    calls, _ = term_client
+    monkeypatch.setattr(
+        learning, "_model_decision", lambda _: pytest.fail("unnecessary planning request")
+    )
+    result = ask()
+    assert len(calls) == 1 and calls[0]["model"] == "gemini-2.5-flash-lite"
+    assert "몸체를 받치는 부분" in result.messages[-1].text
+
+
+def test_failed_term_can_be_resumed_without_choosing_a_new_topic(term_client, monkeypatch):
+    calls, answer = term_client
+    monkeypatch.setattr(
+        learning, "_model_decision", lambda _: pytest.fail("lost pending term question")
+    )
+    answer["error"] = RuntimeError("temporary")
+    first = ask()
+    answer.pop("error")
+    second = send_learning_turn(
+        first.id,
+        LearningTurn(request_id=uuid4(), revision=first.revision, text="이어서 진행해 주세요"),
+    )
+    assert len(calls) == 2 and json.loads(calls[-1]["contents"]) == {"term": "기단"}
+    assert "몸체를 받치는 부분" in second.messages[-1].text and not second.pending_request
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["서원이 뭐야?", "서원이 뭐냐고", "서원은 뭔데?", "서원이 무슨 뜻이냐고", "서원이 뭔가요?"],
+)
+def test_repeated_term_question_stays_on_the_requested_term(text, term_client, monkeypatch):
+    calls, answer = term_client
+    answer.update(explanation="서원은 유학을 가르치고 선현을 기리는 곳이에요.", example="")
+
+    def planner_failure(_):
+        raise ValueError("bad planner output")
+
+    monkeypatch.setattr(learning, "_model_decision", planner_failure)
+    conversation = create_conversation()
+    result = send_learning_turn(
+        conversation.id, LearningTurn(request_id=uuid4(), revision=0, text=text)
+    )
+    assert len(calls) == 1 and json.loads(calls[0]["contents"]) == {"term": "서원"}
+    assert "서원은 유학" in result.messages[-1].text
+    assert "궁금한 사람이나 시대" not in result.messages[-1].text
+    assert not result.pending_request and not result.notice
