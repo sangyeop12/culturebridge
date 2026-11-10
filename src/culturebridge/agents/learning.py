@@ -48,6 +48,7 @@ class TurnState(TypedDict, total=False):
     understanding_feedback: dict
     tool_status: str
     planning_attempts: int
+    ai_rate_limited: bool
 
 
 def _model_decision(state):
@@ -501,6 +502,7 @@ def plan(state):
             "decision": LearningDecision(action="ask"),
             "notice": "이번 탐색은 여기서 멈췄어요.",
         }
+    rate_limited = state.get("ai_rate_limited", False)
     try:
         decision = _model_decision(state)
         used_ai, notice = True, state.get("notice", "")
@@ -511,6 +513,7 @@ def plan(state):
         planner_failed = True
         notice = "AI 계획을 사용할 수 없어 제한된 안내로 이어가요. 이해도는 자동 평가하지 않아요."
         if getattr(exc, "code", None) == 429:
+            rate_limited = True
             notice = (
                 "AI 요청 한도에 도달해 제한된 안내로 이어가요. 현재 자료와 요청은 남겨 두었어요."
             )
@@ -544,6 +547,7 @@ def plan(state):
         "planner_failed": planner_failed,
         "assessment_checked": state.get("assessment_checked", False),
         "understanding_feedback": state.get("understanding_feedback", {}),
+        "ai_rate_limited": rate_limited,
     }
 
 
@@ -589,10 +593,18 @@ def _retrieval_tool(state):
     try:
         if decision.action == "define":
             from culturebridge.services.dictionary_service import lookup_term
+            from culturebridge.services.term_explanation_service import explain_term
 
             result = lookup_term(decision.query)
+            dictionary = result.model_dump()
+            if not result.meanings:
+                dictionary["ai_explanation"] = (
+                    {"status": "rate_limited"}
+                    if state.get("ai_rate_limited")
+                    else explain_term(decision.query, state["deadline"])
+                )
             return {
-                "dictionary_result": result.model_dump(),
+                "dictionary_result": dictionary,
                 "steps": state["steps"] + 1,
                 "seen": state["seen"] + [key],
             }
@@ -734,7 +746,17 @@ def tool(state):
                     ]
                 }
             else:
-                summary = {"meanings": len((dictionary or {}).get("meanings", []))}
+                summary = {
+                    "meanings": len((dictionary or {}).get("meanings", [])),
+                    "dictionary_status": (dictionary or {}).get("status", "unavailable"),
+                    "ai_explanation_status": (dictionary or {})
+                    .get("ai_explanation", {})
+                    .get("status", "not_requested"),
+                }
+                if not summary["meanings"]:
+                    status = (
+                        "ok" if summary["ai_explanation_status"] == "generated" else "insufficient"
+                    )
     except Exception as exc:
         status, summary = (
             "error",
@@ -796,7 +818,24 @@ def respond(state):
                     "modified": False,
                 }
             )
-        output += "\n\n사전의 뜻과 특정 유산의 역사적 맥락은 구분해서 살펴봐요."
+        ai_explanation = result.get("ai_explanation", {})
+        if not result.get("meanings") and ai_explanation.get("status") == "generated":
+            output = "AI가 쉽게 풀어드릴게요.\n\n" + ai_explanation["text"]
+            output += "\n\nGemini가 설명한 일반적인 뜻이에요. 공식 사전 뜻풀이는 아니에요."
+            teaching = {"method": "gemini_term_help", "grounding": "general_knowledge"}
+            state["notice"] = ""
+        elif not result.get("meanings") and ai_explanation.get("status") == "uncertain":
+            output = "어떤 뜻으로 쓰였는지 조금 더 알아야 해요. 이 단어가 나온 문장을 알려주세요."
+        elif not result.get("meanings") and ai_explanation.get("status") == "rate_limited":
+            output = (
+                "AI 사용량 한도에 도달해 지금은 풀이를 만들기 어려워요. 잠시 후 다시 물어봐 주세요."
+            )
+        elif not result.get("meanings") and ai_explanation.get("status") == "unavailable":
+            output = (
+                "AI 풀이에 잠시 연결하지 못했어요. 다시 물어보거나 공식 사전에서 확인할 수 있어요."
+            )
+        if result.get("meanings"):
+            output += "\n\n사전의 뜻과 특정 유산의 역사적 맥락은 구분해서 살펴봐요."
         suggestions = [
             {"label": "표준국어대사전에서 직접 찾아보기", "url": "https://stdict.korean.go.kr/"}
         ]
@@ -952,7 +991,9 @@ def respond(state):
                 for r in conversation.search_results
                 if r.get("catalogue") == "history" and r.get("reading_url")
             ]
-    if (
+    if decision.action == "define" and teaching.get("method") == "gemini_term_help":
+        conversation.pending_request = ""
+    elif (
         state.get("planner_failed") or teaching.get("partial_failure")
     ) and conversation.pending_request:
         output += (
