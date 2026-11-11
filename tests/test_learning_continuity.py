@@ -177,7 +177,7 @@ def test_comparison_cannot_drop_explicitly_named_subject():
     assert requested_comparison_ids(state) == []  # Do not lock a negated name.
 
 
-def test_material_rewrite_rejects_height_drift_before_second_ai_call(monkeypatch):
+def test_material_rewrite_retries_height_drift_without_review(monkeypatch):
     monkeypatch.setattr(get_settings(), "gemini_enabled", True)
     monkeypatch.setattr(get_settings(), "gemini_api_key", "test-key")
     calls = []
@@ -201,7 +201,7 @@ def test_material_rewrite_rejects_height_drift_before_second_ai_call(monkeypatch
         time.monotonic() + 30,
         learner_text="무엇으로 만들었나요?",
     )
-    assert calls == [1]
+    assert calls == [1] * 6
     assert metadata["failure_kind"] == "learning_focus_mismatch"
     assert "돌" in text and "10.29" not in text
 
@@ -248,9 +248,9 @@ def test_rewrite_failure_is_visible_and_preserves_request(isolated, monkeypatch,
         personal,
         "explain",
         lambda *args, **kwargs: (
-            "공식 설명에는 돌 재료가 나와요.",
+            "Gemini 설명을 생성하지 못했어요.",
             {
-                "method": "local_guide",
+                "method": "gemini_failed",
                 "review": "rewrite_unavailable_or_rejected",
                 "failure_kind": failure,
             },
@@ -258,12 +258,12 @@ def test_rewrite_failure_is_visible_and_preserves_request(isolated, monkeypatch,
     )
     text = "다보탑은 무엇으로 만들었는지 쉽게 설명해 주세요"
     result = send_learning_turn(state.id, LearningTurn(request_id=uuid4(), revision=0, text=text))
-    assert "기본 풀이" in result.notice
+    assert "설명을 생성하지 못했어요" in result.notice
     if failure == "provider_rate_limit":
         assert "요청 한도" in result.notice
     assert result.pending_request == text and result.plan_history[-1]["partial_failure"]
     assert result.plan_history[-1]["failure_kind"] == failure
-    assert result.messages[-1].teaching["method"] == "local_guide" and not result.concepts
+    assert result.messages[-1].teaching["method"] == "gemini_failed" and not result.concepts
 
 
 def test_assessment_quota_does_not_trigger_another_planner_call(isolated, monkeypatch):

@@ -139,7 +139,7 @@ def test_home_input_change_updates_results_instead_of_retaining_all_cards():
     from nicegui.elements.input import Input
 
     with TestClient(app) as client:
-        response = client.get("/")
+        response = client.get("/library")
         assert response.status_code == 200
         page = next(
             c

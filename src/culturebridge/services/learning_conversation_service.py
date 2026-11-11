@@ -99,21 +99,38 @@ def get_conversation(identity):
     return LearningConversation.model_validate_json(row[0])
 
 
-def list_conversations():
+def list_conversations(*, limit=30, offset=0):
+    from culturebridge.services.conversation_title_service import conversation_title
+
     with transaction() as connection:
         rows = connection.execute(
             "SELECT id,revision,state_json FROM learning_conversations WHERE owner=? "
-            "ORDER BY updated_at DESC,rowid DESC LIMIT 30",
-            (owner_key(),),
+            "ORDER BY updated_at DESC,rowid DESC LIMIT ? OFFSET ?",
+            (owner_key(), limit, offset),
         ).fetchall()
-    return [
-        {
-            "id": r["id"],
-            "revision": r["revision"],
-            "goal": json.loads(r["state_json"]).get("goal") or "이어서 이야기하기",
-        }
-        for r in rows
-    ]
+    items = []
+    for row in rows:
+        state = json.loads(row["state_json"])
+        items.append(
+            {
+                "id": row["id"],
+                "revision": row["revision"],
+                "goal": state.get("goal") or "이어서 이야기하기",
+                "title": conversation_title(state),
+            }
+        )
+    return items
+
+
+def delete_conversation(identity):
+    """Delete only this browser owner's conversation and dependent turn records."""
+    with learner_lock(), transaction() as connection:
+        cursor = connection.execute(
+            "DELETE FROM learning_conversations WHERE id=? AND owner=?",
+            (str(identity), owner_key()),
+        )
+        if cursor.rowcount != 1:
+            raise ConversationNotFoundError(identity)
 
 
 def request_learning_stop(identity, revision):

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from culturebridge.agents.autonomous import AutonomousRequest, AutonomousResult, run_autonomous
 from culturebridge.agents.quiz_agent import evaluate_learning_quiz
 from culturebridge.agents.workflow import run_exploration
+from culturebridge.config import get_settings
 from culturebridge.domain.models import (
     ClaimRequest,
     ClaimResult,
@@ -236,6 +237,20 @@ def relearn_comparison(record_id: str):
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "CultureBridge"}
+
+
+@router.get("/ai-status")
+def ai_status():
+    """Report the running process's configuration, never credentials or a live call."""
+    settings = get_settings()
+    return {
+        "enabled": settings.gemini_enabled,
+        "key_configured": bool(settings.gemini_api_key),
+        "model": settings.gemini_model,
+        "mode": "disabled"
+        if not settings.gemini_enabled
+        else ("configured" if settings.gemini_api_key else "missing_key"),
+    }
 
 
 @router.post("/autonomous-explorations", response_model=AutonomousResult)

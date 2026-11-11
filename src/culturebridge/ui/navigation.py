@@ -3,8 +3,8 @@
 from nicegui import ui
 
 PRIMARY = (
-    ("대화 학습", "/learn", "conversation"),
-    ("문화유산", "/official", "heritage"),
+    ("새 대화", "/learn", "conversation"),
+    ("자료 찾기", "/library", "heritage"),
     ("학습 코스", "/courses", "courses"),
     ("나의 학습", "/learning-history", "history"),
 )
@@ -13,9 +13,7 @@ PRIMARY = (
 def section_for(path):
     if path == "/":
         return "home"
-    if path == "/history-search" or (
-        path.startswith("/learn") and not path.startswith("/learning-history")
-    ):
+    if path.startswith("/learn") and not path.startswith("/learning-history"):
         return "conversation"
     if path.startswith("/courses"):
         return "courses"
@@ -30,72 +28,114 @@ def section_for(path):
 
 def primary_navigation(path):
     active = section_for(path)
+    icons = {
+        "conversation": "edit_square",
+        "heritage": "search",
+        "courses": "auto_stories",
+        "history": "history",
+    }
     with ui.element("nav").classes("cb-nav").props('aria-label="주요 메뉴"'):
         for title, route, section in PRIMARY:
-            link = ui.link(title, route)
-            if section == active:
+            with ui.link(target=route) as link:
+                ui.icon(icons[section], size="19px").props("aria-hidden=true")
+                ui.label(title)
+            if section == active or (section == "conversation" and active == "home"):
                 link.props('aria-current="page"')
 
 
-def secondary_navigation(path):
-    section = section_for(path)
-    groups = {
-        "heritage": (
-            ("한국 문화유산", "/official"),
-            ("세계유산", "/unesco"),
-            ("비교할 유산 찾기", "/#heritage-search"),
-            ("공식 자료 안내", "/sources"),
-        ),
-        "history": (
-            ("관심사와 학습 목표", "/learning-history#learning-profile"),
-            ("퀴즈와 복습", "/learning-history"),
-            ("비교 기록", "/comparisons"),
-            ("기록 보관·삭제", "/data-policy"),
-        ),
-        "conversation": (
-            ("대화 학습", "/learn"),
-            ("인물·사건 자료 찾기", "/history-search"),
-            ("학습 기록", "/learning-history"),
-            ("설정", "/settings"),
-        ),
-        "courses": (("코스 둘러보기", "/courses"), ("학습 기록", "/learning-history")),
-        "guide": (("홈 화면에 추가하기", "/install"), ("자료 이용 안내", "/sources")),
-        "settings": (("설정", "/settings"), ("나의 학습", "/learning-history")),
-    }
-    if section == "home":
-        return
-    label = next(
-        (title for title, _, key in PRIMARY if key == section),
-        "설정" if section == "settings" else "이용 안내",
+def workspace_navigation(path):
+    """One owner-scoped thread list shared by all ordinary pages."""
+    from culturebridge.services.learning_conversation_service import (
+        ConversationNotFoundError,
+        delete_conversation,
+        list_conversations,
     )
-    with ui.element("div").classes("cb-context-wrap"):
-        with ui.element("nav").classes("cb-breadcrumb").props('aria-label="현재 위치"'):
-            ui.link("홈", "/")
-            ui.icon("chevron_right", size="16px").props("aria-hidden=true")
-            ui.label(label)
-        with (
-            ui.expansion("더 둘러보기", icon="explore").classes("cb-related-menu"),
-            ui.element("nav").classes("cb-subnav").props('aria-label="관련 화면"'),
-        ):
-            for title, route in groups[section]:
-                if path == route:
-                    continue  # The breadcrumb already identifies the current screen.
-                link = ui.link(title, route)
-                if path == route or (
-                    route in {"/official", "/sources", "/courses"} and path.startswith(route + "/")
-                ):
-                    link.props('aria-current="page"')
 
+    request = ui.context.client.request
+    selected = request.query_params.get("conversation_id", "") if request else ""
+    with (
+        ui.left_drawer(value=None, top_corner=True, bottom_corner=True)
+        .props("breakpoint=900 width=264 bordered")
+        .classes("cb-sidebar") as drawer
+    ):
+        with ui.link(target="/").classes("cb-brand").props('aria-label="CultureBridge 처음으로"'):
+            ui.icon("account_balance", size="23px").classes("cb-brand-mark").props(
+                "aria-hidden=true"
+            )
+            ui.label("CultureBridge")
+        primary_navigation(path)
+        with ui.column().classes("cb-thread-list w-full gap-1").props("id=conversation-list"):
+            ui.label("최근 대화").classes("cb-sidebar-label")
+            thread_items = ui.column().classes("cb-thread-items w-full gap-1")
+            shown = 0
 
-def site_footer():
-    with ui.element("footer").classes("cb-site-footer") as footer:
-        with ui.row().classes("items-center justify-between w-full gap-4 flex-wrap"):
-            with ui.column().classes("gap-1"):
-                ui.label("CultureBridge").classes("cb-footer-brand")
-                ui.label("질문을 나누고, 공식 자료로 확인하고, 나만의 배움으로 이어가요.")
-            with ui.row().classes("gap-5 flex-wrap"):
-                ui.link("설정", "/settings")
+            def confirm_delete(item):
+                with ui.dialog() as dialog, ui.card():
+                    ui.label("이 대화를 삭제할까요?")
+                    ui.label(item["title"]).classes("cb-muted")
+                    with ui.row():
+                        ui.button("취소", on_click=dialog.close).props("flat")
+
+                        def remove():
+                            try:
+                                delete_conversation(item["id"])
+                            except ConversationNotFoundError:
+                                ui.notify("이미 삭제된 대화예요.", color="warning")
+                            dialog.close()
+                            if str(item["id"]) == selected:
+                                ui.navigate.to("/learn")
+                            else:
+                                render_threads(shown)
+
+                        ui.button("삭제", on_click=remove).props("color=negative")
+                dialog.open()
+
+            def render_threads(count):
+                nonlocal shown
+                items = list_conversations(limit=count)
+                shown = len(items)
+                thread_items.clear()
+                with thread_items:
+                    for item in items:
+                        with ui.row().classes("cb-thread-row w-full items-center no-wrap"):
+                            link = ui.link(
+                                item["title"], f"/learn?conversation_id={item['id']}"
+                            ).classes("cb-thread-link")
+                            if str(item["id"]) == selected:
+                                link.props('aria-current="page"')
+                            with (
+                                ui.button(icon="more_vert")
+                                .props('flat round dense aria-label="대화 메뉴"')
+                                .classes("cb-thread-menu")
+                            ):
+                                with ui.menu():
+                                    ui.menu_item(
+                                        "삭제", on_click=lambda _, row=item: confirm_delete(row)
+                                    )
+                more.set_visibility(len(items) == count)
+
+            more = (
+                ui.button("더보기", icon="expand_more", on_click=lambda: render_threads(shown + 20))
+                .props("flat no-caps")
+                .classes("cb-thread-more")
+            )
+            render_threads(20)
+            if not shown:
+                ui.label("첫 질문을 남겨 보세요.").classes("cb-thread-empty")
+        with ui.column().classes("cb-sidebar-bottom w-full gap-1"):
+            with ui.expansion("도움말과 이용 안내", icon="help_outline").classes("w-full"):
                 ui.link("공식 자료 안내", "/sources")
-                ui.link("학습 기록 안내", "/data-policy")
+                ui.link("기록 보관·삭제", "/data-policy")
                 ui.link("홈 화면에 추가하기", "/install")
-    return footer
+                ui.link("박물관 체험 모드", "/kiosk")
+                ui.link(
+                    "UI 참고 · Codex Desktop",
+                    "https://github.com/dfones288/codex-desktop",
+                    new_tab=True,
+                )
+            with ui.link(target="/settings").classes("cb-sidebar-settings") as settings:
+                ui.icon("tune", size="19px").props("aria-hidden=true")
+                ui.label("학습 설정")
+            if path == "/settings":
+                settings.props('aria-current="page"')
+    return drawer

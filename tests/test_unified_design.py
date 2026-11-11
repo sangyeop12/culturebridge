@@ -92,24 +92,24 @@ def test_progress_buttons_never_send_an_unfinished_draft(control):
     assert control_text("message", "  내가 전송한 질문  ") == "내가 전송한 질문"
 
 
-def test_home_keeps_both_workflows_and_progressive_controls(tmp_path, monkeypatch):
+def test_home_and_library_separate_start_flows_but_keep_learning_controls(tmp_path, monkeypatch):
     monkeypatch.setattr(get_settings(), "db_path", tmp_path / f"{uuid4()}.db")
     initialize_database()
     with TestClient(app) as client:
         page = client.get("/").text
-        assert "history-start" in page and "heritage-search" in page
+        assert "history-start" in page and 'id="heritage-search"' not in page
         for text in [
             "함께 알아보기",
-            "공식 자료 통합 검색",
             "말로 질문하기",
             "/settings",
         ]:
             assert text in page
         assert "설명 스타일" not in page
         assert "내 관심사와 학습 목표" not in page
-        assert page.index("역사 속으로,") < page.index("질문으로 시작해요")
-        assert "현재 위치" in client.get("/official").text
-        assert "관련 화면" in client.get("/learning-history").text
+        library = client.get("/library").text
+        assert "heritage-search" in library and "공식 자료 통합 검색" in library
+        for path in ("/official", "/learning-history"):
+            assert "cb-sidebar" in client.get(path).text
 
 
 def test_comparison_keeps_tools_collapsed_and_quiz_before_extra_activities(tmp_path, monkeypatch):
@@ -141,7 +141,7 @@ def test_comparison_keeps_tools_collapsed_and_quiz_before_extra_activities(tmp_p
             assert button.parent_slot.parent == expansion
 
 
-def test_related_links_are_collapsed_but_remain_available(tmp_path, monkeypatch):
+def test_help_links_are_collapsed_in_shared_sidebar(tmp_path, monkeypatch):
     monkeypatch.setattr(get_settings(), "db_path", tmp_path / "simple-menu.db")
     initialize_database()
     with TestClient(app) as client:
@@ -150,15 +150,12 @@ def test_related_links_are_collapsed_but_remain_available(tmp_path, monkeypatch)
         menu = next(
             e
             for e in page.elements.values()
-            if isinstance(e, Expansion) and e._props.get("label") == "더 둘러보기"
+            if isinstance(e, Expansion) and e._props.get("label") == "도움말과 이용 안내"
         )
         assert menu.value is False
-        nav = next(e for e in menu.default_slot.children if "cb-subnav" in e._classes)
-        assert {e._props.get("href") for e in nav.default_slot.children} == {
-            "/history-search",
-            "/learning-history",
-            "/settings",
-        }
+        links = {e._props.get("href") for e in menu.default_slot.children}
+        assert {"/sources", "/data-policy", "/install", "/kiosk"} <= links
+        assert not any("cb-context-wrap" in e._classes for e in page.elements.values())
 
 
 @pytest.mark.parametrize(

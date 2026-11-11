@@ -100,7 +100,7 @@ from culturebridge.ui.learner_copy import (
     recommendation_note,
     source_scope,
 )
-from culturebridge.ui.learning_chat import learning_chat, learning_entry
+from culturebridge.ui.learning_chat import learning_chat
 from culturebridge.ui.learning_controls import tone_controls
 from culturebridge.ui.learning_intent import learning_intent_editor
 from culturebridge.ui.learning_steps import learning_steps
@@ -229,13 +229,10 @@ def _base_styles() -> None:
 
 
 def _header() -> None:
-    from culturebridge.ui.navigation import (
-        primary_navigation,
-        secondary_navigation,
-        site_footer,
-    )
+    from culturebridge.ui.navigation import workspace_navigation
 
     path = ui.context.client.request.url.path if ui.context.client.request else "/"
+    drawer = workspace_navigation(path)
     with ui.header().classes("cb-header p-0"):
         ui.button(
             "본문 바로가기",
@@ -245,29 +242,12 @@ def _header() -> None:
             ),
         ).classes("cb-skip-link")
         with ui.row().classes("cb-header-inner"):
-            with (
-                ui.link(target="/").classes("cb-brand").props('aria-label="CultureBridge 처음으로"')
-            ):
-                ui.icon("account_balance", size="22px").classes("cb-brand-mark").props(
-                    "aria-hidden=true"
-                )
-                ui.label("CultureBridge")
+            ui.button(icon="menu", on_click=drawer.toggle).props(
+                'flat round aria-label="학습 메뉴 열기 또는 닫기"'
+            )
+            ui.label("학습 작업실").classes("cb-workspace-title")
             ui.space()
-            primary_navigation(path)
-            with (
-                ui.link(target="/settings")
-                .classes("cb-settings-link")
-                .props(
-                    'aria-label="설정"' + (' aria-current="page"' if path == "/settings" else "")
-                )
-            ):
-                ui.icon("settings", size="22px").props("aria-hidden=true")
-                ui.tooltip("설정")
-    secondary_navigation(path)
-    footer = site_footer()
-    # The shared header is built before the page body. Move the footer after the
-    # body on connection so visual, keyboard and screen-reader order agree.
-    ui.context.client.on_connect(lambda: footer.move(target_index=-1))
+            ui.label("공식 자료와 함께 배우는 역사").classes("cb-workspace-caption")
 
 
 def _kiosk_header() -> None:
@@ -689,6 +669,7 @@ def _collected_source_cards(sources: list[CollectedSource], level=LearningLevel.
                 _lesson_content(source, level)
 
 
+@ui.page("/library")
 @ui.page("/")
 def home_page(
     q: str = "",
@@ -701,36 +682,21 @@ def home_page(
     auto: bool = False,
     comparison_scope: ComparisonScope = ComparisonScope.OVERSEAS,
 ) -> None:
-    from culturebridge.ui.heritage_art import museum_scene
-
     _base_styles()
     _header()
+    request = ui.context.client.request
+    # Preserve bookmarked search URLs while giving new visits one conversation entry.
+    if request and request.url.path == "/" and not request.url.query:
+        with ui.column().classes("cb-shell cb-chat-workspace gap-6"):
+            learning_chat(_io_bound)
+        return
     with ui.column().classes("cb-shell gap-7 py-10"):
-        with ui.column().classes("cb-hero cb-illustrated cb-home-intro"):
-            ui.label("공식 자료와 함께하는 역사 배움").classes("cb-eyebrow")
-            ui.label("역사 속으로,\n나만의 발견을 시작해요").classes("cb-hero-title").props(
-                "role=heading aria-level=1"
-            )
-            ui.label("질문 하나면 시작할 수 있어요. 공식 자료로 배우고, 퀴즈로 확인해요.").classes(
-                "cb-hero-copy"
-            )
-            ui.label("유산 유형을 표현한 창작 삽화 · 실제 모습이나 복원도가 아니에요.").classes(
-                "cb-art-caption"
-            )
-            ui.html(museum_scene()).classes("cb-hero-art")
-
-        learning_entry(_io_bound, embedded=True)
-        with ui.row().classes("cb-other-start w-full gap-3"):
-            ui.label("직접 골라보고 싶다면").classes("cb-muted")
-            ui.link("문화유산 찾기 ↓", "#heritage-search")
-            ui.link("주제별 코스 둘러보기 →", "/courses")
-        with ui.column().classes("cb-section-heading gap-1 w-full"):
-            ui.label("하나의 문화유산에서 세계로").classes("cb-title text-2xl").props(
-                "role=heading aria-level=2"
-            )
-            ui.label("직접 유산을 찾고, 공식 설명을 읽으며 비교 학습을 시작해 보세요.").classes(
-                "cb-muted"
-            )
+        with ui.column().classes("gap-2"):
+            ui.label("자료 찾기").classes("cb-title text-3xl").props("role=heading aria-level=1")
+            ui.label("한국과 세계의 문화유산을 한곳에서 찾고 비교해 보세요.").classes("cb-muted")
+        with ui.row().classes("cb-library-tabs gap-2"):
+            ui.link("문화유산 통합 검색", "/library").props('aria-current="page"')
+            ui.link("인물·사건", "/history-search")
 
         with ui.element("section").classes("cb-mode-strip").props('aria-label="비교 범위"'):
             with ui.column().classes("gap-1"):
@@ -1136,7 +1102,7 @@ def home_page(
 def conversation_page(conversation_id: str = ""):
     _base_styles()
     _header()
-    with ui.column().classes("cb-shell gap-6 py-10"):
+    with ui.column().classes("cb-shell cb-chat-workspace gap-6 py-10"):
         learning_chat(_io_bound, conversation_id)
 
 
@@ -1153,6 +1119,14 @@ def learning_settings_page():
         ).classes("cb-muted")
         with ui.card().classes("cb-card w-full p-5 gap-3"):
             tone_controls(_io_bound, expanded=True)
+        with ui.expansion("AI 연결 상태", icon="info_outline").classes("w-full"):
+            settings = get_settings()
+            ui.label("모델: " + settings.gemini_model)
+            ui.label("Gemini 사용: " + ("켜짐" if settings.gemini_enabled else "꺼짐"))
+            ui.label("API 키: " + ("설정됨" if settings.gemini_api_key else "없음"))
+            ui.label(
+                "실행 중인 서버의 설정이에요. 실제 응답 성공 여부는 대화 답변에 표시돼요."
+            ).classes("cb-muted text-sm")
         ui.link("관심사와 학습 목표 관리", "/learning-history#learning-profile")
         ui.link("대화 학습으로", "/learn")
 
@@ -1167,6 +1141,9 @@ def history_search_page():
         ui.label("인물과 사건 자료 찾기").classes("cb-title text-3xl").props(
             "role=heading aria-level=1"
         )
+        with ui.row().classes("cb-library-tabs gap-2"):
+            ui.link("문화유산 통합 검색", "/library")
+            ui.link("인물·사건", "/history-search").props('aria-current="page"')
         ui.label("국사편찬위원회 ‘신편 한국사’의 실제 검색 결과를 찾아요.").classes("cb-muted")
         ui.label(
             "제목을 고르면 공식 사이트의 원문을 읽을 수 있어요. "

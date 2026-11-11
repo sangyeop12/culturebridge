@@ -104,7 +104,8 @@ def test_free_start_and_reconnection_without_pair_or_level(isolated):
         assert response.status_code == 200
         data = response.json()
         assert data["revision"] == 1 and len(data["messages"]) == 2
-        assert data["concepts"] == {} and "제한된 안내" in data["notice"]
+        assert data["concepts"] == {} and "Gemini 사용이 꺼져" in data["notice"]
+        assert data["plan_history"][-1]["planner_error"]["reason"] == "gemini_disabled"
         assert client.get(f"/api/learning/conversations/{state['id']}").json() == data
         assert client.get("/").status_code == 200
         assert client.get(f"/learn?conversation_id={state['id']}").status_code == 200

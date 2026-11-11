@@ -32,8 +32,8 @@ def test_illustrated_learning_pages_keep_navigation_and_disclosure(tmp_path, mon
     initialize_database()
     with TestClient(app) as client:
         home = client.get("/")
-        assert home.status_code == 200 and "cb-illustrated" in home.text
-        assert "실제 모습이나 복원도가 아니에요" in home.text
+        assert home.status_code == 200 and "오늘은 무엇을 알아볼까요?" in home.text
+        assert "cb-sidebar" in home.text
         courses = client.get("/courses")
         assert courses.status_code == 200 and "cb-course-grid" in courses.text
         for identity in COURSES:

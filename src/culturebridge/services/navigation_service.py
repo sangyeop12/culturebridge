@@ -5,6 +5,7 @@ from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 from culturebridge.domain.models import ComparisonScope
 
 ROOTS = {
+    "/library",
     "/",
     "/domestic",
     "/official",

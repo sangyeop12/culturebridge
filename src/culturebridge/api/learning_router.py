@@ -125,6 +125,16 @@ def conversation(identity: UUID):
         raise HTTPException(status_code=404, detail="이 대화를 찾을 수 없어요.") from exc
 
 
+@router.delete("/conversations/{identity}", status_code=204)
+def remove_conversation(identity: UUID):
+    from culturebridge.services.learning_conversation_service import delete_conversation
+
+    try:
+        delete_conversation(identity)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="이 대화를 찾을 수 없어요.") from exc
+
+
 @router.post("/conversations/{identity}/turns", response_model=LearningConversation)
 def learning_turn(identity: UUID, request: LearningTurn):
     try:

@@ -11,3 +11,5 @@ backups/
 .tmp_*/
 # Local WBS artifacts, diagnostics, screenshots, caches, and server logs.
 outputs/
+.cache/
+.tools/

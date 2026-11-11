@@ -16,7 +16,7 @@ def isolated(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "path,title",
     [
-        ("/", "하나의 문화유산에서 세계로"),
+        ("/", "오늘은 무엇을 알아볼까요?"),
         ("/official", "한국 문화유산 둘러보기"),
         ("/unesco", "세계유산 둘러보기"),
         ("/comparisons", "다시 보는 비교 기록"),

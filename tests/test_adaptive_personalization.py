@@ -143,21 +143,109 @@ def test_rewrite_independently_checked_and_quotation_unchanged(monkeypatch):
 def test_bad_rewrite_falls_back(monkeypatch, candidate, span, reviewed):
     monkeypatch.setattr(get_settings(), "gemini_enabled", True)
     monkeypatch.setattr(get_settings(), "gemini_api_key", "mock-key")
-    values = iter(
-        [
-            personal.ExplanationDraft(
-                sentences=[personal.SupportedSentence(text=candidate, evidence_quote=span)]
-            ),
-            personal.ExplanationReview(
-                supported=reviewed, preserves_scope_and_uncertainty=reviewed, reason="검토"
-            ),
-        ]
+    draft = personal.ExplanationDraft(
+        sentences=[personal.SupportedSentence(text=candidate, evidence_quote=span)]
     )
+    review = personal.ExplanationReview(
+        supported=reviewed, preserves_scope_and_uncertainty=reviewed, reason="검토"
+    )
+    valid = (
+        personal.valid_draft(draft, QUOTE)
+        and personal.focused_draft(draft, "재료", QUOTE)
+        and personal.readable_draft(draft, detailed=False)
+    )
+    values = iter([draft, review] * 6 if valid else [draft] * 6)
     monkeypatch.setattr(personal, "_generate", lambda *a: next(values))
     text, meta = personal.explain(
         "재료", QUOTE, LearningPreferences(), {"mode": "explain"}, time.monotonic() + 10
     )
     assert meta["method"] == "local_guide" and candidate != text
+
+
+def test_invalid_first_draft_is_repaired_before_falling_back(monkeypatch):
+    monkeypatch.setattr(get_settings(), "gemini_enabled", True)
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "mock-key")
+    values = iter(
+        [
+            personal.ExplanationDraft(
+                sentences=[
+                    personal.SupportedSentence(
+                        text="이 탑은 2026년에 만들어졌어요.", evidence_quote=QUOTE
+                    )
+                ]
+            ),
+            personal.ExplanationDraft(
+                sentences=[
+                    personal.SupportedSentence(
+                        text="이 탑은 화강암으로 만들었어요.", evidence_quote=QUOTE
+                    )
+                ]
+            ),
+            personal.ExplanationReview(
+                supported=True, preserves_scope_and_uncertainty=True, reason="원문과 일치"
+            ),
+        ]
+    )
+    monkeypatch.setattr(personal, "_generate", lambda *args: next(values))
+    text, meta = personal.explain(
+        "재료", QUOTE, LearningPreferences(), {"mode": "explain"}, time.monotonic() + 30
+    )
+    assert text == "이 탑은 화강암으로 만들었어요."
+    assert meta["method"] == "gemini_grounded_rewrite"
+    assert meta["validation_attempts"] == 2
+
+
+def test_rejected_review_triggers_a_new_grounded_draft(monkeypatch):
+    monkeypatch.setattr(get_settings(), "gemini_enabled", True)
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "mock-key")
+    draft = personal.ExplanationDraft(
+        sentences=[
+            personal.SupportedSentence(text="이 탑은 화강암으로 만들었어요.", evidence_quote=QUOTE)
+        ]
+    )
+    values = iter(
+        [
+            draft,
+            personal.ExplanationReview(
+                supported=False, preserves_scope_and_uncertainty=False, reason="범위 불확실"
+            ),
+            draft,
+            personal.ExplanationReview(
+                supported=True, preserves_scope_and_uncertainty=True, reason="원문과 일치"
+            ),
+        ]
+    )
+    monkeypatch.setattr(personal, "_generate", lambda *args: next(values))
+    text, meta = personal.explain(
+        "재료", QUOTE, LearningPreferences(), {"mode": "explain"}, time.monotonic() + 30
+    )
+    assert text == "이 탑은 화강암으로 만들었어요."
+    assert meta["validation_attempts"] == 2
+
+
+def test_uncertainty_check_applies_to_the_cited_span_not_unrelated_source_text():
+    quote = (
+        "불국사는 통일신라 경덕왕 10년(751) 김대성의 발원에 의해 창건된 사찰이다. "
+        "김대성이 석굴암도 지었다고 전해진다."
+    )
+    certain = personal.ExplanationDraft(
+        sentences=[
+            personal.SupportedSentence(
+                text="불국사는 김대성의 발원으로 창건된 사찰이에요.",
+                evidence_quote="김대성의 발원에 의해 창건된 사찰이다",
+            )
+        ]
+    )
+    uncertain = personal.ExplanationDraft(
+        sentences=[
+            personal.SupportedSentence(
+                text="김대성이 석굴암도 지었어요.",
+                evidence_quote="김대성이 석굴암도 지었다고 전해진다",
+            )
+        ]
+    )
+    assert personal.valid_draft(certain, quote)
+    assert not personal.valid_draft(uncertain, quote)
 
 
 def test_unapproved_archive_sources_never_enter_planner_context():

@@ -217,7 +217,7 @@ def test_domestic_has_separate_entry_and_keeps_current_controls(configured, monk
     destinations = []
     monkeypatch.setattr(pages.ui.navigate, "to", destinations.append)
     with TestClient(app) as client:
-        response = client.get("/")
+        response = client.get("/library")
         page = next(
             c
             for c in reversed(list(Client.instances.values()))
