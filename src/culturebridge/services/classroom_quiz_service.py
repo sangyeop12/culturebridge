@@ -186,6 +186,17 @@ def classroom_rows(fields, focus, names, left_id, right_id, level="beginner", so
                 "두 유산의 설명 범위를 구분할 필요가 없다",
             ]
         question = "두 문화유산과 설명을 올바르게 연결한 것은?"
+        if level == "beginner" and a[0].category == "재료" and a[1] != b[1]:
+            question = (
+                f"{name_a}에는 '{a[1]}', {name_b}에는 '{b[1]}'가 나와요. "
+                "이 사실만으로 만드는 방법도 다르다고 말할 수 있을까요?"
+            )
+            choices = [
+                "만드는 방법을 설명한 자료도 함께 읽어야 해요",
+                "재료 이름만 다르면 만드는 방법도 반드시 달라요",
+                "나라가 다르면 만드는 방법도 반드시 달라요",
+                "한쪽의 만드는 방법을 다른 쪽에도 그대로 적용해요",
+            ]
         if level == "advanced":
             question = f"'{correct}'라는 관찰만으로 확정할 수 없는 주장은?"
             choices = [

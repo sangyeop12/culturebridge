@@ -14,7 +14,11 @@ from pydantic import BaseModel, Field
 
 from culturebridge.config import get_settings
 from culturebridge.services.evidence_reading_service import reading_units
-from culturebridge.services.gemini_options import interactive_retry, interactive_thinking
+from culturebridge.services.gemini_options import (
+    interactive_retry,
+    interactive_thinking,
+    interactive_timeout,
+)
 from culturebridge.services.lesson_service import beginner_text, intermediate_text
 
 
@@ -65,7 +69,7 @@ def _generate(schema, payload, instruction, deadline):
     with genai.Client(
         api_key=settings.gemini_api_key,
         http_options=types.HttpOptions(
-            timeout=min(remaining, settings.gemini_timeout_ms, 10000),
+            timeout=interactive_timeout(deadline, settings.gemini_timeout_ms),
             retry_options=interactive_retry(),
         ),
     ) as client:
@@ -189,7 +193,7 @@ def explain(concept, quote, preferences, route, deadline, *, allow_ai=True, lear
             "전체 재료로 확대하면 거절한다. 사실이 맞더라도 concept·질문에 답하지 않거나 "
             "무관한 설명이 중심이면 supported=false다. 불명확하면 false. 이유를 짧게 남긴다."
         )
-        for validation_attempts in range(1, 7):
+        for validation_attempts in range(1, 3):
             draft = _generate(ExplanationDraft, draft_payload, draft_instruction, deadline)
             if not valid_draft(draft, quote):
                 failure = "unsupported_span_or_number"

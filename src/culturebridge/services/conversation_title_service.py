@@ -20,6 +20,8 @@ _CONTROLS = {
 
 
 def conversation_title(state):
+    if state.get("title"):
+        return _shorten(state["title"])
     for message in state.get("messages", []):
         if message.get("role") != "user":
             continue
@@ -37,6 +39,30 @@ def conversation_title(state):
     if fallback and re.sub(r"[\s.!?？]", "", fallback) not in _CONTROLS:
         return _shorten(fallback)
     return "새 대화"
+
+
+def conversation_preview(state):
+    """A short learner-facing excerpt, not timestamps or internal execution metadata."""
+    title = conversation_title(state)
+    for message in reversed(state.get("messages", [])):
+        if message.get("role") == "user":
+            candidate = conversation_title({"messages": [message]})
+            if candidate not in {title, "새 대화"}:
+                return candidate
+    for message in reversed(state.get("messages", [])):
+        for paragraph in message.get("text", "").splitlines():
+            if (
+                re.search(r"[가-힣]", paragraph)
+                and not re.search(
+                    r"Gemini|API|SDK|검증 실패|공식 원문:|현재 자료와 요청|"
+                    r"쉽게 풀어드릴게요|사용량 한도|사전 자동 조회",
+                    paragraph,
+                )
+                and re.sub(r"[\s.!?？]", "", paragraph) not in _CONTROLS
+            ):
+                text = " ".join(paragraph.split())
+                return text if len(text) <= 70 else text[:69].rstrip() + "…"
+    return ""
 
 
 def _shorten(text):

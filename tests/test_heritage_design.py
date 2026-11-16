@@ -39,5 +39,5 @@ def test_illustrated_learning_pages_keep_navigation_and_disclosure(tmp_path, mon
         for identity in COURSES:
             assert f"/courses/{identity}" in courses.text
         detail = client.get("/courses/pagoda-materials")
-        assert detail.status_code == 200 and "cb-course-banner" in detail.text
-        assert "창작 삽화" in detail.text
+        assert detail.status_code == 200 and "cb-photo-grid" in detail.text
+        assert "Bernard Gagnon" in detail.text and "Wicki" in detail.text

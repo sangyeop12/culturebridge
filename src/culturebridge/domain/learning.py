@@ -130,6 +130,7 @@ class LearningConversation(BaseModel):
     _pending_intent_signals: list[dict] = PrivateAttr(default_factory=list)
     id: UUID
     revision: int
+    title: str = Field(default="", max_length=100)
     status: Literal["active", "paused"] = "active"
     goal: str = ""
     concepts: dict = Field(default_factory=dict)

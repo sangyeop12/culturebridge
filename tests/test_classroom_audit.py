@@ -166,7 +166,8 @@ def test_paired_question_uses_same_axis_even_when_first_facts_differ():
         fields, ["시대", "구조", "재료"], {"left": "왼쪽", "right": "오른쪽"}, "left", "right"
     )
     assert len(rows) == 5
-    assert rows[-1][1][0] == "왼쪽: 나무 / 오른쪽: 대리석"
+    assert "나무" in rows[-1][0] and "대리석" in rows[-1][0]
+    assert rows[-1][1][0] == "만드는 방법을 설명한 자료도 함께 읽어야 해요"
 
 
 def test_round_mound_does_not_have_round_shape_as_a_false_choice():

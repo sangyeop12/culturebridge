@@ -6,7 +6,9 @@ from google.genai import types
 from culturebridge.services.gemini_options import interactive_retry
 
 
-@pytest.mark.parametrize("status,expected_calls", [(503, 2), (504, 2), (429, 2), (403, 1)])
+@pytest.mark.parametrize(
+    "status,expected_calls", [(500, 2), (502, 2), (503, 2), (504, 1), (429, 1), (403, 1)]
+)
 def test_sdk_retries_transient_unavailability_but_not_quota_or_auth(status, expected_calls):
     calls = []
 
@@ -25,15 +27,15 @@ def test_sdk_retries_transient_unavailability_but_not_quota_or_auth(status, expe
             client_args={"transport": httpx.MockTransport(handle)},
         ),
     ) as client:
-        if status in {503, 504, 429}:
+        if status in {500, 502, 503}:
             assert client.models.generate_content(model="test-model", contents="test").text == "OK"
         else:
-            with pytest.raises(genai.errors.ClientError):
+            with pytest.raises(genai.errors.APIError):
                 client.models.generate_content(model="test-model", contents="test")
     assert len(calls) == expected_calls
 
 
-def test_sdk_stops_after_five_failed_retries():
+def test_sdk_stops_after_one_failed_retry():
     calls = []
 
     def handle(request):
@@ -49,7 +51,7 @@ def test_sdk_stops_after_five_failed_retries():
     ) as client:
         with pytest.raises(genai.errors.ServerError):
             client.models.generate_content(model="test-model", contents="test")
-    assert len(calls) == 6
+    assert len(calls) == 2
 
 
 def test_sdk_retries_a_connection_timeout():

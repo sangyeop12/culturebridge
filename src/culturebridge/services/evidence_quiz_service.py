@@ -373,7 +373,7 @@ def generate_evidence_quiz(left_id, right_id, level: LearningLevel, comparison_i
                 choices,
                 f"복습 항목: {field.category} · 원문: {field.evidence_quote} · "
                 "해당 자료의 설명을 고르는 문제입니다. "
-                "추출의 역사적 의미는 추가 검토가 필요합니다. "
+                "문장에서 어떤 부분을 설명하는지 함께 살펴보세요. "
                 f"보충 활동: {field.category}에 해당하는 말을 원문에서 표시하고 "
                 "다른 유산의 인용과 비교하세요.",
             )

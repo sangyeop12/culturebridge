@@ -4,7 +4,7 @@ from culturebridge.database import transaction
 from culturebridge.services.operation_service import owner_key, private_session
 
 
-def list_learning_reviews(limit=20, offset=0, level="all"):
+def list_learning_reviews(limit=20, offset=0, level="all", *, records="all"):
     private = private_session()
     with transaction() as connection:
         rows = connection.execute(
@@ -16,12 +16,17 @@ def list_learning_reviews(limit=20, offset=0, level="all"):
             JOIN heritages c ON c.id=h.heritage_id
             WHERE (? IS NULL OR r.owner=?) AND (?='all' OR h.level=?)
             AND (r.owner NOT LIKE 'kiosk:%' OR r.owner=?)
+            AND (? <> 'mine' OR r.owner=?) AND (? <> 'shared' OR r.owner<>?)
             ORDER BY h.id DESC LIMIT ? OFFSET ?""",
             (
                 owner_key() if private else None,
                 owner_key(),
                 level,
                 level,
+                owner_key(),
+                records,
+                owner_key(),
+                records,
                 owner_key(),
                 limit,
                 offset,

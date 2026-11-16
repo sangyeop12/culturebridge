@@ -100,26 +100,32 @@ def get_conversation(identity):
 
 
 def list_conversations(*, limit=30, offset=0):
-    from culturebridge.services.conversation_title_service import conversation_title
+    from culturebridge.services.conversation_title_service import (
+        conversation_preview,
+        conversation_title,
+    )
 
     with transaction() as connection:
         rows = connection.execute(
             "SELECT id,revision,state_json FROM learning_conversations WHERE owner=? "
-            "ORDER BY updated_at DESC,rowid DESC LIMIT ? OFFSET ?",
-            (owner_key(), limit, offset),
+            "ORDER BY updated_at DESC,rowid DESC",
+            (owner_key(),),
         ).fetchall()
     items = []
     for row in rows:
         state = json.loads(row["state_json"])
+        if not state.get("messages") and not state.get("goal") and not state.get("quiz_review"):
+            continue
         items.append(
             {
                 "id": row["id"],
                 "revision": row["revision"],
                 "goal": state.get("goal") or "이어서 이야기하기",
                 "title": conversation_title(state),
+                "preview": conversation_preview(state),
             }
         )
-    return items
+    return items[offset : offset + limit]
 
 
 def delete_conversation(identity):
@@ -199,8 +205,23 @@ def send_learning_turn(identity, request: LearningTurn):
             ).fetchone()
         if profile:
             state.concepts = json.loads(profile[0])
-        result = run_learning_turn(state, request)
+        import time
+
+        from culturebridge.config import get_settings
+        from culturebridge.services.gemini_options import model_request_scope
+
+        with model_request_scope(
+            time.monotonic() + get_settings().learning_turn_seconds,
+            lambda: learning_stop_requested(state),
+        ):
+            result = run_learning_turn(state, request)
         result.revision = state.revision + 1
+        if not result.title:
+            from culturebridge.services.conversation_title_service import conversation_title
+
+            title = conversation_title(result.model_dump())
+            if title != "새 대화":
+                result.title = title
         removed = max(0, len(result.messages) - 40)
         result.topic_start = max(0, result.topic_start - removed)
         result.messages = result.messages[-40:]

@@ -98,9 +98,12 @@ def workspace_navigation(path):
                 with thread_items:
                     for item in items:
                         with ui.row().classes("cb-thread-row w-full items-center no-wrap"):
-                            link = ui.link(
-                                item["title"], f"/learn?conversation_id={item['id']}"
-                            ).classes("cb-thread-link")
+                            with ui.link(target=f"/learn?conversation_id={item['id']}").classes(
+                                "cb-thread-link"
+                            ) as link:
+                                ui.label(item["title"]).classes("cb-thread-title")
+                                if item.get("preview") and item["preview"] != item["title"]:
+                                    ui.label(item["preview"]).classes("cb-thread-preview")
                             if str(item["id"]) == selected:
                                 link.props('aria-current="page"')
                             with (
