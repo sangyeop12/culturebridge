@@ -97,6 +97,17 @@ def tone_controls(worker, on_saved=None, *, expanded=False):
             value=preferences.explanation_depth,
             label="설명의 자세함",
         ).classes("w-full")
+        level = ui.select(
+            {
+                "recommended": "코스 권장 수준에 맞추기",
+                "beginner": "초급",
+                "intermediate": "중급",
+                "advanced": "고급",
+            },
+            value=preferences.default_level,
+            label="자료 찾기·코스의 기본 수준",
+        ).classes("w-full")
+        ui.label("새 학습에 적용돼요. 각 화면에서 다른 수준을 고르면 그 선택을 우선해요.")
         custom = (
             ui.input(label="원하는 안내 방식", value=preferences.custom_style)
             .props("maxlength=120")
@@ -117,6 +128,7 @@ def tone_controls(worker, on_saved=None, *, expanded=False):
                         tone=tone.value,
                         custom_style=custom.value or "",
                         explanation_depth=depth.value,
+                        default_level=level.value,
                     ),
                 )
                 if on_saved:

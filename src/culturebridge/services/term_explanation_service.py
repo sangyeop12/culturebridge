@@ -9,6 +9,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from culturebridge.config import get_settings
+from culturebridge.services.gemini_options import interactive_timeout
 
 
 class TermDraft(BaseModel):
@@ -22,7 +23,9 @@ def _generate_term(query, remaining, model):
     with genai.Client(
         api_key=settings.gemini_api_key,
         http_options=types.HttpOptions(
-            timeout=min(remaining, settings.gemini_timeout_ms, 10000),
+            timeout=interactive_timeout(
+                time.monotonic() + remaining / 1000, settings.gemini_timeout_ms, attempts=1
+            ),
             retry_options=types.HttpRetryOptions(attempts=1),
         ),
     ) as client:

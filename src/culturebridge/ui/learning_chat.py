@@ -50,29 +50,64 @@ def learning_entry(worker):
 
         with ui.row().classes("cb-thinking items-center gap-2") as starting:
             ui.spinner(size="20px", color="primary")
-            ui.label("생각 중… Gemini 응답을 기다리고 있어요.")
+            ui.label("질문에 맞는 설명을 준비하고 있어요.")
         starting.set_visibility(False)
+        starting_conversation = None
+        pending_start = None
+
+        async def stop_start():
+            if starting_conversation is not None:
+                try:
+                    await worker(
+                        request_learning_stop,
+                        starting_conversation.id,
+                        starting_conversation.revision,
+                    )
+                    ui.notify("중단을 요청했어요. 진행 중인 응답을 정리한 뒤 멈춰요.")
+                except (ConversationNotFoundError, ConversationConflictError):
+                    ui.notify("응답이 이미 끝났어요. 대화 화면에서 이어서 확인해 주세요.")
 
         async def start():
+            nonlocal starting_conversation, pending_start
             if not (prompt.value or "").strip():
                 ui.notify("궁금한 점이나 관심사를 들려주세요.", color="warning")
                 return
             button.disable()
+            question = prompt.value
+            prompt.disable()
             mic.disable()
             starting.set_visibility(True)
             ui.run_javascript("window.CultureBridgeVoice?.cancel()")
             try:
-                conversation = await worker(create_conversation)
+                if pending_start is None or pending_start[2] != question:
+                    conversation = await worker(create_conversation)
+                    pending_start = (
+                        conversation,
+                        LearningTurn(request_id=uuid4(), revision=0, text=question),
+                        question,
+                    )
+                conversation, turn, _ = pending_start
+                starting_conversation = conversation
+                stop_button.set_visibility(True)
                 await worker(
                     send_learning_turn,
                     conversation.id,
-                    LearningTurn(request_id=uuid4(), revision=0, text=prompt.value),
+                    turn,
                 )
+                pending_start = None
                 ui.navigate.to(f"/learn?conversation_id={conversation.id}")
             except (ValueError, OperationBusyError):
                 ui.notify("대화를 시작하지 못했어요. 잠시 뒤 다시 시도해 주세요.", color="warning")
+            except Exception:
+                ui.notify(
+                    "응답을 확인하지 못했어요. 같은 질문을 다시 보내면 이어서 확인해요.",
+                    color="warning",
+                )
             finally:
                 starting.set_visibility(False)
+                stop_button.set_visibility(False)
+                starting_conversation = None
+                prompt.enable()
                 button.enable()
                 mic.enable()
 
@@ -80,6 +115,8 @@ def learning_entry(worker):
             button = ui.button("함께 알아보기", on_click=start, icon="arrow_forward").props(
                 "unelevated"
             )
+            stop_button = ui.button("잠시 중단", on_click=stop_start).props("outline")
+            stop_button.set_visibility(False)
         with ui.expansion("어떤 자료로 배우나요?").classes("w-full"):
             ui.label(
                 "한국 문화유산은 국가유산청 자료, 세계유산 검색은 UNESCO 등재 목록을 이용해요."
@@ -127,8 +164,9 @@ def learning_chat(worker, conversation_id=""):
         .props("role=status aria-live=polite") as thinking
     ):
         ui.spinner(size="20px", color="primary")
-        status = ui.label().classes("cb-muted")
+        ui.label("자료를 살펴보고 있어요. 잠시만 기다려 주세요.")
     thinking.set_visibility(False)
+    status = ui.label().classes("cb-muted").props("role=status aria-live=polite")
     with ui.column().classes("cb-composer-dock w-full gap-2") as composer:
         prompt = (
             ui.textarea(label="이야기 이어가기")
@@ -168,7 +206,7 @@ def learning_chat(worker, conversation_id=""):
         ui.run_javascript("window.CultureBridgeVoice?.cancel()")
         for button in controls + quiz_controls:
             button.disable()
-        status.set_text("생각 중… Gemini 응답이 늦으면 자동으로 최대 5회 다시 시도해요.")
+        status.set_text("")
         thinking.set_visibility(True)
         try:
             state = await worker(send_learning_turn, state.id, pending[1])
@@ -234,15 +272,8 @@ def learning_chat(worker, conversation_id=""):
                     )
                     method = message.teaching.get("method")
                     if message.role == "assistant" and method:
-                        ui.label(
-                            "Gemini 설명 · 공식 원문 근거"
-                            if method == "gemini_grounded_rewrite"
-                            else "Gemini 설명 실패 · 공식 원문만 표시"
-                            if method == "gemini_failed"
-                            else "Gemini 초안 검증 실패 · 공식 자료 기본 설명"
-                            if message.teaching.get("failure_kind")
-                            else "공식 자료 기본 설명 · Gemini 설명 미사용"
-                        ).classes("cb-muted text-xs")
+                        with ui.expansion("이 설명에 대해").classes("cb-explanation-info"):
+                            ui.label(explanation_origin(message))
                     ui.label(message_body(message, preferences)).classes("cb-message-body")
                     glossary = explanation_glossary(message)
                     if glossary:
@@ -434,6 +465,20 @@ def learning_chat(worker, conversation_id=""):
     composer.move(target_index=-1)
 
 
+def explanation_origin(message):
+    """Keep source provenance accurate without exposing provider diagnostics in the transcript."""
+    method = message.teaching.get("method")
+    if method == "gemini_term_help":
+        return "용어의 일반적인 뜻을 쉽게 풀어 쓴 설명이에요."
+    if message.kind == "dictionary" and message.citations:
+        return "표준국어대사전의 뜻풀이 원문이에요."
+    if method == "gemini_grounded_rewrite":
+        return "공식 자료를 바탕으로 이해하기 쉽게 풀어 쓴 설명이에요."
+    if method == "gemini_failed":
+        return "새 설명을 준비하지 못했어요. 질문은 남겨 두었어요."
+    return "공식 자료와 함께 읽는 도움말이에요."
+
+
 def message_body(message, preferences):
     """Avoid repeating the same quote in prose and its source panel; keep stored text intact."""
     text = present_message(message, preferences)
@@ -444,6 +489,8 @@ def message_body(message, preferences):
             "\n\nGemini가 설명한 일반적인 뜻이에요. 공식 사전 뜻풀이는 아니에요.", "", 1
         )
     if message.role == "assistant" and message.kind != "dictionary":
+        if message.teaching.get("method") == "gemini_failed":
+            text = "설명을 준비하지 못했어요. 질문은 남겨 두었으니 잠시 후 다시 물어봐 주세요."
         legacy_footer = (
             "\n\n현재 자료와 요청은 유지했어요. "
             "AI 연결이 복구되면 ‘이어서 진행해 주세요’로 계속할 수 있어요."
@@ -460,6 +507,12 @@ def message_body(message, preferences):
 
 
 def display_notice(text):
+    if "Gemini" in text:
+        if "한도" in text:
+            return "지금은 이용량 한도에 도달했어요. 질문과 자료는 남겨 두었어요."
+        if "키" in text or "꺼져" in text:
+            return "설명 서비스에 연결되지 않았어요. 잠시 뒤 다시 시도해 주세요."
+        return "새 설명을 준비하지 못했어요. 질문과 자료는 남겨 두었어요."
     return service_text(text)
 
 
