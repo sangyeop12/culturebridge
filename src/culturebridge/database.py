@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS learning_conversations (
     state_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS learning_conversation_owner ON learning_conversations(owner);
+CREATE INDEX IF NOT EXISTS learning_conversation_recency
+    ON learning_conversations(owner, updated_at);
 CREATE TABLE IF NOT EXISTS learning_turn_requests (
     conversation_id TEXT NOT NULL REFERENCES learning_conversations(id) ON DELETE CASCADE,
     request_id TEXT NOT NULL, payload_hash TEXT NOT NULL, response_json TEXT NOT NULL,

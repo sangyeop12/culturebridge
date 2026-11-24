@@ -61,11 +61,6 @@ def create_conversation(*, review_history_id=None):
                     "DELETE FROM learning_review_links WHERE history_id=? AND owner=?",
                     (review_history_id, owner_key()),
                 )
-        count = connection.execute(
-            "SELECT count(*) FROM learning_conversations WHERE owner=?", (owner_key(),)
-        ).fetchone()[0]
-        if count >= 100:
-            raise ValueError("대화가 많이 쌓였어요. 기존 대화를 이어가거나 기록을 정리해 주세요.")
         profile = connection.execute(
             "SELECT state_json FROM learner_profiles WHERE owner=?", (owner_key(),)
         ).fetchone()
@@ -100,26 +95,40 @@ def get_conversation(identity):
 
 
 def list_conversations(*, limit=30, offset=0):
-    from culturebridge.services.conversation_title_service import conversation_title
-
     with transaction() as connection:
         rows = connection.execute(
             "SELECT id,revision,state_json FROM learning_conversations WHERE owner=? "
             "ORDER BY updated_at DESC,rowid DESC LIMIT ? OFFSET ?",
             (owner_key(), limit, offset),
         ).fetchall()
-    items = []
-    for row in rows:
-        state = json.loads(row["state_json"])
-        items.append(
-            {
-                "id": row["id"],
-                "revision": row["revision"],
-                "goal": state.get("goal") or "이어서 이야기하기",
-                "title": conversation_title(state),
-            }
-        )
-    return items
+    return [_conversation_summary(row) for row in rows]
+
+
+def list_conversation_page(*, page_size, before=None):
+    """Read one sidebar page in recency order, even if an earlier row was deleted."""
+    boundary = "AND (updated_at, rowid) < (?, ?)" if before is not None else ""
+    params = (owner_key(), *(before or ()), page_size + 1)
+    with transaction() as connection:
+        rows = connection.execute(
+            "SELECT id,revision,state_json,updated_at,rowid FROM learning_conversations "
+            f"WHERE owner=? {boundary} ORDER BY updated_at DESC,rowid DESC LIMIT ?",
+            params,
+        ).fetchall()
+    page = rows[:page_size]
+    next_cursor = (page[-1]["updated_at"], page[-1]["rowid"]) if len(rows) > page_size else None
+    return [_conversation_summary(row) for row in page], next_cursor
+
+
+def _conversation_summary(row):
+    from culturebridge.services.conversation_title_service import conversation_title
+
+    state = json.loads(row["state_json"])
+    return {
+        "id": row["id"],
+        "revision": row["revision"],
+        "goal": state.get("goal") or "이어서 이야기하기",
+        "title": conversation_title(state),
+    }
 
 
 def delete_conversation(identity):

@@ -8,7 +8,9 @@ from nicegui.elements.textarea import Textarea
 from culturebridge.config import get_settings
 from culturebridge.database import initialize_database
 from culturebridge.main import app
+from culturebridge.services.learning_conversation_service import list_conversation_page
 from culturebridge.services.navigation_service import search_return
+from culturebridge.services.operation_service import session_owner
 from culturebridge.ui.navigation import section_for
 
 
@@ -62,6 +64,31 @@ def test_long_thread_list_is_paged_with_more_button():
         assert "더보기" in page
         assert f"/learn?conversation_id={identities[0]}" not in page
         assert len(client.get("/api/learning/conversations").json()) == 23
+
+
+def test_conversation_pages_keep_order_and_ownership_beyond_the_old_limit():
+    with TestClient(app) as client:
+        created = []
+        for _ in range(121):
+            response = client.post("/api/learning/conversations")
+            assert response.status_code < 300
+            created.append(response.json()["id"])
+        token = session_owner.set(client.cookies["cb_session"].split(".")[0])
+        try:
+            page, cursor = list_conversation_page(page_size=20)
+            assert [item["id"] for item in page] == created[-20:][::-1]
+            assert cursor is not None
+            assert client.delete(f"/api/learning/conversations/{page[-1]['id']}").status_code == 204
+
+            remaining = []
+            while cursor is not None:
+                page, cursor = list_conversation_page(page_size=20, before=cursor)
+                remaining.extend(item["id"] for item in page)
+            assert remaining == created[:-20][::-1]
+        finally:
+            session_owner.reset(token)
+
+    assert list_conversation_page(page_size=20) == ([], None)
 
 
 def test_library_and_bookmarked_home_search_share_search_controls():
