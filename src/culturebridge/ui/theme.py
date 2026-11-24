@@ -262,6 +262,7 @@ body {background:var(--cb-paper);font-size:15px;line-height:1.65}
 .cb-workspace-caption {font-size:12px;color:var(--cb-muted)}
 .cb-sidebar {background:#f0f1ed;color:var(--cb-ink)}
 .cb-sidebar .q-drawer__content {display:flex;flex-direction:column;
+ padding:clamp(10px,3vh,24px) 14px 12px;gap:clamp(8px,2.5vh,24px);height:100%;min-height:0}
  padding:24px 14px 14px;gap:24px;height:100%;min-height:0}
 .cb-sidebar .cb-brand {padding:0 10px;font-size:19px;letter-spacing:-.04em;gap:10px}
 .cb-sidebar .cb-brand .q-icon {color:#315c4f}
@@ -274,9 +275,14 @@ body {background:var(--cb-paper);font-size:15px;line-height:1.65}
 .cb-sidebar .cb-nav a[aria-current=page],.cb-thread-link[aria-current=page] {
  background:#e1e5dd;color:#253e32;font-weight:650}
 .cb-sidebar a {text-decoration:none}
-.cb-thread-list {flex:1 1 0;min-height:0;overflow-y:auto;align-content:start;flex-wrap:nowrap}
+.cb-thread-section {flex:1 1 0;min-height:80px;align-items:stretch;flex-wrap:nowrap}
+.cb-thread-list {flex:1 1 0;min-height:0;overflow-y:auto;overflow-x:hidden;
+ overscroll-behavior-y:contain;scrollbar-gutter:stable;align-content:start;flex-wrap:nowrap}
+.cb-thread-list:focus-visible {outline:2px solid #315c4f;outline-offset:-2px;border-radius:8px}
 .cb-thread-items {flex:0 0 auto;min-width:0}
-.cb-thread-row {min-width:0;flex:0 0 auto;border-radius:8px}
+.cb-thread-batch {content-visibility:auto;flex:0 0 auto;gap:4px;
+ contain-intrinsic-block-size:auto calc(var(--cb-thread-count) * 48px - 4px)}
+.cb-thread-row {min-width:0;height:44px;flex:0 0 auto;border-radius:8px}
 .cb-thread-row:hover {background:#e7eae2}
 .cb-sidebar-label {padding:0 12px 10px;font-size:12px;color:#72786f;font-weight:650}
 .cb-thread-link {display:block;flex:1 1 0;min-width:0;padding:10px 12px;border-radius:8px;
@@ -286,7 +292,8 @@ body {background:var(--cb-paper);font-size:15px;line-height:1.65}
 .cb-thread-menu {flex:0 0 32px;opacity:.7}
 .cb-thread-more {align-self:flex-start;flex:0 0 auto}
 .cb-thread-link:hover,.cb-sidebar-settings:hover {background:#e7eae2}
-.cb-thread-empty {padding:0 12px;color:#73796f;font-size:12px}
+.cb-thread-empty,.cb-thread-status {padding:0 12px;color:#646b61;font-size:12px;flex:0 0 auto}
+.cb-thread-status:empty {display:none}
 .cb-sidebar-bottom {margin-top:auto;border-top:1px solid #dfe3d9;padding-top:12px}
 .cb-sidebar-bottom .q-expansion-item {font-size:12px}
 .cb-sidebar-bottom .q-item {padding:8px 10px;min-height:44px}
