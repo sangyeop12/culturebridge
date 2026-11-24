@@ -84,7 +84,7 @@ def test_long_easy_rewrite_retries_then_falls_back_without_review(monkeypatch):
     _, meta = service.explain(
         "구조", quote, LearningPreferences(), {"mode": "explain"}, time.monotonic() + 30
     )
-    assert len(calls) == 2
+    assert len(calls) == 6
     assert all(call[0] is ExplanationDraft for call in calls)
     assert meta["method"] == "local_guide"
     assert meta["failure_kind"] == "easy_readability_rejected"

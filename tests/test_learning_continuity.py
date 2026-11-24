@@ -81,7 +81,7 @@ def test_failed_planner_keeps_current_source_goal_and_no_assessment(isolated, mo
     assert "돌" in result.messages[-1].text
     assert result.pending_request == text
     assert calls == [True]
-    assert "이용량 한도" in result.notice
+    assert "요청 한도" in result.notice
     assert not result.concepts
     assert result.plan_history[-1]["planner"] == "limited_fallback"
     if "확인 질문" in text:
@@ -201,7 +201,7 @@ def test_material_rewrite_retries_height_drift_without_review(monkeypatch):
         time.monotonic() + 30,
         learner_text="무엇으로 만들었나요?",
     )
-    assert calls == [1] * 2
+    assert calls == [1] * 6
     assert metadata["failure_kind"] == "learning_focus_mismatch"
     assert "돌" in text and "10.29" not in text
 

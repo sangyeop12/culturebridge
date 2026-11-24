@@ -1,14 +1,12 @@
 """Workspace entry, shared history ownership and legacy search continuity."""
 
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 from nicegui import Client
 from nicegui.elements.textarea import Textarea
 
 from culturebridge.config import get_settings
-from culturebridge.database import initialize_database, transaction
+from culturebridge.database import initialize_database
 from culturebridge.main import app
 from culturebridge.services.learning_conversation_service import list_conversation_page
 from culturebridge.services.navigation_service import search_return
@@ -20,17 +18,6 @@ from culturebridge.ui.navigation import section_for
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(get_settings(), "db_path", tmp_path / "workspace.db")
     initialize_database()
-
-
-def started_conversation(client):
-    state = client.post("/api/learning/conversations").json()
-    state["messages"] = [{"role": "user", "text": "경복궁을 알려줘"}]
-    with transaction() as connection:
-        connection.execute(
-            "UPDATE learning_conversations SET state_json=? WHERE id=?",
-            (json.dumps(state), state["id"]),
-        )
-    return state
 
 
 @pytest.mark.parametrize("route", ["/", "/learn"])
@@ -48,7 +35,7 @@ def test_entry_has_one_prompt_and_does_not_create_a_conversation(route):
 
 def test_recent_threads_are_owned_and_available_across_workspace_pages():
     with TestClient(app) as owner:
-        conversation = started_conversation(owner)
+        conversation = owner.post("/api/learning/conversations").json()
         identity = conversation["id"]
         for route in ("/", "/library", "/courses", "/learning-history"):
             response = owner.get(route)
@@ -60,7 +47,7 @@ def test_recent_threads_are_owned_and_available_across_workspace_pages():
 
 def test_thread_delete_is_owner_scoped_and_removes_it_from_sidebar():
     with TestClient(app) as owner:
-        identity = started_conversation(owner)["id"]
+        identity = owner.post("/api/learning/conversations").json()["id"]
         assert f"/learn?conversation_id={identity}" in owner.get("/").text
         with TestClient(app) as other:
             assert other.delete(f"/api/learning/conversations/{identity}").status_code == 404
@@ -71,7 +58,7 @@ def test_thread_delete_is_owner_scoped_and_removes_it_from_sidebar():
 
 def test_long_thread_list_is_paged_with_more_button():
     with TestClient(app) as client:
-        identities = [started_conversation(client)["id"] for _ in range(23)]
+        identities = [client.post("/api/learning/conversations").json()["id"] for _ in range(23)]
         page = client.get("/").text
         assert page.count("cb-thread-row") >= 20
         assert "더보기" in page

@@ -21,11 +21,7 @@ from culturebridge.services.conversation_source_policy import (
     current_topic_messages,
     url_allowed,
 )
-from culturebridge.services.gemini_options import (
-    interactive_retry,
-    interactive_thinking,
-    interactive_timeout,
-)
+from culturebridge.services.gemini_options import interactive_retry, interactive_thinking
 from culturebridge.services.lesson_service import official_source
 from culturebridge.services.official_service import get_official_document, search_official_heritages
 
@@ -161,7 +157,7 @@ def _model_decision(state):
     with genai.Client(
         api_key=settings.gemini_api_key,
         http_options=types.HttpOptions(
-            timeout=interactive_timeout(state["deadline"], settings.gemini_timeout_ms),
+            timeout=min(remaining, settings.gemini_timeout_ms),
             retry_options=interactive_retry(),
         ),
     ) as client:
@@ -572,12 +568,13 @@ def plan(state):
         if getattr(exc, "code", None) == 429:
             rate_limited = True
             notice = (
-                "지금은 이용량 한도에 도달했어요. 추가 요청은 멈췄고, 질문과 자료는 남겨 두었어요."
+                "Gemini 요청을 최대 5회 다시 시도했지만 요청 한도 오류가 계속됐어요. "
+                "현재 자료와 요청은 남겨 두었어요."
             )
         elif getattr(exc, "code", None) == 503:
-            notice = "설명 서비스가 잠시 혼잡해요. 질문과 자료는 남겨 두었어요."
+            notice = "Gemini 요청을 최대 5회 다시 시도했지만 서버 오류(503)가 계속됐어요."
         elif getattr(exc, "code", None) in {500, 502, 504} or isinstance(exc, TimeoutError):
-            notice = "설명을 기다리는 시간이 길어져 멈췄어요. 질문과 자료는 남겨 두었어요."
+            notice = "Gemini 요청을 최대 5회 다시 시도했지만 응답이 없었어요."
         state["planner_error"] = {
             "type": type(exc).__name__,
             "code": getattr(exc, "code", None)

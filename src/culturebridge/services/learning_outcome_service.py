@@ -6,35 +6,12 @@ import re
 def update_contract(conversation, text):
     """Capture an explicit comparison anchor before search, not from a model's goal."""
     match = re.search(
-        r"^(.{2,70}?)(?:[을를]\s*기준으로|(?:이랑|랑|하고|과|와)\s*|[을를]\s+)",
+        r"^(.{2,70}?)(?:(?:과|와)\s*(?:비교할|해외|국내|다른\s*나라)|[을를]\s*기준으로)",
         text.strip(),
     )
-    if "비교" not in text:
+    if "비교" not in text or not match:
         return
-    subject = match[1].strip() if match else ""
-    subject = re.sub(r"^(?:그럼|그러면|이번에는|이번엔|이제)\s+", "", subject)
-    if re.fullmatch(
-        r"(?:시대|구조|재료|종교적\s*배경|종교|는|은|을|를|만|말고|빼고|제외|과|와|\s)+",
-        subject,
-    ):
-        subject = ""
-    if subject.replace(" ", "") in {
-        "시대",
-        "구조",
-        "재료",
-        "종교",
-        "종교적배경",
-        "두유산",
-        "찾은후보",
-        "후보들",
-    }:
-        subject = ""
-    if not subject:
-        if not any(c in text for c in ("시대", "구조", "재료", "종교")):
-            return
-        subject = conversation.task_contract.get("subject", "")
-        if not subject:
-            return
+    subject = match[1].strip()
     if subject.replace(" ", "") in {"이유산", "이문화유산", "그유산", "선택한유산"}:
         if conversation.task_contract.get("subject"):
             subject = conversation.task_contract["subject"]
@@ -47,26 +24,14 @@ def update_contract(conversation, text):
         if not subject or "제외" in subject:
             conversation.task_contract = {}
             return
-    categories = [
-        c
-        for c in ("시대", "구조", "재료", "종교적 배경")
-        if c in text
-        and not re.search(re.escape(c) + r"(?:는|은|을|를)?\s*(?:말고|빼고|제외)", text)
-    ]
+    categories = [c for c in ("시대", "구조", "재료", "종교적 배경") if c in text]
     if "종교" in text and "종교적 배경" not in categories:
         categories.append("종교적 배경")
-    quiz_requested = (
-        conversation.task_contract.get("quiz_requested", False)
-        if subject == conversation.task_contract.get("subject")
-        else False
-    )
-    if "퀴즈" in text:
-        quiz_requested = not re.search(r"퀴즈\s*(?:없이|말고|빼고)", text)
     conversation.task_contract = {
         "request": text[:1000],
         "subject": subject,
         "categories": categories,
-        "quiz_requested": bool(quiz_requested),
+        "quiz_requested": "퀴즈" in text and not re.search(r"퀴즈\s*(?:없이|말고|빼고)", text),
     }
 
 

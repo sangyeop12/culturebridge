@@ -69,7 +69,7 @@ def test_failed_gemini_still_reads_and_answers_from_actual_source(monkeypatch, t
     assert result.messages[-1].citations[0]["quote"] == QUOTE
     assert result.messages[-1].teaching["method"] == "local_guide"
     assert any(s["url"].startswith("/discover/khs/") for s in result.messages[-1].suggestions)
-    assert "이용량 한도" in result.notice
+    assert "요청 한도" in result.notice
     assert result.plan_history[-1]["planner_error"]["code"] == 429
     assert "신편 한국사" not in result.messages[-1].text
     assert "AI 연결이 복구되면" not in result.messages[-1].text
@@ -183,8 +183,7 @@ def test_chat_displays_answer_provenance_and_internal_learning_actions(monkeypat
         assert result.status_code == 200
         page = client.get(f"/learn?conversation_id={state['id']}")
         assert QUOTE in page.text
-        assert "공식 자료와 함께 읽는 도움말이에요." in page.text
-        assert "공식 자료 기본 설명 · Gemini 설명 미사용" not in page.text
+        assert "공식 자료 기본 설명 · Gemini 설명 미사용" in page.text
         assert "다른 나라 유산과 비교하기" in page.text
         assert "/discover/khs/13:0000117000000:11" in page.text
 

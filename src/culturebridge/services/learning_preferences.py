@@ -13,14 +13,6 @@ class LearningPreferences(BaseModel):
     tone: Literal["friendly", "polite", "concise", "custom"] = "friendly"
     custom_style: str = Field(default="", max_length=120)
     explanation_depth: Literal["auto", "easy", "detailed"] = "auto"
-    default_level: Literal["recommended", "beginner", "intermediate", "advanced"] = "recommended"
-
-
-def preferred_level(explicit="", fallback="beginner"):
-    if explicit:
-        return explicit
-    selected = get_preferences().default_level
-    return fallback if selected == "recommended" else selected
 
 
 def get_preferences():

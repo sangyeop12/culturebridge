@@ -1,49 +1,9 @@
 """Learning-facing presentation; internal records and official quotations stay intact."""
 
-import re
-
 from culturebridge.services.date_reading_service import uncertain_date
 from culturebridge.services.display_service import display_name, short_display_name
 from culturebridge.services.evidence_comparison_service import supported_fields
 from culturebridge.services.evidence_reading_service import reading_units, source_years
-
-
-def review_reading(text):
-    """A reading aid, never a purported full translation of a saved answer."""
-    text = text or ""
-    without_names = re.sub(r"\([^)]*[A-Za-z][^)]*\)", "", text)
-    if re.search(r"[A-Za-z]{3,}", without_names):
-        facts = list(
-            dict.fromkeys(
-                label
-                for category in ("재료", "구조", "종교적 배경")
-                for _, label in reading_units(category, text)
-            )
-        )
-        return (
-            "원문에서 찾아볼 표현: " + ", ".join(facts[:4])
-            if facts
-            else "아래 원문에서 답의 근거가 되는 표현을 함께 찾아보세요."
-        )
-    for marker in (" · 원문:", " · 해당 자료", "추출의 역사적 의미"):
-        text = text.partition(marker)[0]
-    return text.strip() or "설명을 다시 읽고 답의 근거를 찾아보세요."
-
-
-def legacy_review(step):
-    number = re.match(r"(\d+)번", step)
-    detail = step
-    for marker in (" · 복습 항목:", " · 원문 근거", " · 원문:", " · 보충 학습:"):
-        detail = detail.partition(marker)[0]
-    quote = step.partition(" · 원문: ")[2]
-    if quote:
-        quote = quote.partition(" · 해당 자료")[0].partition(" · 보충 학습:")[0]
-    return {
-        "title": (number[1] + "번 다시 살펴보기") if number else "배운 내용 다시 살펴보기",
-        "activity": "두 유산의 설명을 다시 읽고, 답을 뒷받침하는 표현을 찾아보세요.",
-        "quote": quote,
-        "detail": detail,
-    }
 
 
 def error_notice(error):

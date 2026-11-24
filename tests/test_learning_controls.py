@@ -164,5 +164,4 @@ def test_settings_move_keeps_preferences_and_conversation_controls(isolated):
             "tone": "polite",
             "custom_style": "",
             "explanation_depth": "detailed",
-            "default_level": "recommended",
         }

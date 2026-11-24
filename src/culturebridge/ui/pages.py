@@ -97,9 +97,7 @@ from culturebridge.ui.learner_copy import (
     comparable_points,
     comparison_note,
     error_notice,
-    legacy_review,
     recommendation_note,
-    review_reading,
     source_scope,
 )
 from culturebridge.ui.learning_chat import learning_chat
@@ -135,19 +133,10 @@ def _conversation_review_button(history_id):
 
 def _review_cards(items):
     for item in items:
-        ui.label(f"{item['number']}번 · {review_reading(item['question'])}").classes(
-            "font-semibold"
-        )
-        ui.label("내 답: " + review_reading(item["selected"])).classes("cb-muted")
-        ui.label("정답: " + review_reading(item["correct_answer"]))
-        ui.label("다시 해보기 · " + review_reading(item["activity"]))
-        if any(
-            re.search(r"[A-Za-z]{3,}", item[k]) for k in ("question", "selected", "correct_answer")
-        ):
-            with ui.expansion("문제와 답의 원문 보기"):
-                ui.label(item["question"])
-                ui.label("내 답: " + item["selected"])
-                ui.label("정답: " + item["correct_answer"])
+        ui.label(f"{item['number']}번 · {item['question']}").classes("font-semibold")
+        ui.label("내 답: " + item["selected"]).classes("cb-muted")
+        ui.label("정답: " + item["correct_answer"])
+        ui.label("다시 해보기 · " + item["activity"])
         if item.get("quote"):
             with ui.expansion("이 문항의 원문 근거"):
                 ui.label(item["quote"])
@@ -686,7 +675,7 @@ def home_page(
     q: str = "",
     scope: str = "all",
     page: int = 1,
-    level: str = "",
+    level: str = "beginner",
     goal: str = "compare",
     goal_text: str = "",
     amount: str = "standard",
@@ -697,9 +686,6 @@ def home_page(
     _header()
     request = ui.context.client.request
     # Preserve bookmarked search URLs while giving new visits one conversation entry.
-    from culturebridge.services.learning_preferences import preferred_level
-
-    level = preferred_level(level)
     if request and request.url.path == "/" and not request.url.query:
         with ui.column().classes("cb-shell cb-chat-workspace gap-6"):
             learning_chat(_io_bound)
@@ -1128,8 +1114,8 @@ def learning_settings_page():
         ui.label("설정").classes("cb-title text-3xl").props("role=heading aria-level=1")
         ui.label("나에게 편한 설명 방식을 골라보세요.").classes("cb-muted")
         ui.label(
-            "대화의 설명 방식과 새 학습의 기본 수준을 정해요. 각 화면에서 선택한 수준과 "
-            "저장된 학습 기록은 그대로 유지돼요. 대화에서도 ‘더 쉽게’라고 요청할 수 있어요."
+            "이 브라우저의 대화 학습 설명에 적용돼요. 비교와 학습 코스의 수준·목표는 "
+            "각 화면에서 선택해요. 대화 중에도 ‘더 쉽게’, ‘짧게 설명해줘’라고 요청할 수 있어요."
         ).classes("cb-muted")
         with ui.card().classes("cb-card w-full p-5 gap-3"):
             tone_controls(_io_bound, expanded=True)
@@ -1631,11 +1617,6 @@ def comparison_page(
                     _extracted_field_cards(result.extracted_fields, learning_level)
 
         learning_steps(1)
-        from culturebridge.ui.heritage_photos import PHOTOS, photo_gallery
-
-        if any(identity in PHOTOS for identity in (result.left.id, result.right.id)):
-            with ui.expansion("사진으로 유산 살펴보기", icon="photo_library").classes("w-full"):
-                photo_gallery((result.left.id, result.right.id))
         ui.label("두 유산을 나란히 읽고, 어떤 점이 다른지 찾아보세요.").classes("cb-reading")
         ui.label(
             "원문과 별도로 보는 항목별 비교"
@@ -1653,7 +1634,7 @@ def comparison_page(
             ).classes("cb-muted")
         if not visible_points:
             ui.label("이 두 유산을 함께 비교할 자료가 아직 충분하지 않아요.")
-            ui.link("다른 문화유산 찾아보기", _route("/library", mode))
+            ui.link("다른 문화유산 찾아보기", _route("/", mode))
         for point in visible_points:
             with ui.card().classes("cb-card w-full p-6 gap-3"):
                 ui.label(point.category).classes("cb-title text-xl")
@@ -2187,11 +2168,11 @@ def comparison_history_page(page: int = 1) -> None:
                 ui.link("이전 페이지", f"/comparisons?page={page - 1}")
             if len(records) > 20:
                 ui.link("다음 페이지", f"/comparisons?page={page + 1}")
-            ui.link("새 비교 시작", "/library")
+            ui.link("새 비교 시작", "/")
 
 
 @ui.page("/learning-history")
-def learning_history_page(page: int = 1, level: str = "all", records: str = "mine") -> None:
+def learning_history_page(page: int = 1, level: str = "all") -> None:
     _base_styles()
     _header()
     with ui.column().classes("cb-shell gap-5 py-10"):
@@ -2203,15 +2184,8 @@ def learning_history_page(page: int = 1, level: str = "all", records: str = "min
         ui.label("학습 기록과 오답 복습").classes("cb-title text-3xl").props(
             "role=heading aria-level=2"
         )
-        records = "shared" if records == "shared" and not get_settings().public_mode else "mine"
-        with ui.row().classes("gap-4"):
-            ui.link("내 학습 기록", "/learning-history")
-            if not get_settings().public_mode:
-                ui.link("함께 보는 기록", "/learning-history?records=shared")
         ui.label(
-            "이 브라우저에서 학습한 기록이에요."
-            if records == "mine"
-            else "다른 브라우저에서 만든 학습 예시예요. 내 성적과는 구분해 보여드려요."
+            "이 브라우저의 학습 기록" if get_settings().public_mode else "함께 사용하는 학습 기록"
         ).classes("cb-muted")
         ui.label(
             "대화로 복습하기는 이 브라우저에서 채점한 기록"
@@ -2223,13 +2197,9 @@ def learning_history_page(page: int = 1, level: str = "all", records: str = "min
         ui.select(
             {"all": "모든 수준", **LEVEL_LABELS}, value=level, label="학습 수준"
         ).on_value_change(
-            lambda e: ui.navigate.to(
-                "/learning-history?" + urlencode({"level": e.value, "records": records})
-            )
+            lambda e: ui.navigate.to("/learning-history?" + urlencode({"level": e.value}))
         )
-        reviews = list_learning_reviews(
-            limit=21, offset=(page - 1) * 20, level=level, records=records
-        )
+        reviews = list_learning_reviews(limit=21, offset=(page - 1) * 20, level=level)
         if not reviews:
             ui.label("아직 퀴즈 기록이 없어요. 비교 학습을 마치고 퀴즈를 풀어보세요.")
         for review in reviews[:20]:
@@ -2256,15 +2226,7 @@ def learning_history_page(page: int = 1, level: str = "all", records: str = "min
                         _review_cards(items)
                 else:
                     for step in review["result"].get("review_steps", []):
-                        reading = legacy_review(step)
-                        ui.label(reading["title"]).classes("font-semibold")
-                        ui.label(reading["activity"])
-                        with ui.expansion("이전 문제와 답 보기"):
-                            ui.label(reading["detail"])
-                        if reading["quote"]:
-                            ui.label(review_reading(reading["quote"]))
-                            with ui.expansion("이 문항의 원문 근거"):
-                                ui.label(reading["quote"])
+                        ui.label(step)
                 if review["score"] == review["total"] and review["total"] > 0:
                     ui.label("모든 문항을 맞혔어요. 원문 근거를 다시 확인해 보세요.")
                 elif not items and not review["result"].get("review_steps"):
@@ -2294,14 +2256,12 @@ def learning_history_page(page: int = 1, level: str = "all", records: str = "min
             if page > 1:
                 ui.link(
                     "이전 기록",
-                    "/learning-history?"
-                    + urlencode({"page": page - 1, "level": level, "records": records}),
+                    "/learning-history?" + urlencode({"page": page - 1, "level": level}),
                 )
             if len(reviews) > 20:
                 ui.link(
                     "다음 기록",
-                    "/learning-history?"
-                    + urlencode({"page": page + 1, "level": level, "records": records}),
+                    "/learning-history?" + urlencode({"page": page + 1, "level": level}),
                 )
         ui.link("비교 기록 모아보기", "/comparisons")
         ui.link("학습 기록 보관·삭제 안내", "/data-policy")
@@ -2411,7 +2371,9 @@ def courses_page():
         )
         ui.label("목표를 정하고, 두 유산을 읽고, 퀴즈와 복습으로 마무리하는 대표 코스예요.")
         ui.label(
-            "마음에 드는 코스로 시작해 보세요. 다른 유산도 ‘자료 찾기’에서 만날 수 있어요."
+            "5개 코스는 학습 예시입니다. 전체 25개 자"
+            "료는 홈 검색과 개별 탐구에서 계속 이용할 수"
+            " 있어요."
         ).classes("cb-muted")
         ui.label("삽화는 학습 주제를 표현한 것으로, 실제 유산의 모습과 다를 수 있어요.").classes(
             "cb-art-caption"
@@ -2436,7 +2398,7 @@ def courses_page():
                         ui.label(course["left_name"] + " ↔ " + course["right_name"])
                         ui.label(course["objective"]).classes("cb-muted")
                         ui.link("학습 코스 살펴보기 →", "/courses/" + course["id"])
-        ui.link("문화유산 찾아보기", "/library")
+        ui.link("문화유산 찾아보기", "/")
 
 
 @ui.page("/courses/{course_id}")
@@ -2453,9 +2415,7 @@ def course_detail_page(course_id: str, level: str = ""):
     _header()
     try:
         course = get_course(course_id)
-        from culturebridge.services.learning_preferences import preferred_level
-
-        learning_level = LearningLevel(preferred_level(level, course["level"]))
+        learning_level = LearningLevel(level or course["level"])
     except (CourseNotFoundError, ValueError):
         _error_page("학습 코스 또는 수준을 찾을 수 없습니다.", "web")
         return
@@ -2477,7 +2437,8 @@ def course_detail_page(course_id: str, level: str = ""):
             ui.label("마무리 질문: " + course["reflection"])
             ui.label(
                 "시작하면 양쪽 원문과 목표 근거를 확인해요. "
-                "서로 비교할 수 있는 설명을 찾아 함께 읽어요. 출처와 원문도 확인할 수 있어요."
+                "자료가 부족하면 비교를 보류해요. 원문 이용 "
+                "조건과 한국어 풀이 검토는 별도로 필요합니다."
             ).classes("cb-muted")
             status = ui.column().classes("w-full").props("role=status aria-live=polite")
 
@@ -2505,21 +2466,16 @@ def course_detail_page(course_id: str, level: str = ""):
                             "요. 잠시 후 다시 시작하거나 홈에서 다른 유"
                             "산을 선택해 주세요."
                         )
-                        ui.link("다른 유산 찾아보기", "/library")
+                        ui.link("다른 유산 찾아보기", "/")
                 finally:
                     start_button.enable()
 
             with start_actions:
                 start_button = ui.button("이 코스로 학습 시작", on_click=begin).classes("cb-action")
-        from culturebridge.ui.heritage_photos import PHOTOS, photo_gallery
-
-        if course_id == "pagoda-materials":
-            photo_gallery(PHOTOS)
-        else:
-            ui.html(course_art(course_id)).classes("cb-course-banner")
-            ui.label(
-                "학습 주제를 표현한 창작 삽화 · 실제 유산의 모습이나 복원도가 아니에요."
-            ).classes("cb-art-caption")
+        ui.html(course_art(course_id)).classes("cb-course-banner")
+        ui.label("학습 주제를 표현한 창작 삽화 · 실제 유산의 모습이나 복원도가 아니에요.").classes(
+            "cb-art-caption"
+        )
         progress = course_progress(course_id)
         if progress:
             ui.label("이 브라우저의 코스 학습 기록").classes("cb-title text-2xl").props(
